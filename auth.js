@@ -1,6 +1,6 @@
 
-const CLIENT_ID = 'YOUR_APP_ID'; // Replace with your iNat app ID from the developer portal
-const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+const CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw'; //  your iNat app ID
+const REDIRECT_URI = `https://inat-trees.replit.app/auth/callback`;
 
 // Add click handler when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
