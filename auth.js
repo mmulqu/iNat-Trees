@@ -1,6 +1,6 @@
 
-const CLIENT_ID = 'YOUR_APP_ID'; // Replace with your iNat app ID
-const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+const CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw'; // your iNat app ID
+const redirectUri = 'https://inat-trees.replit.app/auth/callback';
 
 export function startLogin() {
   const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
