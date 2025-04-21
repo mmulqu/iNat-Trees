@@ -2,6 +2,14 @@
 const CLIENT_ID = 'YOUR_APP_ID'; // Replace with your iNat app ID from the developer portal
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 
+// Add click handler when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  const loginButton = document.getElementById('inatLogin');
+  if (loginButton) {
+    loginButton.addEventListener('click', startLogin);
+  }
+});
+
 export function startLogin() {
   const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
   localStorage.setItem('inat_code_verifier', codeVerifier);
