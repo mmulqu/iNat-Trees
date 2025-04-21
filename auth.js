@@ -57,10 +57,31 @@ export async function handleCallback() {
   });
   const token = await r.json();
   localStorage.setItem('inat_token', token.access_token);
+  
+  // Store username on first login
+  const me = await fetchCurrentUser();
+  if (me) localStorage.setItem('inat_username', me.login);
+  
   window.location = '/';
 }
 
 export function getAuthHeaders() {
   const token = localStorage.getItem('inat_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function fetchCurrentUser() {
+  const token = localStorage.getItem('inat_token');
+  if (!token) return null;
+
+  try {
+    const r = await fetch('https://api.inaturalist.org/v1/users/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const { results } = await r.json();
+    return results?.[0] ?? null;
+  } catch (e) {
+    console.warn('Token may be invalid', e);
+    return null;
+  }
 }
