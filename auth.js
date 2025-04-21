@@ -2,13 +2,7 @@
 const CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw'; //  your iNat app ID
 const REDIRECT_URI = `https://inat-trees.replit.app/auth/callback`;
 
-// Add click handler when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  const loginButton = document.getElementById('inatLogin');
-  if (loginButton) {
-    loginButton.addEventListener('click', startLogin);
-  }
-});
+
 
 export function startLogin() {
   const btn = document.getElementById('inatLogin');
