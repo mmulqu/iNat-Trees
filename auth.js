@@ -69,11 +69,12 @@ export async function fetchCurrentUser() {
   if (!token) return null;
 
   try {
-    const r = await fetch('https://api.inaturalist.org/v1/users/me', {
+    const r = await fetch('https://www.inaturalist.org/users/edit.json', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    const { results } = await r.json();
-    return results?.[0] ?? null;
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const { user } = await r.json();
+    return user;
   } catch (e) {
     console.warn('Token may be invalid', e);
     return null;
