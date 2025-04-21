@@ -1,4 +1,14 @@
-// script.js
+import { startLogin, handleCallback, getAuthHeaders } from './auth.js';
+
+// Handle auth callback if on callback page
+if (window.location.pathname === '/auth/callback') {
+  handleCallback();
+}
+
+// Add login button handler
+document.getElementById('inatLogin')?.addEventListener('click', startLogin);
+
+// Add auth headers to existing requests
 const edgeFunctionUrl = "https://niuoetejipudtisdizbn.supabase.co/functions/v1/build-taxonomy";
 const searchTaxaUrl = "https://niuoetejipudtisdizbn.supabase.co/functions/v1/search-taxa";
 
@@ -138,7 +148,10 @@ async function searchTaxa(query) {
   }
   try {
     const response = await fetch(`${searchTaxaUrl}?q=${encodeURIComponent(query)}&limit=10`, {
-      headers: { "Authorization": `Bearer ${supabaseKey}` }
+      headers: { 
+        "Authorization": `Bearer ${supabaseKey}`,
+        ...getAuthHeaders()
+      }
     });
     if (!response.ok) {
       throw new Error(`Edge function error: ${response.statusText}`);
