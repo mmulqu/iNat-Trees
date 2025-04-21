@@ -11,6 +11,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 export function startLogin() {
+  const btn = document.getElementById('inatLogin');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Redirecting…';
+
   const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
   localStorage.setItem('inat_code_verifier', codeVerifier);
 
@@ -23,7 +27,12 @@ export function startLogin() {
     authUrl.searchParams.set('code_challenge_method', 'S256');
     authUrl.searchParams.set('code_challenge', codeChallenge);
 
-    window.location = authUrl;
+    window.location.href = authUrl;
+  }).catch(err => {
+    console.error(err);
+    btn.disabled = false;
+    btn.textContent = 'Connect my iNaturalist account';
+    alert('Could not start login – see console for details.');
   });
 }
 
