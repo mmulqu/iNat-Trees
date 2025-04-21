@@ -20,6 +20,7 @@ export function startLogin() {
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('code_challenge_method', 'S256');
     authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('scope', 'login');
 
     window.location.href = authUrl;
   }).catch(err => {
@@ -66,6 +67,8 @@ export function getAuthHeaders() {
 
 export async function fetchCurrentUser() {
   const token = localStorage.getItem('inat_token');
+  console.log('[fetchCurrentUser] token =', token);
+
   if (!token) return null;
 
   try {
@@ -73,10 +76,10 @@ export async function fetchCurrentUser() {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const { user } = await r.json();
-    return user;
+    const data = await r.json();
+    return data.user ?? data;
   } catch (e) {
-    console.warn('Token may be invalid', e);
+    console.error('Error fetching user:', e);
     return null;
   }
 }
