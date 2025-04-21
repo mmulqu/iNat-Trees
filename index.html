@@ -1,16 +1,673 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
-  <title>replit</title>
-  <link href="style.css" rel="stylesheet" type="text/css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iNat Phylogenetic Tree Viewer</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="battle-animation.css">
+    <!-- Load Supabase client library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Load Markmap libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
+  <style>
+    :root {
+      --primary-color: #3fac8c;
+      --secondary-color: #2d7d64;
+      --background-color: #f8faf9;
+      --text-color: #333;
+      --border-color: #dee2e6;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: var(--text-color);
+      background-color: var(--background-color);
+      padding-bottom: 2rem;
+    }
+
+    .navbar {
+      background-color: var(--primary-color);
+    }
+
+    .navbar-brand {
+      font-weight: bold;
+      color: white !important;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+    .card {
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 2rem;
+      border: 1px solid var(--border-color);
+    }
+
+    .card-header {
+      background-color: var(--primary-color);
+      color: white;
+      border-radius: 10px 10px 0 0 !important;
+      font-weight: bold;
+    }
+
+    input, select {
+      border-radius: 5px;
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background-color: var(--secondary-color);
+    }
+
+    #markdownResult {
+      background-color: #f5f5f5;
+      border-radius: 5px;
+      padding: 1rem;
+      font-family: monospace;
+      max-height: 300px;
+      overflow: auto;
+    }
+
+    #markmap {
+      width: 100%;
+      height: 700px;
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+    }
+
+    /* Loading spinner */
+    .spinner-container {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      margin: 2rem 0;
+    }
+
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      border-left-color: var(--primary-color);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    .spinner-text {
+      text-align: center;
+      font-style: italic;
+      color: var(--secondary-color);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .info-text {
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+      color: #6c757d;
+    }
+
+    .helpful-tips {
+      background-color: #e9f7f2;
+      border-left: 4px solid var(--primary-color);
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 0 5px 5px 0;
+    }
+
+    /* Custom toggle switch */
+    .toggle-container {
+      margin-bottom: 20px;
+    }
+
+    .search-option {
+      margin-bottom: 15px;
+      display: none;
+    }
+
+    .search-option.active {
+      display: block;
+    }
+
+    .autocomplete-container {
+      position: relative;
+    }
+
+    .autocomplete-results {
+      position: absolute;
+      z-index: 1000;
+      background-color: white;
+      width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 0 0 5px 5px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+
+    .autocomplete-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .autocomplete-item:hover {
+      background-color: #f5f5f5;
+    }
+
+    .autocomplete-item .scientific-name {
+      font-style: italic;
+      color: #666;
+      font-size: 0.9em;
+    }
+
+    .autocomplete-item .taxon-id {
+      color: #999;
+      font-size: 0.8em;
+      float: right;
+    }
+
+    /* Dropdown menu for autocomplete results */
+    .dropdown-menu {
+      width: 100%;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .dropdown-item.selected {
+      background-color: #e9f7f2;
+    }
+
+    /* Visual indicator when a taxon is selected */
+    .is-valid {
+      border-color: var(--primary-color) !important;
+      background-color: rgba(63, 172, 140, 0.1) !important;
+    }
+
+    /* Fix for markmap rendering */
+    .markmap-container {
+      min-height: 700px;
+      width: 100%;
+      display: block;
+    }
+
+    .tab-pane {
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    #resultsCard {
+      position: relative;
+      z-index: 100;
+    }
+  </style>
 </head>
-
 <body>
-  Hello world
-  <script src="script.js"></script>
-</body>
+  <!-- In your HTML file, the navbar part should have this structure: -->
+  <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+    <div class="container">
+      <a class="navbar-brand" href="#">iNat Phylogenetic Tree Viewer</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav">
+          <li class="nav-item">
+            <button class="nav-link active" id="home-tab" onclick="showTab('home')">Home</button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" id="compare-tab" onclick="showTab('compare')">Compare Users</button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
 
+  <div class="container">
+    <!-- Tab content wrapper -->
+    <div class="tab-content">
+      <!-- Home tab - default active tab -->
+      <div class="tab-pane fade show active" id="home">
+        <div class="card">
+          <div class="card-header">Build Your Phylogenetic Tree</div>
+          <div class="card-body">
+            <form id="treeForm">
+              <div class="row mb-3">
+                <div class="col-md-12">
+                  <label for="username" class="form-label">iNaturalist Username:</label>
+                  <input type="text" id="username" name="username" required class="form-control" placeholder="Enter iNaturalist username">
+                  <p class="info-text">Enter the username of the iNaturalist user whose observations you want to analyze.</p>
+                </div>
+              </div>
+
+              <div class="toggle-container mb-4">
+                <label class="form-label">Search by:</label>
+                <div class="btn-group w-100" role="group">
+                  <input type="radio" class="btn-check" name="searchType" id="searchName" autocomplete="off" checked>
+                  <label class="btn btn-outline-primary" for="searchName">Name (Common or Scientific)</label>
+
+                  <input type="radio" class="btn-check" name="searchType" id="searchId" autocomplete="off">
+                  <label class="btn btn-outline-primary" for="searchId">Taxon ID</label>
+                </div>
+              </div>
+
+              <div id="nameSearch" class="search-option active">
+                <label for="taxonName" class="form-label">Taxon Name:</label>
+                <div class="autocomplete-container">
+                  <input type="text" id="taxonName" name="taxonName" class="form-control" placeholder="Start typing common or scientific name...">
+                  <div id="autocompleteResults" class="autocomplete-results"></div>
+                  <input type="hidden" id="selectedTaxonId" name="selectedTaxonId">
+                </div>
+                <p class="info-text">Enter any part of a common or scientific name and select from the suggestions. <span class="text-primary">Note: Only genus level or higher taxonomic ranks can be used to build trees.</span></p>
+              </div>
+
+              <div id="idSearch" class="search-option">
+                <label for="taxonId" class="form-label">Taxon ID:</label>
+                <input type="number" id="taxonId" name="taxonId" class="form-control" placeholder="e.g., 47115 for Mollusca">
+                <p class="info-text">Enter the taxon ID for the taxonomic group you want to view.</p>
+              </div>
+
+              <div class="helpful-tips">
+                <h5>Helpful Tips</h5>
+                <ul>
+                  <li>Common taxonomic groups: Plants (47126), Animals (1), Fungi (47170), Molluscs (47115)</li>
+                  <li>Birds (3), Mammals (40151), Insects (47158), Reptiles (26036), Amphibians (20978)</li>
+                  <li>You can find taxon IDs by looking at the URL on iNaturalist.org (e.g., https://www.inaturalist.org/taxa/47115-Mollusca)</li>
+                  <li>The tree will show all observations from the user within the specified taxonomic group</li>
+                  <li>For large taxonomic groups, the tree generation may take some time</li>
+                </ul>
+              </div>
+
+              <button type="submit" class="btn btn-primary">Build Tree</button>
+            </form>
+
+            <div class="spinner-container" id="loadingSpinner">
+              <div class="spinner"></div>
+              <div class="spinner-text" id="loadingText">Building your phylogenetic tree...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compare tab -->
+      <div class="tab-pane fade" id="compare">
+        <div class="card">
+          <div class="card-header">Tree PVP Mode: Compare Two Users</div>
+          <div class="card-body">
+            <form id="compareForm">
+              <div class="row mb-3">
+                <div class="col-md-6">
+                  <label for="username1" class="form-label">First iNaturalist Username:</label>
+                  <input type="text" id="username1" name="username1" required class="form-control" placeholder="Enter first username">
+                  <div class="d-flex align-items-center mt-1">
+                    <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #ff6b6b; border-radius: 4px;"></div>
+                    <p class="info-text mb-0">User 1's unique observations</p>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label for="username2" class="form-label">Second iNaturalist Username:</label>
+                  <input type="text" id="username2" name="username2" required class="form-control" placeholder="Enter second username">
+                  <div class="d-flex align-items-center mt-1">
+                    <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #4dabf7; border-radius: 4px;"></div>
+                    <p class="info-text mb-0">User 2's unique observations</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="d-flex align-items-center mb-3">
+                <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #cc5de8; border-radius: 4px;"></div>
+                <p class="info-text mb-0">Shared observations (both users)</p>
+              </div>
+
+              <div class="toggle-container mb-4">
+                <label class="form-label">Search by:</label>
+                <div class="btn-group w-100" role="group">
+                  <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchName" autocomplete="off" checked>
+                  <label class="btn btn-outline-primary" for="compareSearchName">Name (Common or Scientific)</label>
+
+                  <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchId" autocomplete="off">
+                  <label class="btn btn-outline-primary" for="compareSearchId">Taxon ID</label>
+                </div>
+              </div>
+
+              <div id="compareNameSearch" class="search-option active">
+                <label for="compareTaxonName" class="form-label">Taxon Name:</label>
+                <div class="autocomplete-container">
+                  <input type="text" id="compareTaxonName" name="compareTaxonName" class="form-control" placeholder="Start typing common or scientific name...">
+                  <div id="compareAutocompleteResults" class="autocomplete-results"></div>
+                  <input type="hidden" id="compareSelectedTaxonId" name="compareSelectedTaxonId">
+                </div>
+                <p class="info-text">Enter any part of a common or scientific name and select from the suggestions. <span class="text-primary">Note: Only genus level or higher taxonomic ranks can be used to build trees.</span></p>
+              </div>
+
+              <div id="compareIdSearch" class="search-option">
+                <label for="compareTaxonId" class="form-label">Taxon ID:</label>
+                <input type="number" id="compareTaxonId" name="compareTaxonId" class="form-control" placeholder="e.g., 47115 for Mollusca">
+                <p class="info-text">Enter the taxon ID for the taxonomic group you want to compare.</p>
+              </div>
+
+              <div class="helpful-tips">
+                <h5>Tree PVP Mode</h5>
+                <p>Compare the observations of two iNaturalist users within the same taxonomic group. The tree will show:</p>
+                <ul>
+                  <li><span style="color: #ff6b6b; font-weight: bold;">Red nodes</span>: Taxa observed only by the first user</li>
+                  <li><span style="color: #4dabf7; font-weight: bold;">Blue nodes</span>: Taxa observed only by the second user</li>
+                  <li><span style="color: #cc5de8; font-weight: bold;">Purple nodes</span>: Taxa observed by both users</li>
+                </ul>
+                <p>This is a fun way to visualize who has observed more diversity within a taxonomic group!</p>
+              </div>
+
+              <button type="submit" class="btn btn-primary">Battle of the Naturalists!</button>
+            </form>
+
+            <div class="spinner-container" id="compareLoadingSpinner">
+              <div class="spinner"></div>
+              <div class="spinner-text" id="compareLoadingText">Building the battle map...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results card (outside the tab content) -->
+    <div class="card" id="resultsCard" style="display: none;">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>Markmap Visualization</div>
+        <div>
+          <button id="deleteAllTrees" class="btn btn-sm btn-outline-light">
+            <i class="bi bi-trash"></i> Clear All
+          </button>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <!-- Tabs navigation -->
+        <ul class="nav nav-tabs mb-3" id="treeTabs" role="tablist">
+          <!-- Tab headers will be dynamically inserted here -->
+        </ul>
+
+        <!-- Tab content container -->
+        <div class="tab-content" id="treeTabContent">
+          <!-- Tab panes will be dynamically inserted here -->
+        </div>
+
+        <div class="accordion mt-4" id="markdownAccordion">
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="headingOne">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                Show Generated Markdown
+              </button>
+            </h2>
+            <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#markdownAccordion">
+              <div class="accordion-body">
+                <pre id="markdownResult"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="TaxonomyStats.js"></script>
+  <script src="script.js"></script>
+  <script src="taxon-autocomplete.js"></script>
+  <script src="tree-manager.js"></script>
+  <script src="compare-users.js"></script>
+  <script src="markmap-integration.js"></script>
+  <script src="integration.js"></script>
+  <script src="battle-animation.js"></script>
+
+  <script>
+    // Initialize TreeManager after DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+      // Ensure initialization only happens once
+      if (!window.treeManager) {
+        console.log('Creating treeManager on DOMContentLoaded');
+        window.treeManager = new TreeManager();
+      }
+    });
+
+    // Initialize immediately in case scripts are already loaded
+    if (typeof TreeManager !== 'undefined' && !window.treeManager) {
+      console.log('Creating treeManager immediately');
+      window.treeManager = new TreeManager();
+    }
+
+    function showTab(tabId) {
+      console.log('Showing tab:', tabId);
+
+      // Update nav links active state
+      document.querySelectorAll('.navbar .nav-link').forEach(link => {
+        link.classList.remove('active');
+      });
+      document.getElementById(tabId + '-tab').classList.add('active');
+
+      // Hide all main tab panes
+      document.querySelectorAll('.tab-content > .tab-pane').forEach(tab => {
+        tab.classList.remove('show', 'active');
+      });
+
+      // Show the selected pane
+      const selectedPane = document.getElementById(tabId);
+      selectedPane.classList.add('show', 'active');
+
+      // Check if we need to keep the results card visible
+      if (window.treeManager && window.treeManager.trees && window.treeManager.trees.length > 0) {
+        const resultsCard = document.getElementById('resultsCard');
+        if (resultsCard) {
+          console.log('Making results card visible - trees exist');
+          resultsCard.style.display = 'block';
+
+          // Force a reflow to ensure the element is fully visible
+          void resultsCard.offsetWidth;
+        }
+      }
+
+      // Re-render all trees after a slight delay
+      setTimeout(renderVisibleTrees, 300);
+    }
+
+    function renderVisibleTrees() {
+      if (!window.treeManager || !window.treeManager.trees || window.treeManager.trees.length === 0) {
+        console.log('No trees to render');
+        return;
+      }
+
+      console.log('Rendering visible trees...');
+
+      // Find active tree tabs
+      const activeTreeTab = document.querySelector('#treeTabs .nav-link.active');
+      if (activeTreeTab) {
+        // We have an active tree tab
+        const treeId = activeTreeTab.id.replace('-tab', '');
+        const tree = window.treeManager.trees.find(t => t.id === treeId);
+        if (tree) {
+          console.log('Rendering active tree:', treeId);
+
+          // First, make sure the SVG is clean and tree tab is visible
+          const svg = document.getElementById(`${tree.id}-svg`);
+          const treePane = document.getElementById(`${tree.id}-content`);
+
+          if (svg && treePane) {
+            // Make sure the pane is active and visible
+            treePane.classList.add('show', 'active');
+            svg.innerHTML = '';
+
+            // Force reflow to ensure dimensions are calculated
+            void svg.offsetWidth;
+
+            // Now render
+            setTimeout(() => {
+              if (tree.isComparison) {
+                window.treeManager.renderComparisonTree(tree);
+              } else {
+                window.treeManager.renderTree(tree);
+              }
+            }, 100);
+          }
+        }
+      } else if (window.treeManager.trees.length > 0) {
+        // No active tab but trees exist - activate the most recent one
+        const mostRecentTree = window.treeManager.trees[window.treeManager.trees.length - 1];
+        const tabToActivate = document.getElementById(`${mostRecentTree.id}-tab`);
+
+        if (tabToActivate) {
+          console.log('Activating most recent tree tab:', mostRecentTree.id);
+
+          // Try using Bootstrap Tab API if available
+          if (typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+            const bootstrapTab = new bootstrap.Tab(tabToActivate);
+            bootstrapTab.show();
+          } else {
+            // Fallback to manual activation
+            document.querySelectorAll('#treeTabs .nav-link').forEach(tab => {
+              tab.classList.remove('active');
+              tab.setAttribute('aria-selected', 'false');
+            });
+            tabToActivate.classList.add('active');
+            tabToActivate.setAttribute('aria-selected', 'true');
+
+            document.querySelectorAll('#treeTabContent .tab-pane').forEach(pane => {
+              pane.classList.remove('show', 'active');
+            });
+            const paneToShow = document.getElementById(`${mostRecentTree.id}-content`);
+            if (paneToShow) {
+              paneToShow.classList.add('show', 'active');
+            }
+          }
+
+          // Render after tab activation
+          setTimeout(() => {
+            const svg = document.getElementById(`${mostRecentTree.id}-svg`);
+            if (svg) {
+              svg.innerHTML = '';
+              // Force reflow
+              void svg.offsetWidth;
+
+              if (mostRecentTree.isComparison) {
+                window.treeManager.renderComparisonTree(mostRecentTree);
+              } else {
+                window.treeManager.renderTree(mostRecentTree);
+              }
+            }
+          }, 300);
+        }
+      }
+    }
+
+    // Initialize everything properly when the page loads
+    window.addEventListener('load', function() {
+      console.log('Window fully loaded');
+
+      // Register event handlers for Bootstrap tab events
+      document.addEventListener('shown.bs.tab', function(event) {
+        const targetId = event.target.getAttribute('href') || 
+                         event.target.getAttribute('data-bs-target');
+        if (targetId && targetId.includes('-content')) {
+          // This is a tree tab being shown
+          const treeId = targetId.replace('#', '').replace('-content', '');
+          console.log('Tree tab shown:', treeId);
+
+          const tree = window.treeManager?.trees.find(t => t.id === treeId);
+          if (tree) {
+            // Clear any existing svg content first
+            const svg = document.getElementById(`${treeId}-svg`);
+            if (svg) {
+              svg.innerHTML = '';
+              // Force reflow
+              void svg.offsetWidth;
+
+              setTimeout(() => {
+                if (tree.isComparison) {
+                  window.treeManager.renderComparisonTree(tree);
+                } else {
+                  window.treeManager.renderTree(tree);
+                }
+              }, 100);
+            }
+          }
+        }
+      });
+    });
+  </script>
+  <!-- Add this right before the closing </body> tag in your index.html file -->
+  <footer class="mt-5 mb-3 text-center">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-auto">
+          <!-- Replit Badge -->
+          <script
+            src="https://replit.com/public/js/replit-badge-v2.js"
+            theme="dark"
+            position="bottom-right"
+          ></script>
+        </div>
+        <div class="col-auto ms-3">
+          <!-- Supabase Badge -->
+          <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" class="d-inline-block">
+            <svg width="168" height="30" viewBox="0 0 168 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <g clip-path="url(#clip0_306_6233)">
+                <rect x="0.5" y="0.5" width="167" height="29" rx="3.5" fill="#F1F3F5"/>
+                <g clip-path="url(#clip1_306_6233)">
+                  <path d="M18.6826 22.0143C18.3153 22.4839 17.5706 22.2266 17.5618 21.6269L17.4324 12.8564H23.2404C24.2924 12.8564 24.8791 14.0901 24.225 14.9267L18.6826 22.0143Z" fill="url(#paint0_linear_306_6233)"/>
+                  <path d="M18.6826 22.0143C18.3153 22.4839 17.5706 22.2266 17.5618 21.6269L17.4324 12.8564H23.2404C24.2924 12.8564 24.8791 14.0901 24.225 14.9267L18.6826 22.0143Z" fill="url(#paint1_linear_306_6233)" fill-opacity="0.2"/>
+                  <path d="M16.3205 7.90167C16.6878 7.432 17.4325 7.68934 17.4414 8.289L17.4981 17.0595H11.7627C10.7107 17.0595 10.124 15.8258 10.7781 14.9892L16.3205 7.90167Z" fill="#3ECF8E"/>
+                </g>
+                <path d="M43.9429 20H42.6819V12.824L39.5359 20H38.3659L35.2459 12.824V20H33.9849V10.783H35.7139L38.9639 18.284L42.2399 10.783H43.9429V20ZM45.7032 18.323C45.7032 17.205 46.5222 16.581 47.6012 16.425L49.2912 16.178C49.6682 16.126 49.7722 15.931 49.7722 15.71C49.7722 15.099 49.3692 14.592 48.4202 14.592C47.5622 14.592 47.0812 15.125 47.0032 15.853L45.8332 15.58C45.9632 14.384 47.0422 13.552 48.3942 13.552C50.2662 13.552 50.9942 14.618 50.9942 15.84V18.973C50.9942 19.519 51.0462 19.844 51.0722 20H49.8762C49.8502 19.844 49.8112 19.61 49.8112 19.155C49.5382 19.597 48.9142 20.195 47.7962 20.195C46.5222 20.195 45.7032 19.311 45.7032 18.323ZM47.9652 19.168C48.9662 19.168 49.7722 18.687 49.7722 17.322V17.036L47.8612 17.322C47.3412 17.4 46.9512 17.699 46.9512 18.258C46.9512 18.726 47.3412 19.168 47.9652 19.168ZM53.6259 16.854C53.6259 18.141 54.2889 19.09 55.4589 19.09C56.5769 19.09 57.2659 18.115 57.2659 16.828C57.2659 15.541 56.5899 14.657 55.4719 14.657C54.3539 14.657 53.6259 15.567 53.6259 16.854ZM57.2789 19.155V19.051C56.9799 19.649 56.3169 20.169 55.3419 20.169C53.5089 20.169 52.3779 18.713 52.3779 16.854C52.3779 15.086 53.5739 13.578 55.3419 13.578C56.4469 13.578 57.0449 14.124 57.2529 14.631V10.588H58.4619V18.843C58.4619 19.441 58.5139 19.896 58.5269 20H57.3439C57.3179 19.857 57.2789 19.532 57.2789 19.155ZM61.3335 16.23H64.7525C64.7265 15.333 64.1415 14.631 63.0365 14.631C62.0095 14.631 61.3855 15.424 61.3335 16.23ZM64.9345 17.855L65.9875 18.219C65.6365 19.324 64.6355 20.195 63.1795 20.195C61.5025 20.195 60.0335 18.973 60.0335 16.854C60.0335 14.891 61.4505 13.552 63.0235 13.552C64.9475 13.552 66.0265 14.878 66.0265 16.828C66.0265 16.984 66.0135 17.14 66.0005 17.218H61.2945C61.3205 18.336 62.1265 19.116 63.1795 19.116C64.1935 19.116 64.7005 18.557 64.9345 17.855ZM74.3594 13.747H75.6204L77.2454 18.453L78.6234 13.747H79.9104L77.8824 20H76.6214L74.9574 15.242L73.3324 20H72.0454L69.9914 13.747H71.3304L72.7344 18.453L74.3594 13.747ZM82.354 20H81.145V13.747H82.354V20ZM80.872 11.381C80.872 10.887 81.262 10.497 81.743 10.497C82.237 10.497 82.627 10.887 82.627 11.381C82.627 11.862 82.237 12.252 81.743 12.252C81.262 12.252 80.872 11.862 80.872 11.381ZM86.0711 11.771V13.747H87.4231V14.852H86.0711V18.102C86.0711 18.674 86.3051 18.96 86.9421 18.96C87.0981 18.96 87.3191 18.934 87.4231 18.908V19.948C87.3191 19.987 87.0071 20.065 86.5911 20.065C85.5251 20.065 84.8491 19.415 84.8491 18.284V14.852H83.6531V13.747H83.9911C84.6671 13.747 84.9531 13.331 84.9531 12.785V11.771H86.0711ZM90.2762 16.321V20H89.0542V10.588H90.2762V14.475C90.7312 13.812 91.4592 13.565 92.1742 13.565C93.6692 13.565 94.4102 14.644 94.4102 16.035V20H93.1882V16.243C93.1882 15.372 92.8242 14.67 91.7322 14.67C90.7962 14.67 90.3022 15.398 90.2762 16.321ZM105.61 12.876L104.466 13.279C104.362 12.616 103.803 11.706 102.516 11.706C101.476 11.706 100.735 12.382 100.735 13.24C100.735 13.903 101.138 14.41 101.918 14.579L103.296 14.878C104.83 15.216 105.688 16.178 105.688 17.465C105.688 18.895 104.466 20.195 102.503 20.195C100.28 20.195 99.227 18.765 99.058 17.452L100.28 17.062C100.371 18.089 101.099 19.038 102.49 19.038C103.764 19.038 104.388 18.375 104.388 17.569C104.388 16.906 103.933 16.334 103.01 16.139L101.697 15.853C100.384 15.567 99.448 14.709 99.448 13.331C99.448 11.888 100.787 10.588 102.49 10.588C104.57 10.588 105.402 11.875 105.61 12.876ZM111.101 19.246C110.763 19.896 109.983 20.195 109.255 20.195C107.799 20.195 106.915 19.103 106.915 17.686V13.747H108.137V17.504C108.137 18.362 108.527 19.116 109.554 19.116C110.542 19.116 111.036 18.466 111.036 17.517V13.747H112.258V18.843C112.258 19.337 112.297 19.779 112.323 20H111.153C111.127 19.857 111.101 19.506 111.101 19.246ZM115.552 22.47H114.343V13.747H115.526V14.722C115.864 14.098 116.605 13.604 117.619 13.604C119.491 13.604 120.492 15.047 120.492 16.867C120.492 18.726 119.413 20.169 117.58 20.169C116.618 20.169 115.89 19.714 115.552 19.155V22.47ZM119.244 16.867C119.244 15.619 118.542 14.683 117.398 14.683C116.28 14.683 115.539 15.619 115.539 16.867C115.539 18.154 116.28 19.077 117.398 19.077C118.529 19.077 119.244 18.154 119.244 16.867ZM121.659 18.323C121.659 17.205 122.478 16.581 123.557 16.425L125.247 16.178C125.624 16.126 125.728 15.931 125.728 15.71C125.728 15.099 125.325 14.592 124.376 14.592C123.518 14.592 123.037 15.125 122.959 15.853L121.789 15.58C121.919 14.384 122.998 13.552 124.35 13.552C126.222 13.552 126.95 14.618 126.95 15.84V18.973C126.95 19.519 127.002 19.844 127.028 20H125.832C125.806 19.844 125.767 19.61 125.767 19.155C125.494 19.597 124.87 20.195 123.752 20.195C122.478 20.195 121.659 19.311 121.659 18.323ZM123.921 19.168C124.922 19.168 125.728 18.687 125.728 17.322V17.036L123.817 17.322C123.297 17.4 122.907 17.699 122.907 18.258C122.907 18.726 123.297 19.168 123.921 19.168ZM130.063 20H128.854V10.588H130.063V14.631C130.362 14.072 131.09 13.565 132.13 13.565C134.028 13.565 135.003 15.021 135.003 16.841C135.003 18.7 133.95 20.169 132.091 20.169C131.168 20.169 130.453 19.766 130.063 19.09V20ZM133.755 16.841C133.755 15.489 133.04 14.644 131.909 14.644C130.83 14.644 130.05 15.489 130.05 16.841C130.05 18.193 130.83 19.077 131.909 19.077C133.027 19.077 133.755 18.193 133.755 16.841ZM136.17 18.323C136.17 17.205 136.989 16.581 138.068 16.425L139.758 16.178C140.135 16.126 140.239 15.931 140.239 15.71C140.239 15.099 139.836 14.592 138.887 14.592C138.029 14.592 137.548 15.125 137.47 15.853L136.3 15.58C136.43 14.384 137.509 13.552 138.861 13.552C140.733 13.552 141.461 14.618 141.461 15.84V18.973C141.461 19.519 141.513 19.844 141.539 20H140.343C140.317 19.844 140.278 19.61 140.278 19.155C140.005 19.597 139.381 20.195 138.263 20.195C136.989 20.195 136.17 19.311 136.17 18.323ZM138.432 19.168C139.433 19.168 140.239 18.687 140.239 17.322V17.036L138.328 17.322C137.808 17.4 137.418 17.699 137.418 18.258C137.418 18.726 137.808 19.168 138.432 19.168ZM142.78 18.375L143.885 17.985C143.963 18.635 144.457 19.155 145.341 19.155C146.03 19.155 146.407 18.765 146.407 18.323C146.407 17.933 146.121 17.634 145.601 17.517L144.535 17.283C143.56 17.075 142.975 16.412 142.975 15.528C142.975 14.462 143.976 13.552 145.198 13.552C146.914 13.552 147.447 14.67 147.577 15.229L146.498 15.632C146.446 15.307 146.186 14.592 145.198 14.592C144.574 14.592 144.158 14.995 144.158 15.424C144.158 15.801 144.392 16.074 144.873 16.178L145.887 16.399C147.018 16.646 147.616 17.335 147.616 18.258C147.616 19.142 146.875 20.195 145.328 20.195C143.612 20.195 142.884 19.09 142.78 18.375ZM149.972 16.23H153.391C153.365 15.333 152.78 14.631 151.675 14.631C150.648 14.631 150.024 15.424 149.972 16.23ZM153.573 17.855L154.626 18.219C154.275 19.324 153.274 20.195 151.818 20.195C150.141 20.195 148.672 18.973 148.672 16.854C148.672 14.891 150.089 13.552 151.662 13.552C153.586 13.552 154.665 14.878 154.665 16.828C154.665 16.984 154.652 17.14 154.639 17.218H149.933C149.959 18.336 150.765 19.116 151.818 19.116C152.832 19.116 153.339 18.557 153.573 17.855Z" fill="#11181C"/>
+                <rect x="0.5" y="0.5" width="167" height="29" rx="3.5" stroke="#E6E8EB"/>
+              </g>
+              <defs>
+                <linearGradient id="paint0_linear_306_6233" x1="17.4324" y1="14.801" x2="22.6177" y2="16.9428" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#249361"/>
+                  <stop offset="1" stop-color="#3ECF8E"/>
+                </linearGradient>
+                <linearGradient id="paint1_linear_306_6233" x1="15.1438" y1="11.6194" x2="17.5544" y2="16.0886" gradientUnits="userSpaceOnUse">
+                  <stop/>
+                  <stop offset="1" stop-opacity="0"/>
+                </linearGradient>
+                <clipPath id="clip0_306_6233">
+                  <rect width="168" height="30" fill="white"/>
+                </clipPath>
+                <clipPath id="clip1_306_6233">
+                  <rect width="14" height="14.7368" fill="white" transform="translate(10.5 7.63159)"/>
+                </clipPath>
+              </defs>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
 </html>
