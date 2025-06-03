@@ -88,12 +88,28 @@ function showResults() {
 
 function showError(message) {
   hideLoadingSpinner();
+  hideCompareLoadingSpinner();
   const errorDiv = document.createElement("div");
   errorDiv.className = "alert alert-danger mt-3";
   errorDiv.textContent = message;
-  const form = document.getElementById("treeForm");
-  form.parentNode.insertBefore(errorDiv, form.nextSibling);
+  
+  // Try to find the most appropriate form to attach the error to
+  const treeForm = document.getElementById("treeForm");
+  const compareForm = document.getElementById("compareForm");
+  const targetForm = compareForm && document.activeElement && compareForm.contains(document.activeElement) ? compareForm : treeForm;
+  
+  targetForm.parentNode.insertBefore(errorDiv, targetForm.nextSibling);
   setTimeout(() => { errorDiv.remove(); }, 10000);
+}
+
+// Make showError globally available
+window.showError = showError;
+
+function hideCompareLoadingSpinner() {
+  const spinner = document.getElementById("compareLoadingSpinner");
+  if (spinner) {
+    spinner.style.display = "none";
+  }
 }
 
 // Function to search taxa - Make it globally available

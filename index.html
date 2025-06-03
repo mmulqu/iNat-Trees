@@ -235,31 +235,15 @@
   </button>
   <button id="inatLogout" class="btn btn-sm btn-link d-none">Disconnect</button>
   <div id="authStatus"></div>
-  <!-- In your HTML file, the navbar part should have this structure: -->
   <nav class="navbar navbar-expand-lg navbar-dark mb-4">
     <div class="container">
       <a class="navbar-brand" href="#">iNat Phylogenetic Tree Viewer</a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-      <div class="collapse navbar-collapse" id="navbarNav">
-        <ul class="navbar-nav">
-          <li class="nav-item">
-            <button class="nav-link active" id="home-tab" onclick="showTab('home')">Home</button>
-          </li>
-          <li class="nav-item">
-            <button class="nav-link" id="compare-tab" onclick="showTab('compare')">Compare Users</button>
-          </li>
-        </ul>
-      </div>
     </div>
   </nav>
 
   <div class="container">
-    <!-- Tab content wrapper -->
-    <div class="tab-content">
-      <!-- Home tab - default active tab -->
-      <div class="tab-pane fade show active" id="home">
+    <!-- Single home content - no more tabs -->
+    <div id="home">
         <div class="card">
           <div class="card-header">Build Your Phylogenetic Tree</div>
           <div class="card-body">
@@ -319,10 +303,9 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Compare tab -->
-      <div class="tab-pane fade" id="compare">
+        <!-- Compare Users Section -->
+        <div class="card mt-4">
         <div class="card">
           <div class="card-header">Tree PVP Mode: Compare Two Users</div>
           <div class="card-body">
@@ -399,7 +382,6 @@
           </div>
         </div>
       </div>
-    </div>
 
     <!-- Results card (outside the tab content) -->
     <div class="card" id="resultsCard" style="display: none;">
@@ -471,24 +453,7 @@
       window.treeManager = new TreeManager();
     }
 
-    function showTab(tabId) {
-      console.log('Showing tab:', tabId);
-
-      // Update nav links active state
-      document.querySelectorAll('.navbar .nav-link').forEach(link => {
-        link.classList.remove('active');
-      });
-      document.getElementById(tabId + '-tab').classList.add('active');
-
-      // Hide all main tab panes
-      document.querySelectorAll('.tab-content > .tab-pane').forEach(tab => {
-        tab.classList.remove('show', 'active');
-      });
-
-      // Show the selected pane
-      const selectedPane = document.getElementById(tabId);
-      selectedPane.classList.add('show', 'active');
-
+    function ensureResultsVisible() {
       // Check if we need to keep the results card visible
       if (window.treeManager && window.treeManager.trees && window.treeManager.trees.length > 0) {
         const resultsCard = document.getElementById('resultsCard');

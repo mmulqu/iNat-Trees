@@ -209,17 +209,17 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId) {
     const tree = window.treeManager.trees.find(t => t.id === treeId);
     if (tree && tree.isComparison) {
       console.log("Force rendering comparison tree immediately", treeId);
-      
+
       // Make sure the tab is active first
       const tabTrigger = document.getElementById(`${treeId}-tab`);
       const tabContent = document.getElementById(`${treeId}-content`);
-      
+
       if (tabTrigger && tabContent) {
         // Activate the tab
         tabTrigger.classList.add('active');
         tabTrigger.setAttribute('aria-selected', 'true');
         tabContent.classList.add('show', 'active');
-        
+
         // Deactivate other tabs
         document.querySelectorAll('#treeTabs .nav-link.active').forEach(tab => {
           if (tab.id !== `${treeId}-tab`) {
@@ -232,7 +232,7 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId) {
             pane.classList.remove('show', 'active');
           }
         });
-        
+
         // Now render the tree
         window.treeManager.renderComparisonTree(tree);
       }
