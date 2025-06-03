@@ -204,7 +204,16 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId) {
   const treeId = window.treeManager.addComparisonTree(username1, username2, taxonName, taxonId, markdown, stats);
   showResults();
 
-  // Start the battle animation - ADD THIS LINE
+  // Ensure the tree is properly rendered after adding it
+  setTimeout(() => {
+    const tree = window.treeManager.trees.find(t => t.id === treeId);
+    if (tree && tree.isComparison) {
+      console.log("Force rendering comparison tree", treeId);
+      window.treeManager.renderComparisonTree(tree);
+    }
+  }, 200);
+
+  // Start the battle animation
   console.log("Starting battle animation for", username1, "vs", username2, "with treeId", treeId);
   if (window.battleAnimator && typeof window.battleAnimator.startBattleCountdown === 'function') {
     window.battleAnimator.startBattleCountdown(username1, username2, function() {
