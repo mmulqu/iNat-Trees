@@ -204,14 +204,40 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId) {
   const treeId = window.treeManager.addComparisonTree(username1, username2, taxonName, taxonId, markdown, stats);
   showResults();
 
-  // Ensure the tree is properly rendered after adding it
+  // Force render the tree immediately since we're on the Compare tab
   setTimeout(() => {
     const tree = window.treeManager.trees.find(t => t.id === treeId);
     if (tree && tree.isComparison) {
-      console.log("Force rendering comparison tree", treeId);
-      window.treeManager.renderComparisonTree(tree);
+      console.log("Force rendering comparison tree immediately", treeId);
+      
+      // Make sure the tab is active first
+      const tabTrigger = document.getElementById(`${treeId}-tab`);
+      const tabContent = document.getElementById(`${treeId}-content`);
+      
+      if (tabTrigger && tabContent) {
+        // Activate the tab
+        tabTrigger.classList.add('active');
+        tabTrigger.setAttribute('aria-selected', 'true');
+        tabContent.classList.add('show', 'active');
+        
+        // Deactivate other tabs
+        document.querySelectorAll('#treeTabs .nav-link.active').forEach(tab => {
+          if (tab.id !== `${treeId}-tab`) {
+            tab.classList.remove('active');
+            tab.setAttribute('aria-selected', 'false');
+          }
+        });
+        document.querySelectorAll('#treeTabContent .tab-pane.active').forEach(pane => {
+          if (pane.id !== `${treeId}-content`) {
+            pane.classList.remove('show', 'active');
+          }
+        });
+        
+        // Now render the tree
+        window.treeManager.renderComparisonTree(tree);
+      }
     }
-  }, 200);
+  }, 300);
 
   // Start the battle animation
   console.log("Starting battle animation for", username1, "vs", username2, "with treeId", treeId);
