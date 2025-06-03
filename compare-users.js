@@ -250,3 +250,19 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId) {
     console.error("Battle animator not available:", window.battleAnimator);
   }
 }
+
+function showError(message) {
+  hideCompareLoadingSpinner();
+  const errorDiv = document.createElement("div");
+  errorDiv.className = "alert alert-danger mt-3";
+  errorDiv.textContent = message;
+  const form = document.getElementById("compareForm");
+  form.parentNode.insertBefore(errorDiv, form.nextSibling);
+  setTimeout(() => { errorDiv.remove(); }, 10000);
+}
+
+function showResults() {
+  const resultsCard = document.getElementById("resultsCard");
+  resultsCard.style.display = "block";
+  resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
