@@ -96,6 +96,7 @@ function showError(message) {
   setTimeout(() => { errorDiv.remove(); }, 10000);
 }
 
+// Function to search taxa - Make it globally available
 async function searchTaxa(query) {
   if (!query || query.length < 2) return [];
   try {
@@ -166,6 +167,12 @@ async function searchTaxa(query) {
     return [];
   }
 }
+
+// Make searchTaxa globally available
+window.searchTaxa = searchTaxa;
+
+// Make searchTaxaUrl globally available
+window.searchTaxaUrl = searchTaxaUrl;
 
 function showAutocompleteResults(results) {
   const autocompleteContainer = document.getElementById("autocompleteResults");
