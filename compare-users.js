@@ -61,8 +61,13 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     compareDebounceTimeout = setTimeout(async () => {
-      const results = await searchTaxa(query);
-      showCompareAutocompleteResults(results);
+      if (typeof searchTaxa === 'function') {
+        const results = await searchTaxa(query);
+        showCompareAutocompleteResults(results);
+      } else {
+        console.error('searchTaxa function not available');
+        compareAutocompleteResults.style.display = "none";
+      }
     }, 300);
   });
 
@@ -126,6 +131,9 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           const messageInterval = showCompareLoadingSpinner();
           try {
+            if (typeof searchTaxa !== 'function') {
+              throw new Error('Search function not available');
+            }
             const results = await searchTaxa(taxonName);
             if (results.length === 0) {
               clearInterval(messageInterval);
