@@ -50,7 +50,7 @@ function initCompareAutocomplete() {
           showCompareAutocompleteResults(results);
         });
       }
-    }, 300);
+    }, 150);
   });
   document.addEventListener("click", function(e) {
     if (!compareTaxonNameInput.contains(e.target) && !compareAutocompleteResults.contains(e.target)) {

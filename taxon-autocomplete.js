@@ -73,7 +73,7 @@ function initTaxonAutocomplete() {
     }
   };
 
-  const debouncedSearch = debounce(searchTaxaInternal, 300);
+  const debouncedSearch = debounce(searchTaxaInternal, 150);
   if (taxonNameInput) {
     taxonNameInput.addEventListener('input', (e) => {
       const query = e.target.value.trim();

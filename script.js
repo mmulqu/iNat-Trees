@@ -112,57 +112,89 @@ function hideCompareLoadingSpinner() {
   }
 }
 
+// Add search cache for faster results
+const searchCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Function to search taxa - Make it globally available
 async function searchTaxa(query) {
   if (!query || query.length < 2) return [];
+  
+  // Check cache first
+  const cacheKey = query.toLowerCase().trim();
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.results;
+  }
+  
   try {
-    // First try local search
-    let { data: commonNameResults, error: commonNameError } = await supabase
+    // Optimize local search with single combined query
+    let { data: results, error } = await supabase
       .from('taxa')
       .select('taxon_id, name, rank, common_name')
-      .ilike('common_name', `%${query}%`)
-      .limit(10);
-    if (commonNameError) throw commonNameError;
-    let { data: scientificNameResults, error: scientificNameError } = await supabase
-      .from('taxa')
-      .select('taxon_id, name, rank, common_name')
-      .ilike('name', `%${query}%`)
-      .limit(10);
-    if (scientificNameError) throw scientificNameError;
-    const allResults = [...(commonNameResults || [])];
-    if (scientificNameResults) {
-      for (const result of scientificNameResults) {
-        if (!allResults.some(r => r.taxon_id === result.taxon_id)) {
-          allResults.push(result);
+      .or(`common_name.ilike.%${query}%,name.ilike.%${query}%`)
+      .in('rank', Array.from(VALID_HIGHER_RANKS))
+      .limit(15);
+    
+    if (error) throw error;
+    
+    if (results && results.length > 0) {
+      // Remove duplicates and sort by relevance
+      const uniqueResults = results.reduce((acc, current) => {
+        if (!acc.find(item => item.taxon_id === current.taxon_id)) {
+          acc.push(current);
         }
-      }
-    }
-    const filteredResults = allResults.filter(taxon =>
-      taxon.rank && VALID_HIGHER_RANKS.has(taxon.rank.toLowerCase())
-    );
-    if (filteredResults.length >= 3) {
+        return acc;
+      }, []);
+      
       const rankOrder = {
         'kingdom': 10, 'phylum': 9, 'class': 8, 'order': 7, 'family': 6, 'genus': 5
       };
-      filteredResults.sort((a, b) => {
+      
+      uniqueResults.sort((a, b) => {
         const aExactCommon = a.common_name && a.common_name.toLowerCase() === query.toLowerCase();
         const bExactCommon = b.common_name && b.common_name.toLowerCase() === query.toLowerCase();
         const aExactName = a.name.toLowerCase() === query.toLowerCase();
         const bExactName = b.name.toLowerCase() === query.toLowerCase();
+        const aStartsCommon = a.common_name && a.common_name.toLowerCase().startsWith(query.toLowerCase());
+        const bStartsCommon = b.common_name && b.common_name.toLowerCase().startsWith(query.toLowerCase());
+        const aStartsName = a.name.toLowerCase().startsWith(query.toLowerCase());
+        const bStartsName = b.name.toLowerCase().startsWith(query.toLowerCase());
+        
+        // Prioritize exact matches, then starts with, then rank
         if (aExactCommon && !bExactCommon) return -1;
         if (!aExactCommon && bExactCommon) return 1;
         if (aExactName && !bExactName) return -1;
         if (!aExactName && bExactName) return 1;
-        const aRankValue = rankOrder[a.rank.toLowerCase()] || 0;
-        const bRankValue = rankOrder[b.rank.toLowerCase()] || 0;
+        if (aStartsCommon && !bStartsCommon) return -1;
+        if (!aStartsCommon && bStartsCommon) return 1;
+        if (aStartsName && !bStartsName) return -1;
+        if (!aStartsName && bStartsName) return 1;
+        
+        const aRankValue = rankOrder[a.rank?.toLowerCase()] || 0;
+        const bRankValue = rankOrder[b.rank?.toLowerCase()] || 0;
         return bRankValue - aRankValue;
       });
-      return filteredResults.slice(0, 10);
+      
+      const finalResults = uniqueResults.slice(0, 10);
+      
+      // Cache the results
+      searchCache.set(cacheKey, {
+        results: finalResults,
+        timestamp: Date.now()
+      });
+      
+      if (finalResults.length >= 3) {
+        return finalResults;
+      }
     }
+    
     console.log("Not enough local results, trying edge function search");
   } catch (error) {
     console.error("Error with local DB search:", error);
   }
+  
+  // Fallback to edge function
   try {
     const response = await fetch(`${searchTaxaUrl}?q=${encodeURIComponent(query)}&limit=10`, {
       headers: { 
@@ -174,10 +206,15 @@ async function searchTaxa(query) {
       throw new Error(`Edge function error: ${response.statusText}`);
     }
     const data = await response.json();
-    if (data.results && data.results.length > 0) {
-      return data.results;
-    }
-    return [];
+    const results = data.results || [];
+    
+    // Cache edge function results too
+    searchCache.set(cacheKey, {
+      results: results,
+      timestamp: Date.now()
+    });
+    
+    return results;
   } catch (error) {
     console.error("Error with edge function search:", error);
     return [];
@@ -301,5 +338,5 @@ taxonNameInput.addEventListener("input", (e) => {
   }
   debounceTimeout = setTimeout(() => {
     searchTaxa(query).then(showAutocompleteResults);
-  }, 300);
+  }, 150);
 });

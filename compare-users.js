@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('searchTaxa function not available');
         compareAutocompleteResults.style.display = "none";
       }
-    }, 300);
+    }, 150);
   });
 
   function showCompareAutocompleteResults(results) {
