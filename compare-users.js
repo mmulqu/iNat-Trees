@@ -61,11 +61,20 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     compareDebounceTimeout = setTimeout(async () => {
-      if (typeof searchTaxa === 'function') {
+      if (typeof window.searchTaxa === 'function') {
+        const results = await window.searchTaxa(query);
+        showCompareAutocompleteResults(results);
+      } else if (typeof searchTaxa === 'function') {
         const results = await searchTaxa(query);
         showCompareAutocompleteResults(results);
       } else {
-        console.error('searchTaxa function not available');
+        console.error('searchTaxa function not available yet - retrying in 100ms');
+        setTimeout(async () => {
+          if (typeof window.searchTaxa === 'function') {
+            const results = await window.searchTaxa(query);
+            showCompareAutocompleteResults(results);
+          }
+        }, 100);
         compareAutocompleteResults.style.display = "none";
       }
     }, 150);
@@ -131,10 +140,14 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           const messageInterval = showCompareLoadingSpinner();
           try {
-            if (typeof searchTaxa !== 'function') {
+            if (typeof window.searchTaxa === 'function') {
+              const results = await window.searchTaxa(taxonName);
+            } else if (typeof searchTaxa === 'function') {
+              const results = await searchTaxa(taxonName);
+            } else {
               throw new Error('Search function not available');
             }
-            const results = await searchTaxa(taxonName);
+            const results = await (window.searchTaxa || searchTaxa)(taxonName);
             if (results.length === 0) {
               clearInterval(messageInterval);
               hideCompareLoadingSpinner();
