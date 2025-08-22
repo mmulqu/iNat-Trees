@@ -119,17 +119,17 @@ async function renderCheckpointTree(group, idx) {
   const data = await r.json();
   if (!r.ok) return;
   const markdown = data.markdown || '';
-  document.getElementById('markdownResult').textContent = markdown;
-  // Render into the tabs using TreeManager
-  if (window.treeManager) {
-    const taxonName = group.taxonName || `Taxon ${group.taxonId}`;
-    const usernameLabel = (localStorage.getItem('inat_username') || 'user') + ' (checkpoint)';
-    const id = window.treeManager.addTree(usernameLabel, taxonName, group.taxonId, markdown);
-    setTimeout(() => {
-      const tree = window.treeManager.trees.find(t => t.id === id);
-      if (tree) window.treeManager.renderTree(tree);
-    }, 50);
-  }
+  // Render directly in the Checkpoints pane SVG so it's visible on that tab
+  try {
+    const svg = document.getElementById('checkpointSvg');
+    if (svg && window.markmap) {
+      svg.innerHTML = '';
+      const { Transformer, Markmap } = window.markmap;
+      const transformer = new Transformer();
+      const { root } = transformer.transform(markdown);
+      Markmap.create(svg, null, root);
+    }
+  } catch (e) { console.error('checkpoint markmap render', e); }
 }
 
 function renderCheckpointSummary(group, idx) {
