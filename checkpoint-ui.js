@@ -124,6 +124,8 @@ async function loadAndRenderList() {
   renderTaxaList(groups);
 }
 
-document.addEventListener('DOMContentLoaded', initCheckpointsUI);
+document.addEventListener('DOMContentLoaded', () => {
+  initCheckpointsUI().catch(err => console.error('init checkpoints ui', err));
+});
 
 

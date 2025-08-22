@@ -61,6 +61,8 @@ function renderMarkmap(markdown, username, taxonName, taxonId) {
 
   treeManager.addTree(username, taxonName || `Taxon ${taxonId}`, taxonId, markdown);
   showResults();
+  // Enable Save Checkpoint now that a build exists
+  try { const btn = document.getElementById('saveCheckpointBtn'); if (btn) btn.disabled = false; } catch(_) {}
 }
 
 function showLoadingSpinner() {
