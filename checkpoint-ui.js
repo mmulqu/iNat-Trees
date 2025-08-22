@@ -3,6 +3,7 @@ import { getAuthHeaders } from './auth.js';
 const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
 const saveUrl = `${API_BASE}/checkpoints/save`;
+const treeFromSpeciesUrl = `${API_BASE}/tree-from-species`;
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -61,7 +62,7 @@ function selectTaxonGroup(group) {
   document.getElementById('requeryCompareBtn').disabled = false;
   renderCheckpointSummary(group, Number(slider.value));
   // Ensure drag and click both update
-  const sync = () => renderCheckpointSummary(group, Number(slider.value));
+  const sync = () => { renderCheckpointSummary(group, Number(slider.value)); renderCheckpointTree(group, Number(slider.value)); };
   slider.oninput = sync;
   slider.onchange = sync;
   slider.addEventListener('click', (e) => {
@@ -92,6 +93,30 @@ function selectTaxonGroup(group) {
     div.innerHTML = `<div class="alert alert-info">Compared to ${fmtDate(sel.created_at)}: +${added.length} species</div>`;
     btn.disabled = false; if (spn) spn.classList.add('d-none');
   };
+}
+
+async function renderCheckpointTree(group, idx) {
+  const sel = group.items[idx];
+  if (!sel) return;
+  const username = localStorage.getItem('inat_username') || '';
+  const species = JSON.parse(sel.species_ids_json || '[]');
+  const r = await fetch(treeFromSpeciesUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ speciesTaxonIds: species, baseTaxonId: group.taxonId })
+  });
+  const data = await r.json();
+  if (!r.ok) return;
+  const markdown = data.markdown || '';
+  document.getElementById('markdownResult').textContent = markdown;
+  if (window.treeManager) {
+    const taxonName = group.taxonName || `Taxon ${group.taxonId}`;
+    const id = window.treeManager.addTree(username + ' (checkpoint)', taxonName, group.taxonId, markdown);
+    setTimeout(() => {
+      const tree = window.treeManager.trees.find(t => t.id === id);
+      if (tree) window.treeManager.renderTree(tree);
+    }, 50);
+  }
 }
 
 function renderCheckpointSummary(group, idx) {

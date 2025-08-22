@@ -60,6 +60,10 @@ export default {
         return listCheckpoints(request, env);
       }
 
+      if (pathname === '/tree-from-species' && request.method === 'POST') {
+        return treeFromSpecies(request, env);
+      }
+
       return json({ error: 'Not found' }, 404, request);
     } catch (err) {
       return json({ error: err?.message || String(err) }, 500, request);
@@ -389,6 +393,22 @@ async function listCheckpoints(request, env) {
   sql += ' ORDER BY created_at DESC LIMIT 200';
   const { results } = await env.DB.prepare(sql).bind(...binds).all();
   return json({ checkpoints: results || [] }, 200, request);
+}
+
+// Build a tree from a provided list of species taxon IDs (for checkpoint playback)
+async function treeFromSpecies(request, env) {
+  try {
+    const body = await request.json();
+    const { speciesTaxonIds, baseTaxonId } = body || {};
+    if (!Array.isArray(speciesTaxonIds) || !baseTaxonId) {
+      return json({ error: 'Missing parameters: speciesTaxonIds[], baseTaxonId' }, 400, request);
+    }
+    const tree = await buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId);
+    const markdown = treeToMarkdown(tree);
+    return json({ markdown }, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
 }
 
 async function searchTaxa(request, env) {
