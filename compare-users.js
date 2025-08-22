@@ -36,6 +36,8 @@ function hideCompareLoadingSpinner() {
   document.getElementById("compareLoadingSpinner").style.display = "none";
 }
 
+import { getAuthHeaders } from './auth.js';
+
 const API_BASE = window.CF_API_BASE;
 if (!API_BASE) {
   console.error('CF_API_BASE is not set. Set window.CF_API_BASE to your Worker URL.');
@@ -173,7 +175,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const response = await fetch(compareUsersUrl, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
           },
           body: JSON.stringify({ 
             username1, 
@@ -182,6 +185,10 @@ document.addEventListener('DOMContentLoaded', function() {
           })
         });
         const result = await response.json();
+        if (!response.ok) {
+          const authInfo = result && result.auth ? ` (auth received: ${result.auth.received}, usableJWT: ${result.auth.usableJWT})` : '';
+          throw new Error(`${result.error || 'Request failed'}${authInfo}`);
+        }
         clearInterval(messageInterval);
         hideCompareLoadingSpinner();
         if (result.error) {
