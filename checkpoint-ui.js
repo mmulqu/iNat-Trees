@@ -64,7 +64,10 @@ function selectTaxonGroup(group) {
   // Ensure the visualization card is visible alongside the timeline
   try {
     const resultsCard = document.getElementById('resultsCard');
-    if (resultsCard) resultsCard.style.display = 'block';
+    if (resultsCard) {
+      resultsCard.style.display = 'block';
+      try { resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
+    }
   } catch (_) {}
   // Ensure drag and click both update
   const sync = () => { renderCheckpointSummary(group, Number(slider.value)); renderCheckpointTree(group, Number(slider.value)); };
@@ -117,8 +120,15 @@ async function renderCheckpointTree(group, idx) {
   // Render into a dedicated or latest pane
   if (window.treeManager) {
     const taxonName = group.taxonName || `Taxon ${group.taxonId}`;
-    // Reuse the most recent pane if exists, otherwise create a new one
-    const id = window.treeManager.addTree('Checkpoint', taxonName, group.taxonId, markdown);
+    // Create or reuse a fixed pane id for checkpoints to avoid clutter
+    const paneId = 'checkpoint-live';
+    const title = `${taxonName} (checkpoint)`;
+    // Remove existing checkpoint tab if present
+    try {
+      const existing = window.treeManager.trees.find(t => t.id === paneId);
+      if (existing) window.treeManager.removeTree(paneId);
+    } catch(_) {}
+    const id = window.treeManager.addTree(title, taxonName, group.taxonId, markdown, paneId);
     setTimeout(() => {
       const tree = window.treeManager.trees.find(t => t.id === id);
       if (tree) window.treeManager.renderTree(tree);
