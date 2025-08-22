@@ -60,9 +60,23 @@ function selectTaxonGroup(group) {
   document.getElementById('checkpointEnd').textContent = fmtDate(group.items[group.items.length - 1]?.created_at);
   document.getElementById('requeryCompareBtn').disabled = false;
   renderCheckpointSummary(group, Number(slider.value));
-  slider.oninput = () => renderCheckpointSummary(group, Number(slider.value));
+  // Ensure drag and click both update
+  const sync = () => renderCheckpointSummary(group, Number(slider.value));
+  slider.oninput = sync;
+  slider.onchange = sync;
+  slider.addEventListener('click', (e) => {
+    // Map click position to nearest index
+    const rect = slider.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const idx = Math.round(pct * (group.items.length - 1));
+    slider.value = String(idx);
+    sync();
+  });
   document.getElementById('requeryCompareBtn').onclick = async () => {
     const sel = group.items[Number(slider.value)];
+    const btn = document.getElementById('requeryCompareBtn');
+    const spn = document.getElementById('requerySpinner');
+    btn.disabled = true; if (spn) spn.classList.remove('d-none');
     // For now, just refetch build-taxonomy to show current state
     const payload = {
       username: localStorage.getItem('inat_username') || '',
@@ -76,6 +90,7 @@ function selectTaxonGroup(group) {
     const added = Array.from(newest).filter(id => !prevSet.has(id));
     const div = document.getElementById('checkpointSummary');
     div.innerHTML = `<div class="alert alert-info">Compared to ${fmtDate(sel.created_at)}: +${added.length} species</div>`;
+    btn.disabled = false; if (spn) spn.classList.add('d-none');
   };
 }
 
