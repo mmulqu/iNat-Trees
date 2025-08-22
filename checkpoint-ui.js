@@ -62,6 +62,8 @@ function selectTaxonGroup(group) {
   document.getElementById('checkpointEnd').textContent = fmtDate(group.items[group.items.length - 1]?.created_at);
   document.getElementById('requeryCompareBtn').disabled = false;
   renderCheckpointSummary(group, Number(slider.value));
+  // Immediately render the selected checkpoint tree
+  renderCheckpointTree(group, Number(slider.value)).catch(console.error);
   // Ensure the visualization card is visible alongside the timeline
   try {
     const resultsCard = document.getElementById('resultsCard');
@@ -118,18 +120,11 @@ async function renderCheckpointTree(group, idx) {
   if (!r.ok) return;
   const markdown = data.markdown || '';
   document.getElementById('markdownResult').textContent = markdown;
-  // Render into a dedicated or latest pane
+  // Render into the tabs using TreeManager
   if (window.treeManager) {
     const taxonName = group.taxonName || `Taxon ${group.taxonId}`;
-    // Create or reuse a fixed pane id for checkpoints to avoid clutter
-    const paneId = 'checkpoint-live';
-    const title = `${taxonName} (checkpoint)`;
-    // Remove existing checkpoint tab if present
-    try {
-      const existing = window.treeManager.trees.find(t => t.id === paneId);
-      if (existing) window.treeManager.removeTree(paneId);
-    } catch(_) {}
-    const id = window.treeManager.addTree(title, taxonName, group.taxonId, markdown, paneId);
+    const usernameLabel = (localStorage.getItem('inat_username') || 'user') + ' (checkpoint)';
+    const id = window.treeManager.addTree(usernameLabel, taxonName, group.taxonId, markdown);
     setTimeout(() => {
       const tree = window.treeManager.trees.find(t => t.id === id);
       if (tree) window.treeManager.renderTree(tree);
