@@ -50,6 +50,16 @@ export default {
         return compareTaxa(request, env);
       }
 
+      // Checkpoint API
+      if (pathname === '/checkpoints/save' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return saveCheckpoint(request, env);
+      }
+      if (pathname === '/checkpoints/list' && request.method === 'GET') {
+        await ensureCheckpointTables(env);
+        return listCheckpoints(request, env);
+      }
+
       return json({ error: 'Not found' }, 404, request);
     } catch (err) {
       return json({ error: err?.message || String(err) }, 500, request);
@@ -271,10 +281,31 @@ async function buildTaxonomy(request, env) {
     }
 
     const speciesIds = Array.from(new Set(observations.filter(o => o.taxon).map(o => o.taxon.id)));
+    // Rank counts (distinct taxa by id)
+    const rankCounts = {};
+    const distinctById = new Map();
+    for (const obs of observations) {
+      if (obs.taxon && obs.taxon.id) {
+        if (!distinctById.has(obs.taxon.id)) distinctById.set(obs.taxon.id, obs.taxon);
+      }
+    }
+    for (const taxon of distinctById.values()) {
+      const r = (taxon.rank || '').toLowerCase();
+      rankCounts[r] = (rankCounts[r] || 0) + 1;
+    }
+    // High watermark = max updated_at (fallback observed_on/created_at)
+    let highWatermark = null;
+    for (const obs of observations) {
+      const ts = obs.updated_at || obs.observed_on || obs.created_at;
+      if (ts) {
+        const iso = new Date(ts).toISOString();
+        if (!highWatermark || iso > highWatermark) highWatermark = iso;
+      }
+    }
+
     const tree = await buildTreeFromDatabase(env, speciesIds, taxonId);
     const markdown = treeToMarkdown(tree);
-    // Echo whether auth was present for debugging
-    return json({ markdown, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
+    return json({ markdown, speciesTaxonIds: speciesIds, rankCounts, highWatermarkUpdatedAt: highWatermark, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
   } catch (e) {
     const msg = e?.message || String(e);
     // Try to echo the auth debug on errors too
@@ -293,6 +324,72 @@ async function buildTaxonomy(request, env) {
 }
 
 // ========== Keep existing helper functions below ==========
+// Checkpoint schema and handlers
+async function ensureCheckpointTables(env) {
+  const createMain = `CREATE TABLE IF NOT EXISTS checkpoints (
+    id TEXT PRIMARY KEY,
+    user_login TEXT NOT NULL,
+    taxon_id INTEGER NOT NULL,
+    taxon_name TEXT,
+    species_ids_json TEXT NOT NULL,
+    rank_counts_json TEXT NOT NULL,
+    high_watermark_updated_at TEXT,
+    created_at TEXT NOT NULL
+  )`;
+  const createIdx = `CREATE INDEX IF NOT EXISTS idx_checkpoints_user_taxon ON checkpoints(user_login, taxon_id, created_at)`;
+  await env.DB.prepare(createMain).run();
+  await env.DB.prepare(createIdx).run();
+}
+
+function uuidv4() {
+  const rnd = crypto.getRandomValues(new Uint8Array(16));
+  rnd[6] = (rnd[6] & 0x0f) | 0x40;
+  rnd[8] = (rnd[8] & 0x3f) | 0x80;
+  const hex = Array.from(rnd, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
+async function saveCheckpoint(request, env) {
+  const rawAuth = request.headers.get('Authorization') || '';
+  const jwt = await processAuthHeader(rawAuth);
+  if (!jwt) return json({ error: 'Unauthorized' }, 401, request);
+  const body = await request.json().catch(() => ({}));
+  const { username, taxonId, taxonName, speciesTaxonIds, rankCounts, highWatermarkUpdatedAt } = body || {};
+  if (!username || !taxonId || !Array.isArray(speciesTaxonIds)) {
+    return json({ error: 'Missing parameters: username, taxonId, speciesTaxonIds' }, 400, request);
+  }
+  const id = uuidv4();
+  const createdAt = new Date().toISOString();
+  const sql = `INSERT INTO checkpoints (id, user_login, taxon_id, taxon_name, species_ids_json, rank_counts_json, high_watermark_updated_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  await env.DB.prepare(sql).bind(
+    id,
+    username,
+    parseInt(taxonId, 10),
+    taxonName || null,
+    JSON.stringify(speciesTaxonIds),
+    JSON.stringify(rankCounts || {}),
+    highWatermarkUpdatedAt || null,
+    createdAt
+  ).run();
+  return json({ id, createdAt }, 200, request);
+}
+
+async function listCheckpoints(request, env) {
+  const url = new URL(request.url);
+  const user = (url.searchParams.get('user_login') || '').trim();
+  const taxonId = url.searchParams.get('taxon_id');
+  const include = url.searchParams.get('include') || 'meta';
+  if (!user) return json({ error: 'user_login is required' }, 400, request);
+  let sql = `SELECT id, user_login, taxon_id, taxon_name, created_at`;
+  if (include === 'full') sql += `, species_ids_json, rank_counts_json, high_watermark_updated_at`;
+  sql += ` FROM checkpoints WHERE user_login = ?`;
+  const binds = [user];
+  if (taxonId) { sql += ' AND taxon_id = ?'; binds.push(parseInt(taxonId, 10)); }
+  sql += ' ORDER BY created_at DESC LIMIT 200';
+  const { results } = await env.DB.prepare(sql).bind(...binds).all();
+  return json({ checkpoints: results || [] }, 200, request);
+}
 
 async function searchTaxa(request, env) {
   const url = new URL(request.url);
