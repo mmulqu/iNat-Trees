@@ -61,6 +61,11 @@ function selectTaxonGroup(group) {
   document.getElementById('checkpointEnd').textContent = fmtDate(group.items[group.items.length - 1]?.created_at);
   document.getElementById('requeryCompareBtn').disabled = false;
   renderCheckpointSummary(group, Number(slider.value));
+  // Ensure the visualization card is visible alongside the timeline
+  try {
+    const resultsCard = document.getElementById('resultsCard');
+    if (resultsCard) resultsCard.style.display = 'block';
+  } catch (_) {}
   // Ensure drag and click both update
   const sync = () => { renderCheckpointSummary(group, Number(slider.value)); renderCheckpointTree(group, Number(slider.value)); };
   slider.oninput = sync;
@@ -109,9 +114,11 @@ async function renderCheckpointTree(group, idx) {
   if (!r.ok) return;
   const markdown = data.markdown || '';
   document.getElementById('markdownResult').textContent = markdown;
+  // Render into a dedicated or latest pane
   if (window.treeManager) {
     const taxonName = group.taxonName || `Taxon ${group.taxonId}`;
-    const id = window.treeManager.addTree(username + ' (checkpoint)', taxonName, group.taxonId, markdown);
+    // Reuse the most recent pane if exists, otherwise create a new one
+    const id = window.treeManager.addTree('Checkpoint', taxonName, group.taxonId, markdown);
     setTimeout(() => {
       const tree = window.treeManager.trees.find(t => t.id === id);
       if (tree) window.treeManager.renderTree(tree);
