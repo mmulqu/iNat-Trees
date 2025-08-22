@@ -1,0 +1,19 @@
+name = "inat-trees-worker"
+main = "worker.js"
+compatibility_date = "2024-10-01"
+account_id = "b092f621d0a33973ebb97c64ef0d1c86"
+routes = []
+
+[[d1_databases]]
+binding = "DB"
+database_name = "taxa-database"
+database_id = "ca68d752-4576-4254-80c4-64125217dd4e"
+
+[durable_objects]
+bindings = [{ name = "RATE_LIMITER", class_name = "RateLimiter" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
+

@@ -1,0 +1,14 @@
+node_modules/
+# Local data and generated files
+chunks/
+chunks_sql/
+chunks_sql_full/
+*.db
+*.db-journal
+# Large exports and generated schemas
+taxa_supabase_export.csv
+full_schema.sql
+~$*
+.~lock.*
+.wrangler/
+.config/
