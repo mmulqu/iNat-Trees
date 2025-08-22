@@ -239,6 +239,16 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
 
     // Use the global treeManager instance to render the tree
     renderMarkmap(markdown, username, taxonName, taxonId);
+
+    // Expose last build payload for Save Checkpoint
+    window.__lastBuild = {
+      username,
+      taxonId: Number(taxonId),
+      taxonName,
+      speciesTaxonIds: result.speciesTaxonIds || [],
+      rankCounts: result.rankCounts || {},
+      highWatermarkUpdatedAt: result.highWatermarkUpdatedAt || null
+    };
   } catch (err) {
     clearInterval(messageInterval);
     hideLoadingSpinner();
