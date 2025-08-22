@@ -13,6 +13,7 @@ function fmtDate(iso) {
 async function fetchCheckpoints(userLogin) {
   const url = new URL(listUrl);
   url.searchParams.set('user_login', userLogin);
+  url.searchParams.set('include', 'full');
   const r = await fetch(url, { headers: { ...getAuthHeaders() }});
   if (!r.ok) throw new Error('Failed to list checkpoints');
   const data = await r.json();
