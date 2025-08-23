@@ -347,6 +347,17 @@ async function ensureCheckpointTables(env) {
   const createIdx = `CREATE INDEX IF NOT EXISTS idx_checkpoints_user_taxon ON checkpoints(user_login, taxon_id, created_at)`;
   await env.DB.prepare(createMain).run();
   await env.DB.prepare(createIdx).run();
+  // First-seen cache table
+  const createFirstSeen = `CREATE TABLE IF NOT EXISTS first_seen (
+    user_login TEXT NOT NULL,
+    taxon_id INTEGER NOT NULL,
+    species_id INTEGER NOT NULL,
+    first_seen TEXT,
+    PRIMARY KEY (user_login, taxon_id, species_id)
+  )`;
+  const idxFirst = `CREATE INDEX IF NOT EXISTS idx_first_seen_user_taxon ON first_seen(user_login, taxon_id)`;
+  await env.DB.prepare(createFirstSeen).run();
+  await env.DB.prepare(idxFirst).run();
 }
 
 function uuidv4() {
@@ -420,13 +431,17 @@ async function treeFromSpecies(request, env) {
 // Response: { firstSeen: { [taxonId]: isoDate }, species: number[] }
 async function firstSeenTimeline(request, env) {
   try {
+    await ensureCheckpointTables(env);
     const rawAuth = request.headers.get('Authorization') || '';
     const jwt = await processAuthHeader(rawAuth);
     const authHeader = jwt ? `Bearer ${jwt}` : undefined;
     const body = await request.json();
     const { username, taxonId } = body || {};
     if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
-    // Fetch all observations under the taxon for this user (paginated)
+    // Try to read cached first_seen
+    const cachedRows = await env.DB.prepare(`SELECT species_id, first_seen FROM first_seen WHERE user_login = ? AND taxon_id = ?`).bind(username, parseInt(taxonId, 10)).all();
+    const cachedMap = new Map((cachedRows.results || []).map(r => [r.species_id, r.first_seen]));
+    // Always compute fresh, then upsert cache
     const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, authHeader || `${username}:${taxonId}`);
     const firstSeen = {};
     const speciesSet = new Set();
@@ -440,7 +455,13 @@ async function firstSeenTimeline(request, env) {
       if (!firstSeen[sid]) firstSeen[sid] = dateIso;
       else if (dateIso && firstSeen[sid] && dateIso < firstSeen[sid]) firstSeen[sid] = dateIso;
     }
-    return json({ firstSeen, species: Array.from(speciesSet) }, 200, request);
+    // Upsert cache
+    const ins = env.DB.prepare(`INSERT OR REPLACE INTO first_seen (user_login, taxon_id, species_id, first_seen) VALUES (?, ?, ?, ?)`);
+    for (const [sidStr, dt] of Object.entries(firstSeen)) {
+      const sid = parseInt(sidStr, 10);
+      await ins.bind(username, parseInt(taxonId, 10), sid, dt || null).run();
+    }
+    return json({ firstSeen: Object.fromEntries(Object.entries(firstSeen)), species: Array.from(speciesSet) }, 200, request);
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }

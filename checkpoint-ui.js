@@ -59,6 +59,7 @@ function selectTaxonGroup(group) {
   slider.min = 0;
   slider.max = Math.max(0, group.items.length - 1);
   slider.value = slider.max;
+  slider.step = 1;
   document.getElementById('checkpointStart').textContent = fmtDate(group.items[0]?.created_at);
   document.getElementById('checkpointEnd').textContent = fmtDate(group.items[group.items.length - 1]?.created_at);
   document.getElementById('requeryCompareBtn').disabled = false;
