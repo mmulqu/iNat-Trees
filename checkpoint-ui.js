@@ -66,10 +66,10 @@ function selectTaxonGroup(group) {
   renderCheckpointTree(group, Number(slider.value)).catch(console.error);
   // Ensure the visualization card is visible alongside the timeline
   try {
-    const resultsCard = document.getElementById('resultsCard');
-    if (resultsCard) {
-      resultsCard.style.display = 'block';
-      try { resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
+    const cpCard = document.getElementById('cpResultsCard');
+    if (cpCard) {
+      cpCard.style.display = 'block';
+      try { cpCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
     }
   } catch (_) {}
   // Ensure drag and click both update
@@ -129,6 +129,8 @@ async function renderCheckpointTree(group, idx) {
       const { root } = transformer.transform(markdown);
       Markmap.create(svg, null, root);
     }
+    const pre = document.getElementById('cpMarkdownResult');
+    if (pre) pre.textContent = markdown;
   } catch (e) { console.error('checkpoint markmap render', e); }
 }
 
