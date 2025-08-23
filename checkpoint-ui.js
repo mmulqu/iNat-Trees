@@ -3,6 +3,7 @@ import { getAuthHeaders } from './auth.js';
 const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
 const saveUrl = `${API_BASE}/checkpoints/save`;
+const deleteUrl = `${API_BASE}/checkpoints/delete`;
 const treeFromSpeciesUrl = `${API_BASE}/tree-from-species`;
 const firstSeenUrl = `${API_BASE}/timeline/first-seen`;
 
@@ -52,6 +53,7 @@ function renderTaxaList(groups) {
 }
 
 function selectTaxonGroup(group) {
+  window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
   title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
   const slider = document.getElementById('checkpointSlider');
@@ -196,6 +198,24 @@ async function initCheckpointsUI() {
     });
   }
   await loadAndRenderList();
+  // Hook up cp clear button
+  const cpClearBtn = document.getElementById('cpClearBtn');
+  if (cpClearBtn) {
+    cpClearBtn.addEventListener('click', async () => {
+      const group = window.__cpSelectedGroup;
+      const slider = document.getElementById('checkpointSlider');
+      const idx = Number(slider?.value || 0);
+      const cp = group?.items?.[idx];
+      if (!cp) return;
+      if (!confirm('Delete this checkpoint?')) return;
+      const r = await fetch(deleteUrl, { method:'POST', headers:{ 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ id: cp.id }) });
+      if (r.ok) {
+        await loadAndRenderList();
+        const card = document.getElementById('cpResultsCard');
+        if (card) card.style.display = 'none';
+      }
+    });
+  }
 }
 
 async function loadAndRenderList() {

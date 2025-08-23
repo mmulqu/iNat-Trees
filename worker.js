@@ -60,6 +60,11 @@ export default {
         return listCheckpoints(request, env);
       }
 
+      if (pathname === '/checkpoints/delete' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return deleteCheckpoint(request, env);
+      }
+
       if (pathname === '/tree-from-species' && request.method === 'POST') {
         return treeFromSpecies(request, env);
       }
@@ -408,6 +413,17 @@ async function listCheckpoints(request, env) {
   sql += ' ORDER BY created_at DESC LIMIT 200';
   const { results } = await env.DB.prepare(sql).bind(...binds).all();
   return json({ checkpoints: results || [] }, 200, request);
+}
+
+async function deleteCheckpoint(request, env) {
+  const rawAuth = request.headers.get('Authorization') || '';
+  const jwt = await processAuthHeader(rawAuth);
+  if (!jwt) return json({ error: 'Unauthorized' }, 401, request);
+  const body = await request.json().catch(() => ({}));
+  const { id } = body || {};
+  if (!id) return json({ error: 'Missing parameters: id' }, 400, request);
+  await env.DB.prepare(`DELETE FROM checkpoints WHERE id = ?`).bind(id).run();
+  return json({ ok: true }, 200, request);
 }
 
 // Build a tree from a provided list of species taxon IDs (for checkpoint playback)
