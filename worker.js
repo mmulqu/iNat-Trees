@@ -64,6 +64,10 @@ export default {
         return treeFromSpecies(request, env);
       }
 
+      if (pathname === '/timeline/first-seen' && request.method === 'POST') {
+        return firstSeenTimeline(request, env);
+      }
+
       return json({ error: 'Not found' }, 404, request);
     } catch (err) {
       return json({ error: err?.message || String(err) }, 500, request);
@@ -406,6 +410,37 @@ async function treeFromSpecies(request, env) {
     const tree = await buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId);
     const markdown = treeToMarkdown(tree);
     return json({ markdown }, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
+}
+
+// Compute first-seen date per species taxon id for a user and base taxon
+// Request body: { username, taxonId, authHeader? }
+// Response: { firstSeen: { [taxonId]: isoDate }, species: number[] }
+async function firstSeenTimeline(request, env) {
+  try {
+    const rawAuth = request.headers.get('Authorization') || '';
+    const jwt = await processAuthHeader(rawAuth);
+    const authHeader = jwt ? `Bearer ${jwt}` : undefined;
+    const body = await request.json();
+    const { username, taxonId } = body || {};
+    if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
+    // Fetch all observations under the taxon for this user (paginated)
+    const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, authHeader || `${username}:${taxonId}`);
+    const firstSeen = {};
+    const speciesSet = new Set();
+    for (const obs of observations) {
+      if (!obs || !obs.taxon || !obs.taxon.id) continue;
+      const sid = obs.taxon.id;
+      speciesSet.add(sid);
+      const dateIso = (obs.observed_on_details && obs.observed_on_details.date)
+        ? new Date(obs.observed_on_details.date).toISOString()
+        : (obs.observed_on ? new Date(obs.observed_on).toISOString() : null);
+      if (!firstSeen[sid]) firstSeen[sid] = dateIso;
+      else if (dateIso && firstSeen[sid] && dateIso < firstSeen[sid]) firstSeen[sid] = dateIso;
+    }
+    return json({ firstSeen, species: Array.from(speciesSet) }, 200, request);
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }

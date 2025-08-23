@@ -4,6 +4,7 @@ const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
 const saveUrl = `${API_BASE}/checkpoints/save`;
 const treeFromSpeciesUrl = `${API_BASE}/tree-from-species`;
+const firstSeenUrl = `${API_BASE}/timeline/first-seen`;
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -74,8 +75,17 @@ function selectTaxonGroup(group) {
   } catch (_) {}
   // Ensure drag and click both update
   const sync = () => { renderCheckpointSummary(group, Number(slider.value)); renderCheckpointTree(group, Number(slider.value)); };
-  slider.oninput = sync;
-  slider.onchange = sync;
+  slider.oninput = (e) => {
+    const frac = Number(slider.value) / Math.max(1, (group.items.length - 1));
+    const start = new Date(group.items[0]?.created_at);
+    const end = new Date(group.items[group.items.length - 1]?.created_at);
+    if (isFinite(start) && isFinite(end)) {
+      const t = new Date(start.getTime() + frac * (end.getTime() - start.getTime()));
+      slider.dataset.thresholdDate = t.toISOString();
+    }
+    sync();
+  };
+  slider.onchange = slider.oninput;
   slider.addEventListener('click', (e) => {
     // Map click position to nearest index
     const rect = slider.getBoundingClientRect();
@@ -111,10 +121,26 @@ async function renderCheckpointTree(group, idx) {
   if (!sel) return;
   const username = localStorage.getItem('inat_username') || '';
   const species = JSON.parse(sel.species_ids_json || '[]');
+  // If the slider has a data-date threshold, filter by first-seen timeline
+  const slider = document.getElementById('checkpointSlider');
+  const threshold = slider && slider.dataset && slider.dataset.thresholdDate ? slider.dataset.thresholdDate : null;
+  let filtered = species;
+  if (threshold) {
+    try {
+      const tResp = await fetch(firstSeenUrl, { method:'POST', headers: { 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ username, taxonId: group.taxonId }) });
+      const tData = await tResp.json();
+      if (tResp.ok && tData && tData.firstSeen) {
+        filtered = species.filter(id => {
+          const d = tData.firstSeen[id];
+          return !d || d <= threshold; // include if no date or first seen before threshold
+        });
+      }
+    } catch (e) { console.warn('timeline first-seen fetch failed', e); }
+  }
   const r = await fetch(treeFromSpeciesUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-    body: JSON.stringify({ speciesTaxonIds: species, baseTaxonId: group.taxonId })
+    body: JSON.stringify({ speciesTaxonIds: filtered, baseTaxonId: group.taxonId })
   });
   const data = await r.json();
   if (!r.ok) return;
