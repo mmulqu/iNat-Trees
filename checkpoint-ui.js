@@ -56,6 +56,8 @@ function selectTaxonGroup(group) {
   window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
   title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
+  // Initialize real-date timeline for this taxon as well
+  initTimelineForTaxon(group.taxonId, group.taxonName || `Taxon ${group.taxonId}`).catch(console.error);
   const slider = document.getElementById('checkpointSlider');
   slider.disabled = false;
   slider.min = 0;
@@ -117,6 +119,122 @@ function selectTaxonGroup(group) {
     div.innerHTML = `<div class="alert alert-info">Compared to ${fmtDate(sel.created_at)}: +${added.length} species</div>`;
     btn.disabled = false; if (spn) spn.classList.add('d-none');
   };
+}
+
+// ===== Timeline (real dates) =====
+function daysBetween(a, b) {
+  const d1 = new Date(a + 'T00:00:00Z');
+  const d2 = new Date(b + 'T00:00:00Z');
+  return Math.max(0, Math.round((d2 - d1) / 86400000));
+}
+function dateAdd(base, days) {
+  const d = new Date(base + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth()+1).padStart(2,'0');
+  const dd = String(d.getUTCDate()).padStart(2,'0');
+  return `${y}-${m}-${dd}`;
+}
+function buildDateArray(minDate, maxDate) {
+  const n = daysBetween(minDate, maxDate);
+  const arr = [];
+  for (let i = 0; i <= n; i++) arr.push(dateAdd(minDate, i));
+  return arr;
+}
+function setSliderEnabled(enabled, min=0, max=0, value=0) {
+  const slider = document.getElementById('checkpointSlider');
+  slider.disabled = !enabled;
+  slider.min = String(min);
+  slider.max = String(max);
+  slider.value = String(value);
+}
+
+async function initTimelineForTaxon(taxonId, taxonName) {
+  currentTaxonId = Number(taxonId);
+  const card = document.getElementById('cpResultsCard');
+  if (card) card.style.display = 'block';
+  const head = document.getElementById('checkpointSelectedTitle');
+  if (head) head.textContent = `${taxonName || ('Taxon ' + taxonId)} — Date Timeline`;
+
+  if (!CURRENT_USER) {
+    setSliderEnabled(false);
+    document.getElementById('checkpointSummary').textContent = 'Connect your iNaturalist account to build a date timeline.';
+    return;
+  }
+
+  const params = new URLSearchParams({ user_login: CURRENT_USER, taxon_id: String(currentTaxonId) });
+  const r = await fetch(`${API_BASE}/timeline/date-range?${params}`, { headers: { ...getAuthHeaders() } });
+  const range = await r.json();
+
+  if (!range.minDate || !range.maxDate) {
+    setSliderEnabled(false);
+    document.getElementById('checkpointStart').textContent = '';
+    document.getElementById('checkpointEnd').textContent = '';
+    document.getElementById('checkpointSummary').innerHTML = `<em>No timeline index yet for this taxon.</em> <button id="buildTimelineBtn" class="btn btn-sm btn-primary ms-2">Build Timeline</button>`;
+    const btn = document.getElementById('buildTimelineBtn');
+    if (btn) btn.onclick = async () => { await buildTimelineIndex(); await initTimelineForTaxon(currentTaxonId, taxonName); };
+    return;
+  }
+
+  currentDates = buildDateArray(range.minDate, range.maxDate);
+  document.getElementById('checkpointStart').textContent = range.minDate;
+  document.getElementById('checkpointEnd').textContent = range.maxDate;
+  setSliderEnabled(true, 0, currentDates.length - 1, currentDates.length - 1);
+
+  await drawTreeAtDate(currentDates[currentDates.length - 1]);
+
+  const slider = document.getElementById('checkpointSlider');
+  slider.oninput = (e) => {
+    const idx = Number(e.target.value);
+    const date = currentDates[idx];
+    if (!date) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { drawTreeAtDate(date); }, 250);
+  };
+}
+
+async function drawTreeAtDate(isoDate) {
+  if (!CURRENT_USER || !currentTaxonId) return;
+  const sum = document.getElementById('checkpointSummary');
+  if (sum) sum.textContent = `Showing observations on or before ${isoDate}`;
+  const r = await fetch(`${API_BASE}/timeline/tree-at-date`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ username: CURRENT_USER, taxonId: currentTaxonId, date: isoDate })
+  });
+  const data = await r.json();
+  if (!r.ok || !data?.markdown) { console.error('tree-at-date error', data); return; }
+  const pre = document.getElementById('cpMarkdownResult');
+  if (pre) pre.textContent = data.markdown;
+  const svg = document.getElementById('checkpointSvg');
+  if (svg) {
+    svg.innerHTML = '';
+    setTimeout(() => {
+      const { Transformer, Markmap } = window.markmap || {};
+      if (!Transformer || !Markmap) return;
+      const transformer = new Transformer();
+      const { root } = transformer.transform(data.markdown);
+      Markmap.create(svg, null, root);
+    }, 60);
+  }
+}
+
+async function buildTimelineIndex() {
+  if (!CURRENT_USER || !currentTaxonId) return;
+  const btn = document.getElementById('buildTimelineBtn') || document.getElementById('requeryCompareBtn');
+  const spinner = document.getElementById('requerySpinner');
+  if (btn && spinner) spinner.classList.remove('d-none');
+  try {
+    const r = await fetch(`${API_BASE}/timeline/index`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ username: CURRENT_USER, taxonId: currentTaxonId })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || 'Indexing failed');
+  } finally {
+    if (btn && spinner) spinner.classList.add('d-none');
+  }
 }
 
 async function renderCheckpointTree(group, idx) {

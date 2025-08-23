@@ -27,6 +27,26 @@ async function acquireLimiter(env, key, minGapMs = 1000) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Normalize observation date to YYYY-MM-DD
+function toISODateOnly(v) {
+  if (!v) return null;
+  try {
+    // Accept "YYYY-MM-DD", "YYYY-MM-DDTHH:MM:SSZ", etc.
+    const d = new Date(v);
+    if (!Number.isFinite(d.getTime())) return null;
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch { return null; }
+}
+
+function isSpeciesRank(rank) {
+  const r = String(rank || '').toLowerCase();
+  // include infraspecific ranks so they count toward the species leaf in your tree
+  return r === 'species' || r === 'subspecies' || r === 'variety' || r === 'form';
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -71,6 +91,18 @@ export default {
 
       if (pathname === '/timeline/first-seen' && request.method === 'POST') {
         return firstSeenTimeline(request, env);
+      }
+      if (pathname === '/timeline/index' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return timelineIndex(request, env);
+      }
+      if (pathname === '/timeline/date-range' && request.method === 'GET') {
+        await ensureCheckpointTables(env);
+        return timelineDateRange(request, env);
+      }
+      if (pathname === '/timeline/tree-at-date' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return timelineTreeAtDate(request, env);
       }
 
       return json({ error: 'Not found' }, 404, request);
@@ -177,6 +209,24 @@ async function processAuthHeader(authHeader) {
   const jwtToken = await getJWTFromOAuth(token);
   if (jwtToken) jwtCache.set(authHeader, { token: jwtToken, timestamp: Date.now() });
   return jwtToken || null;
+}
+
+function decodeJwtPayload(jwt) {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload || null;
+  } catch { return null; }
+}
+
+async function requireLogin(request) {
+  const rawAuth = request.headers.get('Authorization') || '';
+  const jwt = await processAuthHeader(rawAuth);
+  if (!jwt) return { login: null, jwt: null };
+  const payload = decodeJwtPayload(jwt) || {};
+  const login = payload.user_login || payload.login || payload.preferred_username || null;
+  return { login, jwt };
 }
 
 function getCacheKey(username, taxonId) { return `${username}:${taxonId}`; }
@@ -363,6 +413,33 @@ async function ensureCheckpointTables(env) {
   const idxFirst = `CREATE INDEX IF NOT EXISTS idx_first_seen_user_taxon ON first_seen(user_login, taxon_id)`;
   await env.DB.prepare(createFirstSeen).run();
   await env.DB.prepare(idxFirst).run();
+
+  // === NEW: per-user, per-base-taxon event log (species × date) ===
+  const createUserObsEvents = `CREATE TABLE IF NOT EXISTS user_obs_events (
+    user_login TEXT NOT NULL,
+    taxon_id   INTEGER NOT NULL,   -- base taxon (e.g., 47126 = Plants)
+    species_id INTEGER NOT NULL,   -- leaf species taxon_id
+    observed_on TEXT NOT NULL,     -- ISO date YYYY-MM-DD
+    PRIMARY KEY (user_login, taxon_id, species_id, observed_on)
+  )`;
+  const idxUserObsEvents = `CREATE INDEX IF NOT EXISTS idx_user_obs_events_range
+    ON user_obs_events(user_login, taxon_id, observed_on)`;
+  await env.DB.prepare(createUserObsEvents).run();
+  await env.DB.prepare(idxUserObsEvents).run();
+
+  // === NEW: per-user, per-base-taxon species summary (min/max dates) ===
+  const createUserObsSummary = `CREATE TABLE IF NOT EXISTS user_obs_summary (
+    user_login TEXT NOT NULL,
+    taxon_id   INTEGER NOT NULL,
+    species_id INTEGER NOT NULL,
+    first_seen TEXT,               -- earliest YYYY-MM-DD
+    last_seen  TEXT,               -- latest YYYY-MM-DD
+    PRIMARY KEY (user_login, taxon_id, species_id)
+  )`;
+  const idxUserObsSummary = `CREATE INDEX IF NOT EXISTS idx_user_obs_summary_range
+    ON user_obs_summary(user_login, taxon_id, first_seen, last_seen)`;
+  await env.DB.prepare(createUserObsSummary).run();
+  await env.DB.prepare(idxUserObsSummary).run();
 }
 
 function uuidv4() {
@@ -374,14 +451,14 @@ function uuidv4() {
 }
 
 async function saveCheckpoint(request, env) {
-  const rawAuth = request.headers.get('Authorization') || '';
-  const jwt = await processAuthHeader(rawAuth);
-  if (!jwt) return json({ error: 'Unauthorized' }, 401, request);
+  const { login } = await requireLogin(request);
+  if (!login) return json({ error: 'Unauthorized' }, 401, request);
   const body = await request.json().catch(() => ({}));
   const { username, taxonId, taxonName, speciesTaxonIds, rankCounts, highWatermarkUpdatedAt } = body || {};
   if (!username || !taxonId || !Array.isArray(speciesTaxonIds)) {
     return json({ error: 'Missing parameters: username, taxonId, speciesTaxonIds' }, 400, request);
   }
+  if (username !== login) return json({ error: 'Forbidden' }, 403, request);
   const id = uuidv4();
   const createdAt = new Date().toISOString();
   const sql = `INSERT INTO checkpoints (id, user_login, taxon_id, taxon_name, species_ids_json, rank_counts_json, high_watermark_updated_at, created_at)
@@ -401,10 +478,12 @@ async function saveCheckpoint(request, env) {
 
 async function listCheckpoints(request, env) {
   const url = new URL(request.url);
+  const { login } = await requireLogin(request);
   const user = (url.searchParams.get('user_login') || '').trim();
   const taxonId = url.searchParams.get('taxon_id');
   const include = url.searchParams.get('include') || 'meta';
   if (!user) return json({ error: 'user_login is required' }, 400, request);
+  if (!login || login !== user) return json({ error: 'Forbidden' }, 403, request);
   let sql = `SELECT id, user_login, taxon_id, taxon_name, created_at`;
   if (include === 'full') sql += `, species_ids_json, rank_counts_json, high_watermark_updated_at`;
   sql += ` FROM checkpoints WHERE user_login = ?`;
@@ -416,12 +495,14 @@ async function listCheckpoints(request, env) {
 }
 
 async function deleteCheckpoint(request, env) {
-  const rawAuth = request.headers.get('Authorization') || '';
-  const jwt = await processAuthHeader(rawAuth);
-  if (!jwt) return json({ error: 'Unauthorized' }, 401, request);
+  const { login } = await requireLogin(request);
+  if (!login) return json({ error: 'Unauthorized' }, 401, request);
   const body = await request.json().catch(() => ({}));
   const { id } = body || {};
   if (!id) return json({ error: 'Missing parameters: id' }, 400, request);
+  // Only delete if owned by the requester
+  const row = await env.DB.prepare(`SELECT user_login FROM checkpoints WHERE id = ?`).bind(id).first();
+  if (!row || row.user_login !== login) return json({ error: 'Forbidden' }, 403, request);
   await env.DB.prepare(`DELETE FROM checkpoints WHERE id = ?`).bind(id).run();
   return json({ ok: true }, 200, request);
 }
@@ -448,12 +529,13 @@ async function treeFromSpecies(request, env) {
 async function firstSeenTimeline(request, env) {
   try {
     await ensureCheckpointTables(env);
-    const rawAuth = request.headers.get('Authorization') || '';
-    const jwt = await processAuthHeader(rawAuth);
+    const { login, jwt } = await requireLogin(request);
+    if (!login) return json({ error: 'Unauthorized' }, 401, request);
     const authHeader = jwt ? `Bearer ${jwt}` : undefined;
     const body = await request.json();
     const { username, taxonId } = body || {};
     if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
+    if (username !== login) return json({ error: 'Forbidden' }, 403, request);
     // Try to read cached first_seen
     const cachedRows = await env.DB.prepare(`SELECT species_id, first_seen FROM first_seen WHERE user_login = ? AND taxon_id = ?`).bind(username, parseInt(taxonId, 10)).all();
     const cachedMap = new Map((cachedRows.results || []).map(r => [r.species_id, r.first_seen]));
@@ -481,6 +563,111 @@ async function firstSeenTimeline(request, env) {
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }
+}
+
+// POST /timeline/index  { username, taxonId }
+async function timelineIndex(request, env) {
+  const { login, jwt } = await requireLogin(request);
+  if (!login) return json({ error: 'Unauthorized' }, 401, request);
+  const body = await request.json().catch(() => ({}));
+  const { username, taxonId } = body || {};
+  if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
+  if (username !== login) return json({ error: 'Forbidden' }, 403, request);
+
+  const authHeader = jwt ? `Bearer ${jwt}` : undefined;
+  const limiterKey = authHeader || `${username}:${taxonId}:timeline`;
+
+  // Fetch all observations under base taxon
+  const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, limiterKey);
+
+  let insertedEvents = 0, updatedSummaries = 0;
+  const insertEvt = env.DB.prepare(
+    `INSERT OR IGNORE INTO user_obs_events (user_login, taxon_id, species_id, observed_on)
+     VALUES (?, ?, ?, ?)`
+  );
+  const upsertSum = env.DB.prepare(
+    `INSERT INTO user_obs_summary (user_login, taxon_id, species_id, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_login, taxon_id, species_id)
+     DO UPDATE SET
+       first_seen = MIN(COALESCE(first_seen, excluded.first_seen), excluded.first_seen),
+       last_seen  = MAX(COALESCE(last_seen,  excluded.last_seen),  excluded.last_seen)`
+  );
+
+  for (const obs of observations) {
+    const taxon = obs?.taxon;
+    if (!taxon?.id) continue;
+    // Only index species-level leaves (and infra)
+    if (!isSpeciesRank(taxon.rank)) continue;
+    const sid = taxon.id;
+    const iso =
+      toISODateOnly(obs?.observed_on_details?.date) ||
+      toISODateOnly(obs?.observed_on) ||
+      toISODateOnly(obs?.time_observed_at);
+    if (!iso) continue;
+
+    const evt = await insertEvt.bind(username, parseInt(taxonId,10), sid, iso).run();
+    if ((evt?.success) || (evt?.meta && evt.meta.changes > 0)) insertedEvents++;
+
+    const sum = await upsertSum.bind(username, parseInt(taxonId,10), sid, iso, iso).run();
+    if (sum?.success || (sum?.meta && sum.meta.changes > 0)) updatedSummaries++;
+  }
+
+  // Range for UI
+  const row = await env.DB.prepare(
+    `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate
+     FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+  ).bind(username, parseInt(taxonId,10)).first();
+
+  return json({
+    insertedEvents, updatedSummaries,
+    minDate: row?.minDate || null,
+    maxDate: row?.maxDate || null
+  }, 200, request);
+}
+
+// GET /timeline/date-range?user_login=:u&taxon_id=:t
+async function timelineDateRange(request, env) {
+  const url = new URL(request.url);
+  const { login } = await requireLogin(request);
+  const user = (url.searchParams.get('user_login') || '').trim();
+  const taxonId = parseInt(url.searchParams.get('taxon_id') || '', 10);
+  if (!user || !Number.isFinite(taxonId)) return json({ error: 'user_login and taxon_id are required' }, 400, request);
+  if (!login || login !== user) return json({ error: 'Forbidden' }, 403, request);
+
+  const row = await env.DB.prepare(
+    `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate, COUNT(*) AS speciesCount
+     FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+  ).bind(user, taxonId).first();
+  return json({
+    minDate: row?.minDate || null,
+    maxDate: row?.maxDate || null,
+    speciesCount: row?.speciesCount || 0
+  }, 200, request);
+}
+
+// POST /timeline/tree-at-date  { username, taxonId, date }
+async function timelineTreeAtDate(request, env) {
+  const { login } = await requireLogin(request);
+  if (!login) return json({ error: 'Unauthorized' }, 401, request);
+  const body = await request.json().catch(() => ({}));
+  const { username, taxonId, date } = body || {};
+  if (!username || !taxonId || !date) return json({ error: 'Missing parameters: username, taxonId, date' }, 400, request);
+  if (username !== login) return json({ error: 'Forbidden' }, 403, request);
+
+  const iso = toISODateOnly(date);
+  if (!iso) return json({ error: 'Invalid date' }, 400, request);
+
+  const q = await env.DB.prepare(
+    `SELECT DISTINCT species_id FROM user_obs_events
+     WHERE user_login=? AND taxon_id=? AND observed_on <= ?
+     ORDER BY species_id`
+  ).bind(username, parseInt(taxonId,10), iso).all();
+  const speciesIds = (q.results || []).map(r => r.species_id);
+
+  const tree = await buildTreeFromDatabase(env, speciesIds, parseInt(taxonId,10));
+  const markdown = treeToMarkdown(tree);
+  return json({ markdown, speciesCount: speciesIds.length }, 200, request);
 }
 
 async function searchTaxa(request, env) {
