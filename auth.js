@@ -93,18 +93,17 @@ export function getAuthHeaders() {
 }
 
 export async function fetchCurrentUser() {
-  const token = localStorage.getItem('inat_token');
-  console.log('[fetchCurrentUser] token =', token);
-
-  if (!token) return null;
-
+  const t = localStorage.getItem('inat_token');
+  if (!t) return null;
   try {
-    const r = await fetch('https://www.inaturalist.org/users/edit.json', {
-      headers: { Authorization: `Bearer ${token}` }
+    const res = await fetch('https://api.inaturalist.org/v1/users/me', {
+      headers: { Authorization: `Bearer ${t}` }
     });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    return data.user ?? data;
+    if (!res.ok) return null;
+    const data = await res.json();
+    const login = data?.results?.[0]?.login || null;
+    if (login) localStorage.setItem('inat_username', login);
+    return login ? { login } : null;
   } catch (e) {
     console.error('Error fetching user:', e);
     return null;
