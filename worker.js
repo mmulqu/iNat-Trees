@@ -499,7 +499,11 @@ async function listCheckpoints(request, env) {
   const taxonId = url.searchParams.get('taxon_id');
   const include = url.searchParams.get('include') || 'meta';
   if (!user) return json({ error: 'user_login is required' }, 400, request);
-  if (!login || login !== user) return json({ error: 'Forbidden' }, 403, request);
+  const rawAuth = request.headers.get('Authorization') || '';
+  const hadAuthHeader = !!rawAuth;
+  let usable = false; try { usable = !!(await processAuthHeader(rawAuth)); } catch {}
+  const debug = { 'X-Auth-Received': String(hadAuthHeader), 'X-Auth-UsableJWT': String(usable) };
+  if (!login || login !== user) return json({ error: 'Forbidden' }, 403, request, debug);
   let sql = `SELECT id, user_login, taxon_id, taxon_name, created_at`;
   if (include === 'full') sql += `, species_ids_json, rank_counts_json, high_watermark_updated_at`;
   sql += ` FROM checkpoints WHERE user_login = ?`;
@@ -507,7 +511,7 @@ async function listCheckpoints(request, env) {
   if (taxonId) { sql += ' AND taxon_id = ?'; binds.push(parseInt(taxonId, 10)); }
   sql += ' ORDER BY created_at DESC LIMIT 200';
   const { results } = await env.DB.prepare(sql).bind(...binds).all();
-  return json({ checkpoints: results || [] }, 200, request);
+  return json({ checkpoints: results || [] }, 200, request, debug);
 }
 
 async function deleteCheckpoint(request, env) {

@@ -1,4 +1,6 @@
 import { getAuthHeaders, fetchCurrentUser } from './auth.js';
+let CURRENT_USER = localStorage.getItem('inat_username') || null;
+let currentTaxonId = null, currentDates = [], debounceTimer = null;
 
 const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
@@ -346,7 +348,8 @@ async function initCheckpointsUI() {
 
 async function loadAndRenderList() {
   const username = localStorage.getItem('inat_username') || '';
-  if (!username) return;
+  const token = localStorage.getItem('inat_token') || '';
+  if (!username || !token) return;  // avoid 403 until signed in properly
   const cps = await fetchCheckpoints(username);
   const groups = groupByTaxon(cps);
   renderTaxaList(groups);
