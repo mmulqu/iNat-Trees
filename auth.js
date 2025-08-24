@@ -1,9 +1,9 @@
 // auth.js
 // One-time PKCE login → store iNat API JWT; reuse for all app calls.
 
-const INAT_CLIENT_ID = "<YOUR_CLIENT_ID>"; // <-- fill with your app's client id
+const INAT_CLIENT_ID = "kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw";
 const ORIGIN = window.location.origin;
-const REDIRECT_URI = `${ORIGIN}/callback.html`;
+const REDIRECT_URI = `${ORIGIN}/auth/callback.html`;
 
 const AUTHZ_URL = "https://www.inaturalist.org/oauth/authorize";
 const TOKEN_URL = "https://www.inaturalist.org/oauth/token";
