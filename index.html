@@ -34,6 +34,15 @@
       background-color: var(--primary-color);
     }
 
+    /* Always show iNaturalist favicon on the auth button via CSS */
+    .inat-favicon {
+      background-image: url('https://www.inaturalist.org/favicon.ico');
+      background-repeat: no-repeat;
+      background-position: 12px center;
+      padding-left: 34px;
+      background-size: 18px 18px;
+    }
+
     .navbar-brand {
       font-weight: bold;
       color: white !important;
@@ -228,7 +237,7 @@
   </style>
 </head>
 <body>
-  <button id="inatLogin" class="btn btn-success">
+  <button id="inatLogin" class="btn btn-success inat-favicon">
     <img src="https://www.inaturalist.org/favicon.ico" style="width:18px;margin-right:6px">
     Connect my iNaturalist account
   </button>
