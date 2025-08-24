@@ -9,7 +9,9 @@ function renderAuthUI() {
   if (user) {
     btn.classList.remove('btn-success');
     btn.classList.add('btn-outline-secondary');
-    btn.innerHTML = `<i class="bi bi-check-circle me-1"></i> Connected as <strong>${user}</strong>`;
+    btn.innerHTML = `<i class="bi bi-check-circle me-1"></i> Connected as <strong id="inatUserLabel"></strong>`;
+    const label = document.getElementById('inatUserLabel');
+    if (label) label.textContent = user;
     btn.disabled = true;
     if (logoutBtn) {
       logoutBtn.classList.remove('d-none');
