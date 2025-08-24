@@ -41,47 +41,49 @@ export function startLogin() {
 }
 
 export async function handleCallback() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
+  const qs = new URLSearchParams(location.search);
+  const code = qs.get('code');
+  const state = qs.get('state');
   if (!code) return;
 
-  const codeVerifier = localStorage.getItem('inat_code_verifier');
+  const verifier = localStorage.getItem('inat_code_verifier');
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
     grant_type: 'authorization_code',
     code,
-    redirect_uri: REDIRECT_URI,
-    code_verifier: codeVerifier
+    code_verifier: verifier,
+    redirect_uri: REDIRECT_URI
   });
 
-  const r = await fetch('https://www.inaturalist.org/oauth/token', {
+  const tok = await fetch('https://www.inaturalist.org/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
-  });
-  const token = await r.json();
-  localStorage.setItem('inat_token', token.access_token);
+  }).then(r => r.json());
 
-  // Exchange OAuth access token for a v1 API JWT and store it
+  // store access token
+  localStorage.setItem('inat_token', tok.access_token);
+
+  // resolve username now (for UI)
   try {
-    const jwtRes = await fetch('https://www.inaturalist.org/users/api_token', {
-      headers: { Authorization: `Bearer ${token.access_token}`, Accept: 'application/json' }
-    });
-    if (jwtRes.ok) {
-      const jwtData = await jwtRes.json().catch(() => ({}));
-      const jwt = jwtData.api_token || jwtData.token;
-      if (jwt) localStorage.setItem('inat_jwt', jwt);
-    } else {
-      console.error('JWT exchange failed with status', jwtRes.status);
+    const me = await fetch('https://api.inaturalist.org/v1/users/me', {
+      headers: { Authorization: `Bearer ${tok.access_token}` }
+    }).then(r => r.json());
+    const login = me?.results?.[0]?.login || '';
+    if (login) localStorage.setItem('inat_username', login);
+  } catch {}
+
+  // optional: fetch API JWT and overwrite if valid
+  try {
+    const jwtText = await fetch('https://www.inaturalist.org/users/api_token', {
+      headers: { Authorization: `Bearer ${tok.access_token}` }
+    }).then(r => r.text());
+    const jwt = jwtText.replace(/["']/g, '').trim();
+    if (jwt && jwt.split('.').length === 3) {
+      localStorage.setItem('inat_token', jwt);
     }
-  } catch (e) {
-    console.error('JWT exchange error:', e);
-  }
-  
-  // Store username on first login
-  const me = await fetchCurrentUser();
-  if (me) localStorage.setItem('inat_username', me.login);
-  
+  } catch {}
+
   window.location = '/';
 }
 
