@@ -53,6 +53,12 @@ export function signOut() {
 
 // ===== PKCE start
 export async function startLogin() {
+  // clear any stale values
+  localStorage.removeItem("inat_token");
+  localStorage.removeItem("inat_username");
+  localStorage.removeItem("pkce_state");
+  localStorage.removeItem("pkce_verifier");
+
   // create state & code_verifier
   const state = crypto.getRandomValues(new Uint32Array(4)).join("-");
   const verifier = randHex(32);
@@ -117,7 +123,7 @@ export async function handleCallback() {
 
   // 2) Exchange access_token → API JWT (CORS OK)
   const jwtRes = await fetch(API_TOKEN_URL, {
-    headers: { Authorization: `Bearer ${tok.access_token}` }
+    headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/json' }
   });
   let jwtText = await jwtRes.text();
   try { jwtText = JSON.parse(jwtText).api_token || jwtText; } catch {}
