@@ -1,102 +1,95 @@
 
-const CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw'; //  your iNat app ID
-const REDIRECT_URI = `https://inat-trees.replit.app/auth/callback`;
+const INAT_CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw';
+const REDIRECT_URI   = window.location.origin + '/auth/callback';
+const AUTHZ_URL      = 'https://www.inaturalist.org/oauth/authorize';
+const TOKEN_URL      = 'https://www.inaturalist.org/oauth/token';
+const API_TOKEN_URL  = 'https://www.inaturalist.org/users/api_token';
+const API_ME_URL     = 'https://api.inaturalist.org/v1/users/me';
+
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
+}
+async function sha256(s) {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+}
 
 
 
-export function startLogin() {
-  const btn = document.getElementById('inatLogin');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Redirecting…';
+export async function startLogin() {
+  const state = crypto.getRandomValues(new Uint32Array(4)).join('-');
+  const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+  const challenge = base64url(await sha256(verifier));
 
-  // Clear any stale tokens/usernames so we don't reuse read-only grants
-  try {
-    localStorage.removeItem('inat_token');
-    localStorage.removeItem('inat_username');
-    localStorage.removeItem('inat_jwt');
-  } catch (_) {}
+  // Clear any stale tokens
+  try { localStorage.removeItem('inat_token'); localStorage.removeItem('inat_username'); } catch {}
 
-  const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
-  localStorage.setItem('inat_code_verifier', codeVerifier);
+  localStorage.setItem('pkce_state', state);
+  localStorage.setItem('pkce_verifier', verifier);
 
-  import('./pkce.js').then(async ({ sha256base64url }) => {
-    const codeChallenge = await sha256base64url(codeVerifier);
-    const authUrl = new URL('https://www.inaturalist.org/oauth/authorize');
-    authUrl.searchParams.set('client_id', CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('code_challenge_method', 'S256');
-    authUrl.searchParams.set('code_challenge', codeChallenge);
-    // Request only the 'write' scope to enable JWT exchange at /users/api_token
-    // IMPORTANT: request write scope so /users/api_token will succeed
-    authUrl.searchParams.set('scope', 'write');
-
-    window.location.href = authUrl;
-  }).catch(err => {
-    console.error(err);
-    btn.disabled = false;
-    btn.textContent = 'Connect my iNaturalist account';
-    alert('Could not start login – see console for details.');
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: INAT_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    scope: 'write',
+    state,
+    code_challenge: challenge,
+    code_challenge_method: 'S256'
   });
+  window.location = `${AUTHZ_URL}?${params.toString()}`;
 }
 
 export async function handleCallback() {
   const qs = new URLSearchParams(location.search);
-  const code = qs.get('code');
+  const code  = qs.get('code');
   const state = qs.get('state');
   if (!code) return;
 
-  const verifier = localStorage.getItem('inat_code_verifier');
+  const expected = localStorage.getItem('pkce_state');
+  const verifier  = localStorage.getItem('pkce_verifier');
+  localStorage.removeItem('pkce_state');
+  localStorage.removeItem('pkce_verifier');
+  if (!expected || state !== expected) { console.error('PKCE state mismatch'); return; }
+
+  // 1) Exchange code -> access_token
   const body = new URLSearchParams({
-    client_id: CLIENT_ID,
     grant_type: 'authorization_code',
     code,
-    code_verifier: verifier,
-    redirect_uri: REDIRECT_URI
+    client_id: INAT_CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    code_verifier: verifier
   });
+  const tokRes = await fetch(TOKEN_URL, { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body });
+  const tok = await tokRes.json();
+  if (!tok?.access_token) { console.error('Token endpoint did not return access_token', tok); return; }
 
-  const tok = await fetch('https://www.inaturalist.org/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  }).then(r => r.json());
+  // 2) access_token -> JWT
+  const jwtRes = await fetch(API_TOKEN_URL, { headers: { Authorization: `Bearer ${tok.access_token}` } });
+  let jwtText = await jwtRes.text();
+  try { jwtText = JSON.parse(jwtText).api_token || jwtText; } catch {}
+  const jwt = String(jwtText).replace(/["']/g,'').trim();
+  if (!jwt || jwt.split('.').length !== 3) { console.error('Failed to obtain JWT from users/api_token'); return; }
 
-  // store access token
-  localStorage.setItem('inat_token', tok.access_token);
+  // 3) Save JWT
+  localStorage.setItem('inat_token', jwt);
 
-  // resolve username now (for UI)
-  try {
-    const me = await fetch('https://api.inaturalist.org/v1/users/me', {
-      headers: { Authorization: `Bearer ${tok.access_token}` }
-    }).then(r => r.json());
-    const login = me?.results?.[0]?.login || '';
-    if (login) localStorage.setItem('inat_username', login);
-  } catch {}
+  // 4) Populate username
+  try { await fetchCurrentUser(); } catch {}
 
-  // optional: fetch API JWT and overwrite if valid
-  try {
-    const jwtText = await fetch('https://www.inaturalist.org/users/api_token', {
-      headers: { Authorization: `Bearer ${tok.access_token}` }
-    }).then(r => r.text());
-    const jwt = jwtText.replace(/["']/g, '').trim();
-    if (jwt && jwt.split('.').length === 3) {
-      localStorage.setItem('inat_token', jwt);
-    }
-  } catch {}
-
-  window.location = '/';
+  history.replaceState({}, '', REDIRECT_URI);
 }
 
 export function getAuthHeaders() {
-  const token = localStorage.getItem('inat_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const t = localStorage.getItem('inat_token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
 export async function fetchCurrentUser() {
   const t = localStorage.getItem('inat_token');
   if (!t) return null;
   try {
-    const res = await fetch('https://api.inaturalist.org/v1/users/me', {
+    const res = await fetch(API_ME_URL, {
       headers: { Authorization: `Bearer ${t}` }
     });
     if (!res.ok) return null;
