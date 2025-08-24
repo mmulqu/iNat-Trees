@@ -1,4 +1,4 @@
-import { getAuthHeaders } from './auth.js';
+import { getAuthHeaders, fetchCurrentUser } from './auth.js';
 
 const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
@@ -297,14 +297,22 @@ async function initCheckpointsUI() {
   if (btn) {
     btn.addEventListener('click', async () => {
       const payload = window.__lastBuild;
-      if (!payload || !payload.username || !payload.taxonId) {
+      if (!payload || !payload.taxonId) {
         alert('Build a tree first before saving a checkpoint.');
         return;
       }
+      const username = localStorage.getItem('inat_username') || (await fetchCurrentUser())?.login;
       const r = await fetch(saveUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          username,
+          taxonId:   payload.taxonId,
+          taxonName: payload.taxonName,
+          speciesTaxonIds: payload.speciesTaxonIds || [],
+          rankCounts:      payload.rankCounts || {},
+          highWatermarkUpdatedAt: payload.highWatermarkUpdatedAt || null,
+        })
       });
       if (!r.ok) {
         const t = await r.text();
