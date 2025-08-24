@@ -1,7 +1,7 @@
 import { startLogin, handleCallback, getAuthHeaders } from './auth.js';
 
-// Handle auth callback if on callback page
-if (window.location.pathname === '/auth/callback') {
+// Handle auth callback (support either path; we use /callback.html)
+if (window.location.pathname === '/callback.html' || window.location.pathname === '/auth/callback') {
   handleCallback();
 }
 

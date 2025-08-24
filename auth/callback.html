@@ -1,18 +1,15 @@
-<!-- auth/callback.html -->
-<!DOCTYPE html>
-<meta charset="utf-8">
-<title>iNaturalist login…</title>
-<style>
-  body {font-family: system-ui; display:flex; height:100vh; align-items:center; justify-content:center;}
-  .msg {text-align:center;}
-</style>
-
-<div class="msg">
-  <h3>Finishing sign‑in…</h3>
-  <p>This should only take a moment.</p>
-</div>
-
-<script type="module">
-  import { handleCallback } from '/auth.js';
-  handleCallback();          // will swap code → token → redirect back home
-</script>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <p>Completing sign-in…</p>
+    <script type="module">
+      import { handleCallback } from './auth.js';
+      handleCallback();
+    </script>
+  </body>
+</html>
