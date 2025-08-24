@@ -3,7 +3,7 @@
 
 const INAT_CLIENT_ID = "kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw";
 const ORIGIN = window.location.origin;
-const REDIRECT_URI = `${ORIGIN}/callback.html`;
+const REDIRECT_URI = `https://inat-trees.replit.app/auth/callback`;
 
 const AUTHZ_URL = "https://www.inaturalist.org/oauth/authorize";
 const TOKEN_URL = "https://www.inaturalist.org/oauth/token";
