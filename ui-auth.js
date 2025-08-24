@@ -18,6 +18,8 @@ function renderAuthUI() {
       logoutBtn.onclick = () => {
         localStorage.removeItem('inat_token');
         localStorage.removeItem('inat_username');
+        localStorage.removeItem('pkce_state');
+        localStorage.removeItem('pkce_verifier');
         location.reload();
       };
     }
@@ -31,13 +33,19 @@ function renderAuthUI() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  // Try storage-first, then fetch if needed
+async function initAuthUI() {
   if (!localStorage.getItem('inat_username') && localStorage.getItem('inat_token')) {
     await fetchCurrentUser();
   }
   renderAuthUI();
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'inat_token' || e.key === 'inat_username') renderAuthUI();
-  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAuthUI);
+} else {
+  initAuthUI();
+}
+
+window.addEventListener('storage', (e) => {
+  if (e.key === 'inat_token' || e.key === 'inat_username') renderAuthUI();
 });
