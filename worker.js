@@ -222,26 +222,45 @@ function decodeJwtPayload(jwt) {
 
 async function requireLogin(request) {
   const rawAuth = request.headers.get('Authorization') || '';
+  if (!rawAuth) return { login: null, jwt: null };
+
+  // Normalize bearer (could be access token or JWT)
+  const bearer = rawAuth.startsWith('Bearer ') ? rawAuth.substring(7) : rawAuth;
+
+  // Try to convert to JWT (if it's already a JWT, processAuthHeader just returns it)
   const jwt = await processAuthHeader(rawAuth);
+
+  // If we have a JWT, try to read a login claim
   if (jwt) {
     const payload = decodeJwtPayload(jwt) || {};
-    const login = payload.user_login || payload.login || payload.preferred_username || null;
+    let login = payload.user_login || payload.login || payload.preferred_username || payload.username || null;
+    // Some iNat JWTs don't carry login; resolve via users/me using the same JWT
+    if (!login) {
+      try {
+        const r = await fetch('https://api.inaturalist.org/v1/users/me', {
+          headers: { Authorization: `Bearer ${jwt}`, 'User-Agent': 'iNat-Trees-Cloudflare/1.0' }
+        });
+        if (r.ok) {
+          const j = await r.json().catch(() => ({}));
+          login = j?.results?.[0]?.login || null;
+        }
+      } catch (_) {}
+    }
     return { login, jwt };
   }
-  // Fallback: try to resolve login from OAuth access token by calling users/me
-  let bearer = rawAuth.startsWith('Bearer ') ? rawAuth.substring(7) : rawAuth;
-  if (bearer) {
-    try {
-      const r = await fetch('https://api.inaturalist.org/v1/users/me', {
-        headers: { Authorization: `Bearer ${bearer}`, 'User-Agent': 'iNat-Trees-Cloudflare/1.0' }
-      });
-      if (r.ok) {
-        const j = await r.json().catch(() => ({}));
-        const login = j?.results?.[0]?.login || null;
-        if (login) return { login, jwt: null };
-      }
-    } catch (_) {}
-  }
+
+  // No JWT? It was likely a raw OAuth access token. Resolve login via users/me.
+  try {
+    const r = await fetch('https://api.inaturalist.org/v1/users/me', {
+      headers: { Authorization: `Bearer ${bearer}`, 'User-Agent': 'iNat-Trees-Cloudflare/1.0' }
+    });
+    if (r.ok) {
+      const j = await r.json().catch(() => ({}));
+      const login = j?.results?.[0]?.login || null;
+      if (login) return { login, jwt: null };
+    }
+  } catch (_) {}
+
   return { login: null, jwt: null };
 }
 
