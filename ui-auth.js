@@ -9,7 +9,7 @@ function renderAuthUI() {
   if (user) {
     btn.classList.remove('btn-success');
     btn.classList.add('btn-outline-secondary');
-    btn.innerHTML = `<i class="bi bi-check-circle me-1"></i> Connected as <strong id="inatUserLabel"></strong>`;
+    btn.innerHTML = `<img src="https://www.inaturalist.org/favicon.ico" style="width:18px;margin-right:6px"> <i class="bi bi-check-circle me-1"></i> Connected as <strong id="inatUserLabel"></strong>`;
     const label = document.getElementById('inatUserLabel');
     if (label) label.textContent = user;
     btn.disabled = true;
@@ -26,7 +26,7 @@ function renderAuthUI() {
   } else {
     btn.classList.add('btn-success');
     btn.classList.remove('btn-outline-secondary');
-    btn.textContent = 'Connect my iNaturalist account';
+    btn.innerHTML = `<img src="https://www.inaturalist.org/favicon.ico" style="width:18px;margin-right:6px"> Connect my iNaturalist account`;
     btn.disabled = false;
     btn.onclick = startLogin;
     if (logoutBtn) logoutBtn.classList.add('d-none');
