@@ -334,6 +334,21 @@ async function initTimelineForTaxon(taxonId, taxonName) {
 
   // Build quantized pre-cache dates and prefetch in background
   preCacheDatesByTaxon[taxonId] = buildQuantizedDates(range.minDate, range.maxDate, PRE_CACHE_COUNT);
+  // Render tick bubbles
+  const ticks = document.getElementById('checkpointTicks');
+  if (ticks) {
+    ticks.innerHTML = '';
+    const dates = preCacheDatesByTaxon[taxonId];
+    for (let i = 0; i < dates.length; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'text-muted';
+      dot.style.width = '8px';
+      dot.style.height = '8px';
+      dot.style.borderRadius = '50%';
+      dot.style.background = '#6c757d';
+      ticks.appendChild(dot);
+    }
+  }
   ensurePreCachedDates(CURRENT_USER, taxonId);
 
   // Render latest using pre-cached if available (or fetch once if missing)

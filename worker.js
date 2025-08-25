@@ -105,6 +105,11 @@ export default {
         return timelineTreeAtDate(request, env);
       }
 
+      if (pathname === '/timeline/precache' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return timelinePrecache(request, env);
+      }
+
       return json({ error: 'Not found' }, 404, request);
     } catch (err) {
       return json({ error: err?.message || String(err) }, 500, request);
@@ -475,6 +480,20 @@ async function ensureCheckpointTables(env) {
     ON user_obs_summary(user_login, taxon_id, first_seen, last_seen)`;
   await env.DB.prepare(createUserObsSummary).run();
   await env.DB.prepare(idxUserObsSummary).run();
+
+  // Precomputed timeline cache per checkpoint (8 points)
+  const createPrecache = `CREATE TABLE IF NOT EXISTS timeline_precache (
+    id TEXT PRIMARY KEY,
+    user_login TEXT NOT NULL,
+    taxon_id INTEGER NOT NULL,
+    checkpoint_id TEXT NOT NULL,
+    dates_json TEXT NOT NULL,
+    markdowns_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`;
+  const idxPrecache = `CREATE INDEX IF NOT EXISTS idx_precache_user_taxon ON timeline_precache(user_login, taxon_id, checkpoint_id)`;
+  await env.DB.prepare(createPrecache).run();
+  await env.DB.prepare(idxPrecache).run();
 }
 
 function uuidv4() {
@@ -508,6 +527,11 @@ async function saveCheckpoint(request, env) {
     highWatermarkUpdatedAt || null,
     createdAt
   ).run();
+  // Fire-and-forget: kick off precache for this checkpoint
+  try {
+    const payload = { username, taxonId: parseInt(taxonId,10), checkpointId: id };
+    await timelinePrecache(new Request('http://local/timeline/precache', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) }), env);
+  } catch (_) {}
   return json({ id, createdAt }, 200, request);
 }
 
@@ -708,6 +732,64 @@ async function timelineTreeAtDate(request, env) {
   const tree = await buildTreeFromDatabase(env, speciesIds, parseInt(taxonId,10));
   const markdown = treeToMarkdown(tree);
   return json({ markdown, speciesCount: speciesIds.length }, 200, request);
+}
+
+// POST /timeline/precache { username, taxonId, checkpointId }
+async function timelinePrecache(request, env) {
+  try {
+    const { login } = await requireLogin(request).catch(() => ({ login: null }));
+    const body = await request.json().catch(() => ({}));
+    const { username, taxonId, checkpointId } = body || {};
+    if (!username || !taxonId || !checkpointId) return json({ error: 'Missing parameters' }, 400, request);
+    if (login && username !== login) return json({ error: 'Forbidden' }, 403, request);
+
+    // Determine date range from user_obs_summary
+    const dr = await env.DB.prepare(
+      `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+    ).bind(username, parseInt(taxonId,10)).first();
+    const minDate = dr?.minDate, maxDate = dr?.maxDate;
+    if (!minDate || !maxDate) return json({ error: 'No range' }, 200, request);
+
+    // Build 8 quantized dates
+    const dates = (function() {
+      const toISO = s => s;
+      const start = new Date(minDate + 'T00:00:00Z');
+      const end = new Date(maxDate + 'T00:00:00Z');
+      const totalMs = Math.max(1, end - start);
+      const out = [];
+      for (let i = 0; i < 8; i++) {
+        const frac = i / 7;
+        const d = new Date(start.getTime() + frac * totalMs);
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth()+1).padStart(2,'0');
+        const dd = String(d.getUTCDate()).padStart(2,'0');
+        out.push(`${y}-${m}-${dd}`);
+      }
+      return out;
+    })();
+
+    // For each date, build species set and tree markdown
+    const markdowns = [];
+    for (const iso of dates) {
+      const q = await env.DB.prepare(
+        `SELECT DISTINCT species_id FROM user_obs_events WHERE user_login=? AND taxon_id=? AND observed_on <= ? ORDER BY species_id`
+      ).bind(username, parseInt(taxonId,10), iso).all();
+      const speciesIds = (q.results || []).map(r => r.species_id);
+      const tree = await buildTreeFromDatabase(env, speciesIds, parseInt(taxonId,10));
+      markdowns.push(treeToMarkdown(tree));
+    }
+
+    // Upsert timeline_precache
+    const id = crypto.randomUUID ? crypto.randomUUID() : uuidv4();
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO timeline_precache (id, user_login, taxon_id, checkpoint_id, dates_json, markdowns_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, username, parseInt(taxonId,10), checkpointId, JSON.stringify(dates), JSON.stringify(markdowns), new Date().toISOString()).run();
+
+    return json({ ok: true, dates, count: markdowns.length }, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
 }
 
 async function searchTaxa(request, env) {
