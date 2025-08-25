@@ -1,6 +1,9 @@
 import { getAuthHeaders, fetchCurrentUser } from './auth.js';
 let CURRENT_USER = localStorage.getItem('inat_username') || null;
 let currentTaxonId = null, currentDates = [], debounceTimer = null;
+let currentCpTabId = null; // active checkpoint tab to render into
+const cpMarkmaps = Object.create(null); // tabId -> Markmap instance
+const firstSeenCacheByTaxon = Object.create(null);
 
 const API_BASE = window.CF_API_BASE;
 const listUrl = `${API_BASE}/checkpoints/list`;
@@ -94,17 +97,29 @@ function ensureCpTab(tabId, title) {
   try { link.querySelector('.tab-title').textContent = title; } catch {}
   // activate
   try { new bootstrap.Tab(link).show(); } catch {}
+  currentCpTabId = tabId;
   return document.getElementById(`${tabId}-svg`);
 }
 function renderMarkdownToTab(tabId, markdown) {
   const svg = document.getElementById(`${tabId}-svg`);
   if (!svg) return;
-  svg.innerHTML = '';
   const { Transformer, Markmap } = window.markmap || {};
   if (!Transformer || !Markmap) return;
   const transformer = new Transformer();
   const { root } = transformer.transform(markdown);
-  Markmap.create(svg, null, root);
+  try {
+    if (cpMarkmaps[tabId]) {
+      // Smooth update of existing tree (grow/shrink branches)
+      cpMarkmaps[tabId].setData(root);
+    } else {
+      svg.innerHTML = '';
+      cpMarkmaps[tabId] = Markmap.create(svg, null, root);
+    }
+  } catch (_) {
+    // Fallback to full re-render if update fails
+    svg.innerHTML = '';
+    cpMarkmaps[tabId] = Markmap.create(svg, null, root);
+  }
 }
 
 async function fetchCheckpoints(userLogin) {
@@ -151,8 +166,6 @@ function selectTaxonGroup(group) {
   window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
   title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
-  // Initialize real-date timeline for this taxon as well
-  initTimelineForTaxon(group.taxonId, group.taxonName || `Taxon ${group.taxonId}`).catch(console.error);
   const slider = document.getElementById('checkpointSlider');
   slider.disabled = false;
   slider.min = 0;
@@ -165,6 +178,8 @@ function selectTaxonGroup(group) {
   renderCheckpointSummary(group, Number(slider.value));
   // Immediately render the selected checkpoint tree
   renderCheckpointTree(group, Number(slider.value)).catch(console.error);
+  // Initialize real-date timeline for this taxon as well (after base tab exists)
+  initTimelineForTaxon(group.taxonId, group.taxonName || `Taxon ${group.taxonId}`).catch(console.error);
   // Ensure the visualization card is visible alongside the timeline
   try {
     const cpCard = document.getElementById('cpResultsCard');
@@ -183,7 +198,8 @@ function selectTaxonGroup(group) {
       const t = new Date(start.getTime() + frac * (end.getTime() - start.getTime()));
       slider.dataset.thresholdDate = t.toISOString();
     }
-    sync();
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(sync, 100);
   };
   slider.onchange = slider.oninput;
   slider.addEventListener('click', (e) => {
@@ -303,8 +319,8 @@ async function drawTreeAtDate(isoDate) {
   if (!r.ok || !data?.markdown) { console.error('tree-at-date error', data); return; }
   const pre = document.getElementById('cpMarkdownResult');
   if (pre) pre.textContent = data.markdown;
-  const tabId = `cp-date-${currentTaxonId}-${isoDate}`;
-  ensureCpTab(tabId, `On/before ${isoDate}`);
+  const tabId = currentCpTabId || `cp-live-${currentTaxonId}`;
+  if (!currentCpTabId) ensureCpTab(tabId, 'Checkpoint');
   renderMarkdownToTab(tabId, data.markdown);
   // cache
   cpCacheSet(cpCacheKeyForDate(currentTaxonId, CURRENT_USER, isoDate), data.markdown);
@@ -340,17 +356,25 @@ async function renderCheckpointTree(group, idx) {
   let filtered = species;
   if (threshold) {
     try {
-      const cpLoad = document.getElementById('cpLoading');
-      if (cpLoad) cpLoad.style.display = 'flex';
-      const tResp = await fetch(firstSeenUrl, { method:'POST', headers: { 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ username, taxonId: group.taxonId }) });
-      const tData = await tResp.json();
-      if (tResp.ok && tData && tData.firstSeen) {
+      const key = `${username}:${group.taxonId}`;
+      let firstSeenMap = firstSeenCacheByTaxon[key];
+      if (!firstSeenMap) {
+        const cpLoad = document.getElementById('cpLoading');
+        if (cpLoad) cpLoad.style.display = 'flex';
+        const tResp = await fetch(firstSeenUrl, { method:'POST', headers: { 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ username, taxonId: group.taxonId }) });
+        const tData = await tResp.json();
+        if (tResp.ok && tData && tData.firstSeen) {
+          firstSeenMap = tData.firstSeen;
+          firstSeenCacheByTaxon[key] = firstSeenMap;
+        }
+        if (cpLoad) cpLoad.style.display = 'none';
+      }
+      if (firstSeenMap) {
         filtered = species.filter(id => {
-          const d = tData.firstSeen[id];
-          return !d || d <= threshold; // include if no date or first seen before threshold
+          const d = firstSeenMap[id];
+          return !d || d <= threshold;
         });
       }
-      if (cpLoad) cpLoad.style.display = 'none';
     } catch (e) { console.warn('timeline first-seen fetch failed', e); }
   }
   // Tab per checkpoint (plus date threshold in title when used)
