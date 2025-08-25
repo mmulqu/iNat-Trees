@@ -527,10 +527,11 @@ async function saveCheckpoint(request, env) {
     highWatermarkUpdatedAt || null,
     createdAt
   ).run();
-  // Fire-and-forget: kick off precache for this checkpoint
+  // Fire-and-forget: kick off precache for this checkpoint (forward auth header)
   try {
+    const rawAuth = request.headers.get('Authorization') || '';
     const payload = { username, taxonId: parseInt(taxonId,10), checkpointId: id };
-    await timelinePrecache(new Request('http://local/timeline/precache', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) }), env);
+    await timelinePrecache(new Request('http://local/timeline/precache', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': rawAuth }, body: JSON.stringify(payload) }), env);
   } catch (_) {}
   return json({ id, createdAt }, 200, request);
 }
@@ -748,7 +749,18 @@ async function timelinePrecache(request, env) {
       `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
     ).bind(username, parseInt(taxonId,10)).first();
     const minDate = dr?.minDate, maxDate = dr?.maxDate;
-    if (!minDate || !maxDate) return json({ error: 'No range' }, 200, request);
+    if (!minDate || !maxDate) {
+      // Attempt to build timeline index once using caller's auth, then re-check
+      try {
+        await timelineIndex(new Request('http://local/timeline/index', { method:'POST', headers: request.headers, body: JSON.stringify({ username, taxonId }) }), env);
+      } catch (_) {}
+      const dr2 = await env.DB.prepare(
+        `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+      ).bind(username, parseInt(taxonId,10)).first();
+      if (!dr2?.minDate || !dr2?.maxDate) return json({ error: 'No range' }, 200, request);
+      // overwrite for downstream
+      minDate = dr2.minDate; maxDate = dr2.maxDate;
+    }
 
     // Build 8 quantized dates
     const dates = (function() {

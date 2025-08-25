@@ -366,6 +366,18 @@ async function initTimelineForTaxon(taxonId, taxonName) {
     const date = currentDates[idx];
     if (!date) return;
     const snapped = nearestPrecachedDate(taxonId, date);
+    // snap the slider's thumb to the nearest bubble position
+    const dates = preCacheDatesByTaxon[taxonId] || [];
+    if (dates.length) {
+      let bestIndex = 0, bestDiff = Infinity;
+      for (let i = 0; i < dates.length; i++) {
+        const d = Math.abs(new Date(dates[i]).getTime() - new Date(date).getTime());
+        if (d < bestDiff) { bestDiff = d; bestIndex = i; }
+      }
+      // move thumb proportionally along the slider range
+      const newVal = Math.round((bestIndex / Math.max(1, dates.length - 1)) * (Number(slider.max) - Number(slider.min)));
+      slider.value = String(newVal);
+    }
     const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, snapped));
     if (cached && currentCpTabId) {
       renderMarkdownToTab(currentCpTabId, cached);
