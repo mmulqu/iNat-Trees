@@ -355,7 +355,7 @@ async function renderCheckpointTree(group, idx) {
   }
   // Tab per checkpoint (plus date threshold in title when used)
   const cp = group.items[idx];
-  const tabTitle = `Checkpoint — ${fmtDate(cp.created_at)}`;
+  const tabTitle = cp.taxon_name || group.taxonName || `Taxon ${group.taxonId}`;
   const tabId = `cp-${group.taxonId}-${cp.id}`;
   ensureCpTab(tabId, tabTitle);
   // Cache check first
