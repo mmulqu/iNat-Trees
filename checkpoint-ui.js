@@ -199,6 +199,8 @@ async function drawTreeAtDate(isoDate) {
   if (!CURRENT_USER || !currentTaxonId) return;
   const sum = document.getElementById('checkpointSummary');
   if (sum) sum.textContent = `Showing observations on or before ${isoDate}`;
+  const cpLoad = document.getElementById('cpLoading');
+  if (cpLoad) cpLoad.style.display = 'flex';
   const r = await fetch(`${API_BASE}/timeline/tree-at-date`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -219,6 +221,7 @@ async function drawTreeAtDate(isoDate) {
       Markmap.create(svg, null, root);
     }, 60);
   }
+  if (cpLoad) cpLoad.style.display = 'none';
 }
 
 async function buildTimelineIndex() {
@@ -250,6 +253,8 @@ async function renderCheckpointTree(group, idx) {
   let filtered = species;
   if (threshold) {
     try {
+      const cpLoad = document.getElementById('cpLoading');
+      if (cpLoad) cpLoad.style.display = 'flex';
       const tResp = await fetch(firstSeenUrl, { method:'POST', headers: { 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ username, taxonId: group.taxonId }) });
       const tData = await tResp.json();
       if (tResp.ok && tData && tData.firstSeen) {
@@ -258,6 +263,7 @@ async function renderCheckpointTree(group, idx) {
           return !d || d <= threshold; // include if no date or first seen before threshold
         });
       }
+      if (cpLoad) cpLoad.style.display = 'none';
     } catch (e) { console.warn('timeline first-seen fetch failed', e); }
   }
   const r = await fetch(treeFromSpeciesUrl, {
