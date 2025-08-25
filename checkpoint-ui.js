@@ -17,7 +17,8 @@ function fmtDate(iso) {
 // ===== Simple local cache (LRU in localStorage) =====
 const CP_CACHE_INDEX_KEY = 'cp_cache_index_v1';
 const CP_CACHE_PREFIX = 'cp_cache_v1:';
-const CP_CACHE_MAX = 10; // max cached trees
+const CP_CACHE_MAX = 50; // max cached trees
+const CP_CACHE_BYTES_MAX = 4 * 1024 * 1024; // ~4MB budget
 
 function cpCacheKeyForCheckpoint(cpId, taxonId, userLogin, thresholdIso) {
   return `${CP_CACHE_PREFIX}user:${userLogin}:taxon:${taxonId}:checkpoint:${cpId}${thresholdIso ? `:threshold:${thresholdIso}` : ''}`;
@@ -42,10 +43,20 @@ function cpCacheSet(key, markdown) {
     localStorage.setItem(key, JSON.stringify({ markdown, ts: Date.now() }));
     let idx = JSON.parse(localStorage.getItem(CP_CACHE_INDEX_KEY) || '[]').filter(k => k !== key);
     idx.unshift(key);
-    // evict overflow
+    // evict overflow by count first
     while (idx.length > CP_CACHE_MAX) {
       const evict = idx.pop();
       try { localStorage.removeItem(evict); } catch {}
+    }
+    // evict overflow by approximate byte size
+    const sizeOf = k => {
+      try { const v = localStorage.getItem(k); return v ? v.length : 0; } catch { return 0; }
+    };
+    let total = 0;
+    for (const k of idx) total += sizeOf(k);
+    while (total > CP_CACHE_BYTES_MAX && idx.length > 0) {
+      const evict = idx.pop();
+      try { const len = sizeOf(evict); localStorage.removeItem(evict); total -= len; } catch {}
     }
     localStorage.setItem(CP_CACHE_INDEX_KEY, JSON.stringify(idx));
   } catch {}
