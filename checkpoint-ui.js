@@ -330,10 +330,12 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   currentDates = buildDateArray(range.minDate, range.maxDate);
   document.getElementById('checkpointStart').textContent = range.minDate;
   document.getElementById('checkpointEnd').textContent = range.maxDate;
-  setSliderEnabled(true, 0, currentDates.length - 1, currentDates.length - 1);
 
   // Build quantized pre-cache dates and prefetch in background
   preCacheDatesByTaxon[taxonId] = buildQuantizedDates(range.minDate, range.maxDate, PRE_CACHE_COUNT);
+  // Switch slider to quantized positions (0..N-1)
+  const qDates = preCacheDatesByTaxon[taxonId];
+  setSliderEnabled(true, 0, qDates.length - 1, qDates.length - 1);
   // Render tick bubbles
   const ticks = document.getElementById('checkpointTicks');
   if (ticks) {
@@ -352,7 +354,7 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   ensurePreCachedDates(CURRENT_USER, taxonId);
 
   // Render latest using pre-cached if available (or fetch once if missing)
-  const latest = currentDates[currentDates.length - 1];
+  const latest = qDates[qDates.length - 1];
   const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, latest));
   if (cached && currentCpTabId) {
     renderMarkdownToTab(currentCpTabId, cached);
@@ -363,21 +365,8 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   const slider = document.getElementById('checkpointSlider');
   slider.oninput = (e) => {
     const idx = Number(e.target.value);
-    const date = currentDates[idx];
-    if (!date) return;
-    const snapped = nearestPrecachedDate(taxonId, date);
-    // snap the slider's thumb to the nearest bubble position
-    const dates = preCacheDatesByTaxon[taxonId] || [];
-    if (dates.length) {
-      let bestIndex = 0, bestDiff = Infinity;
-      for (let i = 0; i < dates.length; i++) {
-        const d = Math.abs(new Date(dates[i]).getTime() - new Date(date).getTime());
-        if (d < bestDiff) { bestDiff = d; bestIndex = i; }
-      }
-      // move thumb proportionally along the slider range
-      const newVal = Math.round((bestIndex / Math.max(1, dates.length - 1)) * (Number(slider.max) - Number(slider.min)));
-      slider.value = String(newVal);
-    }
+    const snapped = (preCacheDatesByTaxon[taxonId] || [])[idx];
+    if (!snapped) return;
     const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, snapped));
     if (cached && currentCpTabId) {
       renderMarkdownToTab(currentCpTabId, cached);
