@@ -11,6 +11,9 @@ const saveUrl = `${API_BASE}/checkpoints/save`;
 const deleteUrl = `${API_BASE}/checkpoints/delete`;
 const treeFromSpeciesUrl = `${API_BASE}/tree-from-species`;
 const firstSeenUrl = `${API_BASE}/timeline/first-seen`;
+const PRE_CACHE_COUNT = 8; // number of quantized dates to prefetch per taxon
+const preCacheDatesByTaxon = Object.create(null); // taxonId -> iso[]
+const preCacheInFlight = Object.create(null); // key -> Promise
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -252,6 +255,43 @@ function buildDateArray(minDate, maxDate) {
   for (let i = 0; i <= n; i++) arr.push(dateAdd(minDate, i));
   return arr;
 }
+function buildQuantizedDates(minDate, maxDate, count) {
+  const totalDays = Math.max(0, daysBetween(minDate, maxDate));
+  const steps = Math.max(1, count - 1);
+  const step = Math.max(1, Math.floor(totalDays / steps));
+  const dates = [];
+  for (let i = 0; i <= steps; i++) {
+    dates.push(dateAdd(minDate, Math.min(totalDays, i * step)));
+  }
+  // ensure max included
+  if (dates[dates.length - 1] !== maxDate) dates[dates.length - 1] = maxDate;
+  return dates;
+}
+function nearestPrecachedDate(taxonId, targetIso) {
+  const list = preCacheDatesByTaxon[taxonId] || [];
+  if (!list.length) return targetIso;
+  const t = new Date(targetIso).getTime();
+  let best = list[0], bestDiff = Math.abs(new Date(best).getTime() - t);
+  for (let i = 1; i < list.length; i++) {
+    const d = Math.abs(new Date(list[i]).getTime() - t);
+    if (d < bestDiff) { best = list[i]; bestDiff = d; }
+  }
+  return best;
+}
+async function ensurePreCachedDates(username, taxonId) {
+  const list = preCacheDatesByTaxon[taxonId] || [];
+  for (const iso of list) {
+    const key = cpCacheKeyForDate(taxonId, username, iso);
+    if (cpCacheGet(key)) continue;
+    const inflightKey = `${taxonId}:${iso}`;
+    if (preCacheInFlight[inflightKey]) continue;
+    preCacheInFlight[inflightKey] = fetch(`${API_BASE}/timeline/tree-at-date`, {
+      method: 'POST', headers: { 'Content-Type':'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ username, taxonId, date: iso })
+    }).then(r => r.json()).then(data => { if (data?.markdown) cpCacheSet(key, data.markdown); }).catch(() => {})
+      .finally(() => { delete preCacheInFlight[inflightKey]; });
+  }
+}
 function setSliderEnabled(enabled, min=0, max=0, value=0) {
   const slider = document.getElementById('checkpointSlider');
   slider.disabled = !enabled;
@@ -292,15 +332,31 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   document.getElementById('checkpointEnd').textContent = range.maxDate;
   setSliderEnabled(true, 0, currentDates.length - 1, currentDates.length - 1);
 
-  await drawTreeAtDate(currentDates[currentDates.length - 1]);
+  // Build quantized pre-cache dates and prefetch in background
+  preCacheDatesByTaxon[taxonId] = buildQuantizedDates(range.minDate, range.maxDate, PRE_CACHE_COUNT);
+  ensurePreCachedDates(CURRENT_USER, taxonId);
+
+  // Render latest using pre-cached if available (or fetch once if missing)
+  const latest = currentDates[currentDates.length - 1];
+  const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, latest));
+  if (cached && currentCpTabId) {
+    renderMarkdownToTab(currentCpTabId, cached);
+  } else {
+    await drawTreeAtDate(latest);
+  }
 
   const slider = document.getElementById('checkpointSlider');
   slider.oninput = (e) => {
     const idx = Number(e.target.value);
     const date = currentDates[idx];
     if (!date) return;
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => { drawTreeAtDate(date); }, 250);
+    const snapped = nearestPrecachedDate(taxonId, date);
+    const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, snapped));
+    if (cached && currentCpTabId) {
+      renderMarkdownToTab(currentCpTabId, cached);
+    }
+    // opportunistically continue prefetching in background
+    ensurePreCachedDates(CURRENT_USER, taxonId);
   };
 }
 
