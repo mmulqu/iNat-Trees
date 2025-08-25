@@ -748,7 +748,7 @@ async function timelinePrecache(request, env) {
     const dr = await env.DB.prepare(
       `SELECT MIN(first_seen) AS minDate, MAX(last_seen) AS maxDate FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
     ).bind(username, parseInt(taxonId,10)).first();
-    const minDate = dr?.minDate, maxDate = dr?.maxDate;
+    let minDate = dr?.minDate, maxDate = dr?.maxDate;
     if (!minDate || !maxDate) {
       // Attempt to build timeline index once using caller's auth, then re-check
       try {
