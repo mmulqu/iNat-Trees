@@ -568,37 +568,38 @@ async function treeFromSpecies(request, env) {
 async function firstSeenTimeline(request, env) {
   try {
     await ensureCheckpointTables(env);
-    const { login, jwt } = await requireLogin(request);
+    const { login } = await requireLogin(request);
     if (!login) return json({ error: 'Unauthorized' }, 401, request);
-    const authHeader = jwt ? `Bearer ${jwt}` : undefined;
     const body = await request.json();
     const { username, taxonId } = body || {};
     if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
     if (username !== login) return json({ error: 'Forbidden' }, 403, request);
-    // Try to read cached first_seen
-    const cachedRows = await env.DB.prepare(`SELECT species_id, first_seen FROM first_seen WHERE user_login = ? AND taxon_id = ?`).bind(username, parseInt(taxonId, 10)).all();
-    const cachedMap = new Map((cachedRows.results || []).map(r => [r.species_id, r.first_seen]));
-    // Always compute fresh, then upsert cache
-    const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, authHeader || `${username}:${taxonId}`);
+
+    // Read first-seen dates purely from DB (no iNat API calls)
+    // Prefer user_obs_summary if available; fall back to first_seen if needed
+    let rows = await env.DB.prepare(
+      `SELECT species_id, first_seen FROM user_obs_summary WHERE user_login = ? AND taxon_id = ?`
+    ).bind(username, parseInt(taxonId, 10)).all();
+
+    if (!rows || !rows.results || rows.results.length === 0) {
+      rows = await env.DB.prepare(
+        `SELECT species_id, first_seen FROM first_seen WHERE user_login = ? AND taxon_id = ?`
+      ).bind(username, parseInt(taxonId, 10)).all();
+    }
+
     const firstSeen = {};
     const speciesSet = new Set();
-    for (const obs of observations) {
-      if (!obs || !obs.taxon || !obs.taxon.id) continue;
-      const sid = obs.taxon.id;
-      speciesSet.add(sid);
-      const dateIso = (obs.observed_on_details && obs.observed_on_details.date)
-        ? new Date(obs.observed_on_details.date).toISOString()
-        : (obs.observed_on ? new Date(obs.observed_on).toISOString() : null);
-      if (!firstSeen[sid]) firstSeen[sid] = dateIso;
-      else if (dateIso && firstSeen[sid] && dateIso < firstSeen[sid]) firstSeen[sid] = dateIso;
+    for (const r of (rows.results || [])) {
+      speciesSet.add(r.species_id);
+      // Normalize to ISO if possible; many rows may already be ISO or YYYY-MM-DD
+      try {
+        firstSeen[r.species_id] = r.first_seen ? new Date(r.first_seen).toISOString() : null;
+      } catch (_) {
+        firstSeen[r.species_id] = r.first_seen || null;
+      }
     }
-    // Upsert cache
-    const ins = env.DB.prepare(`INSERT OR REPLACE INTO first_seen (user_login, taxon_id, species_id, first_seen) VALUES (?, ?, ?, ?)`);
-    for (const [sidStr, dt] of Object.entries(firstSeen)) {
-      const sid = parseInt(sidStr, 10);
-      await ins.bind(username, parseInt(taxonId, 10), sid, dt || null).run();
-    }
-    return json({ firstSeen: Object.fromEntries(Object.entries(firstSeen)), species: Array.from(speciesSet) }, 200, request);
+
+    return json({ firstSeen, species: Array.from(speciesSet) }, 200, request);
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }
