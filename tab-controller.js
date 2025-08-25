@@ -1,11 +1,11 @@
 // tab-controller.js
 function showTab(tabId) {
-  document.querySelectorAll('.tab-pane').forEach(tab => {
+  document.querySelectorAll('.main-pane').forEach(tab => {
     tab.style.display = 'none';
     tab.classList.remove('show');
     tab.classList.remove('active');
   });
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.navbar .nav-link').forEach(link => {
     link.classList.remove('active');
   });
   const selectedTab = document.getElementById(tabId);
