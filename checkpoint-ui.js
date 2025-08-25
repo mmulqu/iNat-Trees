@@ -14,6 +14,88 @@ function fmtDate(iso) {
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
 }
 
+// ===== Simple local cache (LRU in localStorage) =====
+const CP_CACHE_INDEX_KEY = 'cp_cache_index_v1';
+const CP_CACHE_PREFIX = 'cp_cache_v1:';
+const CP_CACHE_MAX = 10; // max cached trees
+
+function cpCacheKeyForCheckpoint(cpId, taxonId, userLogin, thresholdIso) {
+  return `${CP_CACHE_PREFIX}user:${userLogin}:taxon:${taxonId}:checkpoint:${cpId}${thresholdIso ? `:threshold:${thresholdIso}` : ''}`;
+}
+function cpCacheKeyForDate(taxonId, userLogin, isoDate) {
+  return `${CP_CACHE_PREFIX}user:${userLogin}:taxon:${taxonId}:date:${isoDate}`;
+}
+function cpCacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    // move to front of index
+    const idx = JSON.parse(localStorage.getItem(CP_CACHE_INDEX_KEY) || '[]').filter(k => k !== key);
+    idx.unshift(key);
+    localStorage.setItem(CP_CACHE_INDEX_KEY, JSON.stringify(idx.slice(0, CP_CACHE_MAX)));
+    return obj?.markdown || null;
+  } catch { return null; }
+}
+function cpCacheSet(key, markdown) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ markdown, ts: Date.now() }));
+    let idx = JSON.parse(localStorage.getItem(CP_CACHE_INDEX_KEY) || '[]').filter(k => k !== key);
+    idx.unshift(key);
+    // evict overflow
+    while (idx.length > CP_CACHE_MAX) {
+      const evict = idx.pop();
+      try { localStorage.removeItem(evict); } catch {}
+    }
+    localStorage.setItem(CP_CACHE_INDEX_KEY, JSON.stringify(idx));
+  } catch {}
+}
+
+// ===== Checkpoint tabs (like Explore) =====
+function ensureCpTab(tabId, title) {
+  const tabs = document.getElementById('cpTreeTabs');
+  const content = document.getElementById('cpTreeTabContent');
+  let link = document.getElementById(`${tabId}-tab`);
+  let pane = document.getElementById(`${tabId}-content`);
+  if (!link) {
+    const li = document.createElement('li');
+    li.className = 'nav-item';
+    li.innerHTML = `
+      <a class="nav-link" id="${tabId}-tab" data-bs-toggle="tab" href="#${tabId}-content" role="tab" aria-controls="${tabId}-content" aria-selected="false">
+        <span class="tab-title">${title}</span>
+      </a>`;
+    tabs.appendChild(li);
+    link = li.querySelector('a');
+  }
+  if (!pane) {
+    pane = document.createElement('div');
+    pane.className = 'tab-pane fade';
+    pane.id = `${tabId}-content`;
+    pane.setAttribute('role', 'tabpanel');
+    pane.setAttribute('aria-labelledby', `${tabId}-tab`);
+    const svgWrap = document.createElement('div');
+    svgWrap.className = 'markmap-container';
+    svgWrap.innerHTML = `<svg id="${tabId}-svg" style="width:100%; height:700px;"></svg>`;
+    pane.appendChild(svgWrap);
+    content.appendChild(pane);
+  }
+  // update title if changed
+  try { link.querySelector('.tab-title').textContent = title; } catch {}
+  // activate
+  try { new bootstrap.Tab(link).show(); } catch {}
+  return document.getElementById(`${tabId}-svg`);
+}
+function renderMarkdownToTab(tabId, markdown) {
+  const svg = document.getElementById(`${tabId}-svg`);
+  if (!svg) return;
+  svg.innerHTML = '';
+  const { Transformer, Markmap } = window.markmap || {};
+  if (!Transformer || !Markmap) return;
+  const transformer = new Transformer();
+  const { root } = transformer.transform(markdown);
+  Markmap.create(svg, null, root);
+}
+
 async function fetchCheckpoints(userLogin) {
   const url = new URL(listUrl);
   url.searchParams.set('user_login', userLogin);
@@ -210,17 +292,11 @@ async function drawTreeAtDate(isoDate) {
   if (!r.ok || !data?.markdown) { console.error('tree-at-date error', data); return; }
   const pre = document.getElementById('cpMarkdownResult');
   if (pre) pre.textContent = data.markdown;
-  const svg = document.getElementById('checkpointSvg');
-  if (svg) {
-    svg.innerHTML = '';
-    setTimeout(() => {
-      const { Transformer, Markmap } = window.markmap || {};
-      if (!Transformer || !Markmap) return;
-      const transformer = new Transformer();
-      const { root } = transformer.transform(data.markdown);
-      Markmap.create(svg, null, root);
-    }, 60);
-  }
+  const tabId = `cp-date-${currentTaxonId}-${isoDate}`;
+  ensureCpTab(tabId, `On/before ${isoDate}`);
+  renderMarkdownToTab(tabId, data.markdown);
+  // cache
+  cpCacheSet(cpCacheKeyForDate(currentTaxonId, CURRENT_USER, isoDate), data.markdown);
   if (cpLoad) cpLoad.style.display = 'none';
 }
 
@@ -266,6 +342,20 @@ async function renderCheckpointTree(group, idx) {
       if (cpLoad) cpLoad.style.display = 'none';
     } catch (e) { console.warn('timeline first-seen fetch failed', e); }
   }
+  // Tab per checkpoint (plus date threshold in title when used)
+  const cp = group.items[idx];
+  const tabBaseTitle = 'Checkpoint';
+  const tabId = `cp-${group.taxonId}-${cp.id}`;
+  ensureCpTab(tabId, tabBaseTitle);
+  // Cache check first
+  const cachedKey = cpCacheKeyForCheckpoint(cp.id, group.taxonId, username, threshold);
+  const cached = cpCacheGet(cachedKey);
+  if (cached) {
+    renderMarkdownToTab(tabId, cached);
+    const pre = document.getElementById('cpMarkdownResult');
+    if (pre) pre.textContent = cached;
+    return;
+  }
   const r = await fetch(treeFromSpeciesUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -276,16 +366,10 @@ async function renderCheckpointTree(group, idx) {
   const markdown = data.markdown || '';
   // Render directly in the Checkpoints pane SVG so it's visible on that tab
   try {
-    const svg = document.getElementById('checkpointSvg');
-    if (svg && window.markmap) {
-      svg.innerHTML = '';
-      const { Transformer, Markmap } = window.markmap;
-      const transformer = new Transformer();
-      const { root } = transformer.transform(markdown);
-      Markmap.create(svg, null, root);
-    }
+    renderMarkdownToTab(tabId, markdown);
     const pre = document.getElementById('cpMarkdownResult');
     if (pre) pre.textContent = markdown;
+    cpCacheSet(cachedKey, markdown);
   } catch (e) { console.error('checkpoint markmap render', e); }
 }
 
