@@ -511,6 +511,8 @@ async function initCheckpointsUI() {
         alert('Build a tree first before saving a checkpoint.');
         return;
       }
+      const spinner = document.getElementById('saveCpSpinner');
+      try { if (spinner) spinner.classList.remove('d-none'); btn.disabled = true; } catch(_) {}
       const username = localStorage.getItem('inat_username') || (await fetchCurrentUser())?.login;
       const r = await fetch(saveUrl, {
         method: 'POST',
@@ -531,6 +533,7 @@ async function initCheckpointsUI() {
       }
       await loadAndRenderList();
       alert('Checkpoint saved.');
+      try { if (spinner) spinner.classList.add('d-none'); btn.disabled = false; } catch(_) {}
     });
   }
   await loadAndRenderList();
