@@ -253,6 +253,20 @@
       font-size: 0.8em;
       float: right;
     }
+    /* Dark mode for autocomplete */
+    body.dark-theme .autocomplete-results {
+      background-color: #1d1f20;
+      color: var(--text-color);
+      border-color: var(--border-color);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.6);
+    }
+    body.dark-theme .autocomplete-item { border-bottom: 1px solid #2a2d2f; }
+    body.dark-theme .autocomplete-item:hover { background-color: #222628; }
+    body.dark-theme .autocomplete-item .scientific-name { color: #cfcfcf; }
+    body.dark-theme .autocomplete-item .taxon-id { color: #a0a0a0; }
+
+    /* Brighter small labels for dark mode */
+    body.dark-theme small, body.dark-theme .text-muted { color: #d0d6d8 !important; }
 
     /* Dropdown menu for autocomplete results */
     .dropdown-menu {
