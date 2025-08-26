@@ -43,8 +43,19 @@ const VALID_HIGHER_RANKS = new Set([
 ]);
 
 // Called when a tree is rendered
+function toPlain(md) {
+  try {
+    return String(md)
+      .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
+      .replace(/<span[^>]*>.*?<\/span>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+$/gm, '');
+  } catch (_) { return md; }
+}
+
 function renderMarkmap(markdown, username, taxonName, taxonId, plainMarkdown) {
-  document.getElementById("markdownResult").textContent = plainMarkdown || markdown;
+  const displayMd = plainMarkdown || toPlain(markdown);
+  document.getElementById("markdownResult").textContent = displayMd;
 
   // Calculate statistics before adding the tree (if taxonomyStats is available)
   let stats = null;

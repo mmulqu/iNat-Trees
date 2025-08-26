@@ -212,8 +212,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Update the rendering function for comparison in compare-users.js
-function renderComparison(markdown, username1, username2, taxonName, taxonId) {
-  document.getElementById("markdownResult").textContent = plainMarkdown || markdown;
+function toPlain(md) {
+  try {
+    return String(md)
+      .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
+      .replace(/<span[^>]*>.*?<\/span>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+$/gm, '');
+  } catch(_) { return md; }
+}
+
+function renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown) {
+  document.getElementById("markdownResult").textContent = plainMarkdown || toPlain(markdown);
 
   // Calculate statistics before adding the tree
   let stats = null;
