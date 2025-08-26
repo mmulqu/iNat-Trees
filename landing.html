@@ -15,7 +15,8 @@
   <!-- Replace with your actual asset paths -->
   <link rel="preload" as="image" href="assets/ferns-poster.jpg">
   <!-- Optional: Preload the lightweight WebM – keep small (<6–10MB ideally) -->
-  <link rel="preload" as="video" href="assets/ferns-loop.webm" type="video/webm">
+  <!-- Preload your chosen MP4 if desired -->
+  <link rel="preload" as="video" href="assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
 
   <style>
     :root{
@@ -166,8 +167,7 @@
   <div class="bg-video-wrap" aria-hidden="true">
     <!-- Replace with your video sources; keep it short (6–12s), loopable -->
     <video id="bgVideo" class="bg-video" playsinline muted loop autoplay preload="metadata" poster="assets/ferns-poster.jpg">
-      <source src="assets/ferns-loop.webm" type="video/webm">
-      <source src="assets/ferns-loop.mp4"  type="video/mp4">
+      <source src="assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
       <!-- If neither source can play, poster shows behind. -->
     </video>
   </div>
