@@ -196,6 +196,7 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         const markdown = result.markdown;
+        const plainMarkdown = result.plainMarkdown;
         if (!markdown || markdown.trim() === "" || markdown.includes("No observations found")) {
           showError("No observations found for at least one of the users under the selected taxon.");
           return;
@@ -212,7 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Update the rendering function for comparison in compare-users.js
 function renderComparison(markdown, username1, username2, taxonName, taxonId) {
-  document.getElementById("markdownResult").textContent = markdown;
+  document.getElementById("markdownResult").textContent = plainMarkdown || markdown;
 
   // Calculate statistics before adding the tree
   let stats = null;

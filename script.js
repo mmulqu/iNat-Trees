@@ -43,8 +43,8 @@ const VALID_HIGHER_RANKS = new Set([
 ]);
 
 // Called when a tree is rendered
-function renderMarkmap(markdown, username, taxonName, taxonId) {
-  document.getElementById("markdownResult").textContent = markdown;
+function renderMarkmap(markdown, username, taxonName, taxonId, plainMarkdown) {
+  document.getElementById("markdownResult").textContent = plainMarkdown || markdown;
 
   // Calculate statistics before adding the tree (if taxonomyStats is available)
   let stats = null;
@@ -234,13 +234,14 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
     }
 
     const markdown = result.markdown;
+    const plainMarkdown = result.plainMarkdown;
     if (!markdown || markdown.trim() === "" || markdown.includes("No observations found")) {
       showError("No observations found for the user under the selected taxon.");
       return;
     }
 
     // Use the global treeManager instance to render the tree
-    renderMarkmap(markdown, username, taxonName, taxonId);
+    renderMarkmap(markdown, username, taxonName, taxonId, plainMarkdown);
 
     // Expose last build payload for Save Checkpoint
     window.__lastBuild = {

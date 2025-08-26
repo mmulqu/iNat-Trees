@@ -374,7 +374,7 @@ async function drawTreeAtDate(isoDate) {
   const data = await r.json();
   if (!r.ok || !data?.markdown) { console.error('tree-at-date error', data); return; }
   const pre = document.getElementById('cpMarkdownResult');
-  if (pre) pre.textContent = data.markdown;
+  if (pre) pre.textContent = data.plainMarkdown || data.markdown;
   const tabId = currentCpTabId || `cp-live-${currentTaxonId}`;
   if (!currentCpTabId) ensureCpTab(tabId, 'Checkpoint');
   renderMarkdownToTab(tabId, data.markdown);
@@ -459,7 +459,7 @@ async function renderCheckpointTree(group, idx) {
   try {
     renderMarkdownToTab(tabId, markdown);
     const pre = document.getElementById('cpMarkdownResult');
-    if (pre) pre.textContent = markdown;
+    if (pre) pre.textContent = data.plainMarkdown || markdown;
     cpCacheSet(cachedKey, markdown);
   } catch (e) { console.error('checkpoint markmap render', e); }
 }
