@@ -96,6 +96,21 @@ class TaxonomyStats {
           margin-left: 5px;
           vertical-align: middle;
         }
+        /* Dark theme variants */
+        body.dark-theme .taxonomy-stats {
+          background-color: #1d1f20;
+          border-left-color: #3fac8c;
+          color: #e6e6e6;
+        }
+        body.dark-theme .taxonomy-stats-title { color: #a8dfcd; }
+        body.dark-theme .taxonomy-stat-card {
+          background-color: #202324;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+          color: #e6e6e6;
+        }
+        body.dark-theme .taxonomy-stat-label { color: #cfd6d8; }
+        body.dark-theme .taxonomy-stat-value { color: #6ad4b2; }
+        body.dark-theme .taxonomy-stat-change { color: #b7c3c6; }
       `;
       document.head.appendChild(style);
     }
