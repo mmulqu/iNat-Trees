@@ -357,7 +357,7 @@ async function compareTaxa(request, env) {
 
   const tree = await buildComparisonTree(env, user1TaxonIds, user2TaxonIds, taxonId);
   const stats = generateComparisonStats(user1TaxonIds, user2TaxonIds);
-  const markdown = treeToMarkdown(tree);
+  const markdown = treeToMarkdown(tree, 0, { username1, username2, mode: 'compare' });
 
   return json({ markdown, stats, user1Count: user1TaxonIds.length, user2Count: user2TaxonIds.length }, 200, request);
 }
@@ -1039,9 +1039,13 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
     }
 
     if (!current.children[taxonId]) {
-      current.children[taxonId] = { id: taxon.taxon_id, name: taxon.name, rank: taxon.rank, common_name: taxon.common_name || '', color, children: {} };
-    } else if (current.children[taxonId].color !== color && current.children[taxonId].color !== SHARED_COLOR) {
-      current.children[taxonId].color = SHARED_COLOR;
+      current.children[taxonId] = { id: taxon.taxon_id, name: taxon.name, rank: taxon.rank, common_name: taxon.common_name || '', color, children: {}, user1Has: user1Set.has(taxonId), user2Has: user2Set.has(taxonId) };
+    } else {
+      if (current.children[taxonId].color !== color && current.children[taxonId].color !== SHARED_COLOR) {
+        current.children[taxonId].color = SHARED_COLOR;
+      }
+      current.children[taxonId].user1Has = current.children[taxonId].user1Has || user1Set.has(taxonId);
+      current.children[taxonId].user2Has = current.children[taxonId].user2Has || user2Set.has(taxonId);
     }
     added.add(taxonId);
   }
@@ -1111,11 +1115,17 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
   const rankChip = shortRank ? ` <span class="mm-badge mm-rank" title="${escapeHtml(node.rank)}">${shortRank}</span>` : '';
   const countChip = Number.isFinite(node.sppCount) ? ` <span class="mm-badge mm-count" title="Distinct species in this branch">${node.sppCount} spp</span>` : '';
   const isSpecies = (node.rank || '').toLowerCase() === 'species';
-  const photoChip = (isSpecies && ctx.username)
-    ? ` <a href="#" class="mm-badge mm-photo first-obs-trigger" data-taxon-id="${node.id}" data-username="${ctx.username}" title="First research‑grade photo (click)">🖼️</a>`
-    : '';
+  let photoChips = '';
+  if (isSpecies) {
+    if (ctx.mode === 'compare') {
+      if (node.user1Has && ctx.username1) photoChips += ` <a href="#" class="mm-badge mm-photo first-obs-trigger user1" data-taxon-id="${node.id}" data-username="${ctx.username1}" title="First RG photo for ${escapeHtml(ctx.username1)}">🖼️</a>`;
+      if (node.user2Has && ctx.username2) photoChips += ` <a href="#" class="mm-badge mm-photo first-obs-trigger user2" data-taxon-id="${node.id}" data-username="${ctx.username2}" title="First RG photo for ${escapeHtml(ctx.username2)}">🖼️</a>`;
+    } else if (ctx.username) {
+      photoChips = ` <a href="#" class="mm-badge mm-photo first-obs-trigger user1" data-taxon-id="${node.id}" data-username="${ctx.username}" title="First research‑grade photo">🖼️</a>`;
+    }
+  }
 
-  let line = `${indent}- ${colorStart}${nameHtml}${common}${rankChip}${countChip}${photoChip}${colorEnd}`;
+  let line = `${indent}- ${colorStart}${nameHtml}${common}${rankChip}${countChip}${photoChips}${colorEnd}`;
   let md = line + '\n';
   if (node.children && Object.keys(node.children).length > 0) {
     const children = Object.values(node.children).sort((a,b) => {

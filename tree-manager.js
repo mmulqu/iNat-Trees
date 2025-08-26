@@ -303,6 +303,9 @@ class TreeManager {
     tabContent.id = `${tree.id}-content`;
     tabContent.setAttribute('role', 'tabpanel');
     tabContent.setAttribute('aria-labelledby', `${tree.id}-tab`);
+    // expose usernames for first-observation controller (comparison mode)
+    tabContent.dataset.username1 = tree.username1;
+    tabContent.dataset.username2 = tree.username2;
     const svgContainer = document.createElement('div');
     svgContainer.className = 'markmap-container';
     svgContainer.innerHTML = `<svg id="${tree.id}-svg" style="width: 100%; height: 700px;"></svg>`;
