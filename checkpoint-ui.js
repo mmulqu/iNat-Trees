@@ -336,6 +336,7 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   // Switch slider to quantized positions (0..N-1)
   const qDates = preCacheDatesByTaxon[taxonId];
   setSliderEnabled(true, 0, qDates.length - 1, qDates.length - 1);
+  try { const cur = document.getElementById('checkpointCurrent'); if (cur) cur.textContent = qDates[qDates.length - 1]; } catch(_) {}
   // Render tick bubbles
   const ticks = document.getElementById('checkpointTicks');
   if (ticks) {
@@ -367,6 +368,7 @@ async function initTimelineForTaxon(taxonId, taxonName) {
     const idx = Number(e.target.value);
     const snapped = (preCacheDatesByTaxon[taxonId] || [])[idx];
     if (!snapped) return;
+    try { const cur = document.getElementById('checkpointCurrent'); if (cur) cur.textContent = snapped; } catch(_) {}
     const cached = cpCacheGet(cpCacheKeyForDate(taxonId, CURRENT_USER, snapped));
     if (cached && currentCpTabId) {
       renderMarkdownToTab(currentCpTabId, cached);
