@@ -768,7 +768,8 @@ async function firstObservation(request, env) {
     api.searchParams.set('taxon_id', String(taxonId));
     api.searchParams.set('order', 'asc');
     api.searchParams.set('order_by', 'observed_on');
-    api.searchParams.set('quality_grade', 'research');
+    // allow all grades to increase chance of finding a photo
+    api.searchParams.set('quality_grade', 'casual,needs_id,research');
     api.searchParams.set('per_page', '1');
     api.searchParams.set('page', '1');
 
