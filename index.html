@@ -87,6 +87,12 @@
     /* Preserve red/blue/shared coloring in compare mode */
     body.dark-theme .markmap-container svg path { stroke: #6f918a !important; }
 
+    /* Explicit light-mode markmap text so it never ends up white on white */
+    body:not(.dark-theme) .markmap-container svg text,
+    body:not(.dark-theme) .markmap-container svg tspan,
+    body:not(.dark-theme) .markmap-container svg .markmap-node text { fill: #111827 !important; opacity: 1 !important; }
+    body:not(.dark-theme) .markmap-container .markmap-foreign * { color: #111827 !important; }
+
     .navbar {
       background-color: var(--primary-color);
     }
