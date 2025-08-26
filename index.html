@@ -30,6 +30,15 @@
       padding-bottom: 2rem;
     }
 
+    /* Dark theme overrides via CSS variables */
+    body.dark-theme {
+      --primary-color: #3fac8c;
+      --secondary-color: #2a6e58;
+      --background-color: #151718;
+      --text-color: #e6e6e6;
+      --border-color: #2a2d2f;
+    }
+
     .navbar {
       background-color: var(--primary-color);
     }
@@ -249,6 +258,11 @@
       <ul class="navbar-nav ms-auto">
         <li class="nav-item"><a class="nav-link active" id="home-tab" href="#" onclick="showTab('home')">Explore</a></li>
         <li class="nav-item"><a class="nav-link" id="checkpoints-tab" href="#" onclick="showTab('checkpointsPane')">Checkpoints</a></li>
+        <li class="nav-item ms-3">
+          <button id="themeToggle" class="btn btn-sm btn-outline-light" title="Toggle light/dark mode">
+            <i id="themeIcon" class="bi bi-moon"></i>
+          </button>
+        </li>
       </ul>
     </div>
   </nav>
@@ -513,6 +527,7 @@
   <script type="module" src="markmap-integration.js"></script>
   <script type="module" src="integration.js"></script>
   <script type="module" src="battle-animation.js"></script>
+  <script type="module" src="theme-toggle.js"></script>
 
   <script>
     // Initialize TreeManager after DOM is loaded
