@@ -121,6 +121,23 @@ class TaxonomyStats {
     // Split by lines
     const lines = markdown.split('\n').filter(line => line.trim() !== '');
 
+    // Helpers to parse our enhanced HTML labels with chips
+    const rankLetterToName = { K:'kingdom', P:'phylum', C:'class', O:'order', F:'family', G:'genus', S:'species' };
+    function stripColorTags(s) { return s.replace(/\{color:.*?\}|\{\/color\}/g, ''); }
+    function extractRank(line) {
+      const m = line.match(/mm-badge\s+mm-rank[^>]*>([A-Z])<\/span>/i);
+      if (m && rankLetterToName[m[1].toUpperCase()]) return rankLetterToName[m[1].toUpperCase()];
+      const m2 = line.match(/\[(.*?)\]/); // fallback to legacy [rank]
+      return m2 ? String(m2[1]).toLowerCase() : '';
+    }
+    function extractName(line) {
+      const a = line.match(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/i);
+      let name = a ? a[1] : (line.match(/-\s+([^<\[]+)/)?.[1] || '');
+      name = stripColorTags(name);
+      name = name.replace(/<[^>]+>/g, '');
+      return name.trim();
+    }
+
     const stats = {
       total: 0,
       species: 0,
@@ -154,15 +171,10 @@ class TaxonomyStats {
         stats.total++;
       }
 
-      // Extract rank information
-      const rankMatch = line.match(/\[(.*?)\]/);
-      if (rankMatch) {
-        const rank = rankMatch[1].toLowerCase();
-        const nameMatch = line.match(/- (.*?)( \(|$|\[)/);
-        const name = nameMatch ? nameMatch[1].trim() : "";
-
-        // Remove any markdown color tags if present
-        const cleanName = name.replace(/\{color:.*?\}|\{\/color\}/g, '');
+      // Extract rank and name information from enhanced label
+      const rank = extractRank(line);
+      if (rank) {
+        const cleanName = extractName(line);
 
         // Add to appropriate sets based on rank
         if (rank === 'species' || rank === 'subspecies' || rank === 'variety') {
