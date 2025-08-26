@@ -167,8 +167,12 @@ class TreeManager {
       // ensure labels are bright in dark theme (html labels too)
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
-        const texts = svg.querySelectorAll('text');
-        texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '1'; });
+        setTimeout(() => {
+          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
+          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          const foreign = svg.querySelectorAll('.markmap-foreign *');
+          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+        }, 0);
       }
     } catch (_) {}
 
@@ -398,10 +402,12 @@ class TreeManager {
     }, root);
     try {
       if (document.body.classList.contains('dark-theme')) {
-        const texts = svg.querySelectorAll('text');
-        texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '1'; });
-        const foreign = svg.querySelectorAll('.markmap-foreign *');
-        foreign.forEach(el => { el.style.color = '#f8fafc'; });
+        setTimeout(() => {
+          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
+          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          const foreign = svg.querySelectorAll('.markmap-foreign *');
+          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+        }, 0);
       }
     } catch (_) {}
     this.setupComparisonTreeRendering(svg);
