@@ -46,11 +46,15 @@ document.addEventListener('DOMContentLoaded', function() {
   body.dark-theme .mm-badge.mm-photo::before{background:#e5e7eb}
   .mm-common{opacity:.7}
   .first-obs-preview{position:absolute; z-index:9999; width:300px; max-width:44vw; box-shadow:0 8px 24px rgba(0,0,0,.18); border:1px solid rgba(0,0,0,.08); border-radius:10px; overflow:hidden; background:#fff}
-  .first-obs-preview header{display:flex; justify-content:space-between; align-items:center; padding:.5rem .7rem; font-size:.85rem; background:#f8fafc; border-bottom:1px solid #eee}
+  .first-obs-preview header{display:flex; justify-content:space-between; align-items:center; padding:.5rem .7rem; font-size:.9rem; background:#f8fafc; border-bottom:1px solid #eee; color:#111827}
   .first-obs-preview .body{padding:.5rem .7rem}
   .first-obs-preview img{width:100%; height:auto; display:block}
   .first-obs-preview .actions{display:flex; gap:.5rem; margin-top:.5rem}
   .first-obs-spinner{width:100%; padding:1rem; text-align:center; font-size:.9rem; color:#6b7280}
+  /* Dark theme overrides for preview */
+  body.dark-theme .first-obs-preview{background:#1d1f20; border-color:#3a3f42}
+  body.dark-theme .first-obs-preview header{background:#202324; color:#e6e6e6}
+  body.dark-theme .first-obs-preview .text-muted{color:#cfd6d8 !important}
   `;
   document.head.appendChild(style);
 })();
