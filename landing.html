@@ -13,9 +13,9 @@
 
   <!-- Preload your video poster (static image) for fast first paint -->
   <!-- Replace with your actual asset paths -->
-  <link rel="preload" as="image" href="/assets/ferns-poster.jpg">
+  <link rel="preload" as="image" href="assets/ferns-poster.jpg">
   <!-- Optional: Preload the lightweight WebM – keep small (<6–10MB ideally) -->
-  <link rel="preload" as="video" href="/assets/ferns-loop.webm" type="video/webm">
+  <link rel="preload" as="video" href="assets/ferns-loop.webm" type="video/webm">
 
   <style>
     :root{
@@ -165,9 +165,9 @@
   <!-- Background -->
   <div class="bg-video-wrap" aria-hidden="true">
     <!-- Replace with your video sources; keep it short (6–12s), loopable -->
-    <video id="bgVideo" class="bg-video" playsinline muted loop autoplay preload="metadata" poster="/assets/ferns-poster.jpg">
-      <source src="/assets/ferns-loop.webm" type="video/webm">
-      <source src="/assets/ferns-loop.mp4"  type="video/mp4">
+    <video id="bgVideo" class="bg-video" playsinline muted loop autoplay preload="metadata" poster="assets/ferns-poster.jpg">
+      <source src="assets/ferns-loop.webm" type="video/webm">
+      <source src="assets/ferns-loop.mp4"  type="video/mp4">
       <!-- If neither source can play, poster shows behind. -->
     </video>
   </div>
@@ -195,7 +195,7 @@
         </button>
 
         <!-- Visible once connected -->
-        <a id="enterApp" href="/index.html" class="btn btn-ghost d-none">
+        <a id="enterApp" href="index.html" class="btn btn-ghost d-none">
           <i class="bi bi-arrow-right-circle"></i> Enter the app
         </a>
       </div>
@@ -222,7 +222,7 @@
       <div id="features" class="row g-3">
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="/assets/feature-build.jpg" alt="Screenshot: Build your taxonomic tree">
+            <img class="feature-img" src="assets/feature-build.jpg" alt="Screenshot: Build your taxonomic tree">
             <div class="p-3">
               <h5 class="mb-1">Build your tree</h5>
               <p class="mb-0">Pick a high-rank taxon (e.g., Plants, Birds) and we map your observations into a browsable tree.</p>
@@ -231,7 +231,7 @@
         </div>
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="/assets/feature-compare.jpg" alt="Screenshot: Compare two users (Tree PVP)">
+            <img class="feature-img" src="assets/feature-compare.jpg" alt="Screenshot: Compare two users (Tree PVP)">
             <div class="p-3">
               <h5 class="mb-1">Compare users</h5>
               <p class="mb-0">Red vs Blue, with purple for shared taxa. Battle animations included ✨</p>
@@ -240,7 +240,7 @@
         </div>
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="/assets/feature-timeline.jpg" alt="Screenshot: Checkpoints & first-seen timeline">
+            <img class="feature-img" src="assets/feature-timeline.jpg" alt="Screenshot: Checkpoints & first-seen timeline">
             <div class="p-3">
               <h5 class="mb-1">Checkpoints & timeline</h5>
               <p class="mb-0">Save snapshots, replay your first-seen species over time, and compare growth.</p>
@@ -250,7 +250,7 @@
       </div>
 
       <div class="text-center mt-4">
-        <a id="enterAppBottom" href="/index.html" class="btn btn-outline-light d-none">
+        <a id="enterAppBottom" href="index.html" class="btn btn-outline-light d-none">
           <i class="bi bi-arrow-right"></i> I’m connected — take me to the app
         </a>
       </div>
@@ -268,10 +268,10 @@
     window.CF_API_BASE = 'https://inat-trees-worker.intrinsic3141.workers.dev';
   </script>
   <!-- Your existing auth UI logic (renders the button state) -->
-  <script type="module" src="/ui-auth.js"></script>
+  <script type="module" src="ui-auth.js"></script>
   <script type="module">
     // Post-auth UX: reveal “Enter the app” once token/username is present
-    import { fetchCurrentUser } from '/auth.js';
+    import { fetchCurrentUser } from './auth.js';
 
     async function syncAuthUI(){
       // Ensure we have username if token just landed
