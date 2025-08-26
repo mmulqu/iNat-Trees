@@ -191,28 +191,7 @@ function selectTaxonGroup(group) {
       try { cpCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
     }
   } catch (_) {}
-  // Ensure drag and click both update
-  const sync = () => { renderCheckpointSummary(group, Number(slider.value)); renderCheckpointTree(group, Number(slider.value)); };
-  slider.oninput = (e) => {
-    const frac = Number(slider.value) / Math.max(1, (group.items.length - 1));
-    const start = new Date(group.items[0]?.created_at);
-    const end = new Date(group.items[group.items.length - 1]?.created_at);
-    if (isFinite(start) && isFinite(end)) {
-      const t = new Date(start.getTime() + frac * (end.getTime() - start.getTime()));
-      slider.dataset.thresholdDate = t.toISOString();
-    }
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(sync, 100);
-  };
-  slider.onchange = slider.oninput;
-  slider.addEventListener('click', (e) => {
-    // Map click position to nearest index
-    const rect = slider.getBoundingClientRect();
-    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const idx = Math.round(pct * (group.items.length - 1));
-    slider.value = String(idx);
-    sync();
-  });
+  // Slider events for timeline are handled by initTimelineForTaxon (quantized dates)
   document.getElementById('requeryCompareBtn').onclick = async () => {
     const sel = group.items[Number(slider.value)];
     const btn = document.getElementById('requeryCompareBtn');
@@ -364,7 +343,7 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   }
 
   const slider = document.getElementById('checkpointSlider');
-  slider.oninput = (e) => {
+  const handleSliderInput = (e) => {
     const idx = Number(e.target.value);
     const snapped = (preCacheDatesByTaxon[taxonId] || [])[idx];
     if (!snapped) return;
@@ -376,6 +355,9 @@ async function initTimelineForTaxon(taxonId, taxonName) {
     // opportunistically continue prefetching in background
     ensurePreCachedDates(CURRENT_USER, taxonId);
   };
+  // Bind cross-browser events
+  slider.oninput = handleSliderInput;
+  slider.addEventListener('change', handleSliderInput);
 }
 
 async function drawTreeAtDate(isoDate) {
