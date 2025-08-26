@@ -162,7 +162,15 @@ class TreeManager {
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
-    Markmap.create(svg, null, root);
+    const mm = Markmap.create(svg, null, root);
+    try {
+      // ensure labels are bright in dark theme (html labels too)
+      const isDark = document.body.classList.contains('dark-theme');
+      if (isDark) {
+        const texts = svg.querySelectorAll('text');
+        texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '1'; });
+      }
+    } catch (_) {}
 
     // Add statistics dashboard if available
     try {
@@ -382,12 +390,20 @@ class TreeManager {
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
-    Markmap.create(svg, {
+    const mm = Markmap.create(svg, {
       htmlLabels: true,
       nodeClick: (_, node) => {
         console.log("Clicked node:", node);
       }
     }, root);
+    try {
+      if (document.body.classList.contains('dark-theme')) {
+        const texts = svg.querySelectorAll('text');
+        texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '1'; });
+        const foreign = svg.querySelectorAll('.markmap-foreign *');
+        foreign.forEach(el => { el.style.color = '#f8fafc'; });
+      }
+    } catch (_) {}
     this.setupComparisonTreeRendering(svg);
 
     // Remove any existing statistics elements to prevent duplicates

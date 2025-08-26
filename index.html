@@ -79,7 +79,9 @@
 
     /* Markmap dark styling */
     body.dark-theme .markmap-container svg { background-color: #1d1f20; }
-    body.dark-theme .markmap-container svg text { fill: #f2f5f7 !important; }
+    /* Force bright labels for both text and html label modes */
+    body.dark-theme .markmap-container svg text { fill: #f8fafc !important; opacity: 1 !important; }
+    body.dark-theme .markmap-container .markmap-foreign * { color: #f8fafc !important; }
     body.dark-theme .markmap-container svg path { stroke: #6f918a !important; }
 
     .navbar {
