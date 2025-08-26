@@ -102,9 +102,11 @@
       display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px;
     }
     .btn-inat{
-      font-weight:700; padding:.85rem 1.2rem; border-radius:12px;
+      font-weight:800; font-size: clamp(1.0rem, 1.5vw, 1.15rem);
+      padding:1rem 1.4rem; border-radius:14px;
       display:inline-flex; align-items:center; gap:.55rem;
-      background: var(--brand); border:none;
+      background: var(--brand); color:#fff; border:none;
+      white-space: nowrap;
     }
     .btn-inat:hover{ background: var(--brand-2); }
     .btn-ghost{
@@ -115,9 +117,13 @@
     @media (prefers-color-scheme: light){
       .btn-ghost{ color:#0f172a; border-color: rgba(15,23,42,.25); }
     }
+    /* Match app button icon behavior: background favicon with left padding */
     .inat-favicon{
-      width:18px; height:18px; display:inline-block; flex:0 0 18px;
-      background:url('https://www.inaturalist.org/favicon.ico') no-repeat center/contain;
+      background-image: url('https://www.inaturalist.org/favicon.ico');
+      background-repeat: no-repeat;
+      background-position: 14px center;
+      background-size: 20px 20px;
+      padding-left: 42px;
     }
 
     .why{
@@ -203,9 +209,8 @@
       <div class="why">
         <small class="text-uppercase fw-semibold">Why connect?</small>
         <ul class="mb-0">
-          <li><i class="bi bi-lightning-charge-fill text-warning"></i> Higher API limits = faster, more reliable builds</li>
-          <li><i class="bi bi-shield-check text-success"></i> Secure OAuth2 (PKCE); token stays in your browser</li>
-          <li><i class="bi bi-tree-fill text-success"></i> Enables comparisons, checkpoints, and first-seen timelines</li>
+          <li><i class="bi bi-shield-check text-success"></i> Secure OAuth2 authentication</li>
+          <li><i class="bi bi-lightning-charge-fill text-warning"></i> Enables higher API limits</li>
         </ul>
       </div>
     </div>
