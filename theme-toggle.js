@@ -9,6 +9,13 @@
     if (theme === 'dark') {
       root.classList.add('dark-theme');
       if (icon) icon.className = 'bi bi-sun';
+      // force re-render of visible markmaps to pick up text color
+      try {
+        document.querySelectorAll('.markmap-container svg').forEach(svg => {
+          // trigger a reflow then leave; styles are CSS-driven
+          void svg.offsetWidth;
+        });
+      } catch(_) {}
     } else {
       root.classList.remove('dark-theme');
       if (icon) icon.className = 'bi bi-moon';

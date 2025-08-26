@@ -39,6 +39,49 @@
       --border-color: #2a2d2f;
     }
 
+    /* Component overrides in dark theme */
+    body.dark-theme .card {
+      background-color: #1d1f20;
+      border-color: var(--border-color);
+      color: var(--text-color);
+    }
+    body.dark-theme .card-header {
+      background-color: var(--secondary-color);
+      color: #f2f2f2;
+    }
+    body.dark-theme .accordion-button {
+      background-color: #1d1f20;
+      color: var(--text-color);
+      border-color: var(--border-color);
+    }
+    body.dark-theme .accordion-body {
+      background-color: #1b1d1e;
+      color: var(--text-color);
+    }
+    body.dark-theme pre,
+    body.dark-theme .bg-light,
+    body.dark-theme .tree-info,
+    body.dark-theme .helpful-tips {
+      background-color: #202324 !important;
+      color: var(--text-color) !important;
+      border-color: var(--border-color) !important;
+    }
+    body.dark-theme input,
+    body.dark-theme select,
+    body.dark-theme .form-control,
+    body.dark-theme .dropdown-menu {
+      background-color: #1d1f20;
+      color: var(--text-color);
+      border-color: var(--border-color);
+    }
+    body.dark-theme .dropdown-item { color: var(--text-color); }
+    body.dark-theme .dropdown-item.selected { background-color: #26312e; }
+
+    /* Markmap dark styling */
+    body.dark-theme .markmap-container svg { background-color: #1d1f20; }
+    body.dark-theme .markmap-container svg text { fill: #e6e6e6 !important; }
+    body.dark-theme .markmap-container svg path { stroke: #6f918a !important; }
+
     .navbar {
       background-color: var(--primary-color);
     }
