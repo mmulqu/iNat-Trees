@@ -75,15 +75,48 @@ document.addEventListener('DOMContentLoaded', function() {
   function key(u,t){ return `${u}:${t}`; }
   async function fetchFirstObs(username, taxonId){
     const k = key(username, taxonId);
+    // localStorage cache (persist across reloads)
+    try {
+      const raw = localStorage.getItem('firstObsCache');
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && obj[k]) return obj[k];
+      }
+    } catch(_) {}
     if (cache.has(k)) return cache.get(k);
     const u = new URL(`${API_BASE}/first-observation`);
     u.searchParams.set('username', username);
     u.searchParams.set('taxon_id', String(taxonId));
     const r = await fetch(u.toString(), { headers: authHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json(); cache.set(k, data); return data;
+    const data = await r.json();
+    cache.set(k, data);
+    try {
+      const raw = localStorage.getItem('firstObsCache');
+      const obj = raw ? JSON.parse(raw) : {};
+      obj[k] = data;
+      // cap size to ~100 entries
+      const keys = Object.keys(obj);
+      if (keys.length > 100) delete obj[keys[0]];
+      localStorage.setItem('firstObsCache', JSON.stringify(obj));
+    } catch(_) {}
+    return data;
   }
-  function ensurePreview(){ if (previewEl) return previewEl; previewEl = document.createElement('div'); previewEl.className='first-obs-preview'; previewEl.style.display='none'; document.body.appendChild(previewEl); document.addEventListener('keydown', e=>{ if(e.key==='Escape') previewEl.style.display='none';}); document.addEventListener('click', e=>{ if(previewEl&&previewEl.style.display!=='none'&&!previewEl.contains(e.target)) previewEl.style.display='none';}, true); return previewEl; }
+  function ensurePreview(){
+    if (previewEl) return previewEl;
+    previewEl = document.createElement('div');
+    previewEl.className='first-obs-preview';
+    previewEl.style.display='none';
+    document.body.appendChild(previewEl);
+    // Close on ESC
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') previewEl.style.display='none';});
+    // Outside click close (bubble phase) and ignore clicks on chips
+    document.addEventListener('click', e=>{
+      if (e.target && e.target.closest && e.target.closest('a.first-obs-trigger')) return;
+      if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(e.target)) previewEl.style.display='none';
+    });
+    return previewEl;
+  }
   function position(rect){ const el=ensurePreview(); const m=8; const top=window.scrollY+rect.bottom+m; const left=Math.min(window.scrollX+rect.left, window.scrollX+document.documentElement.clientWidth-el.offsetWidth-m); el.style.top=`${top}px`; el.style.left=`${left}px`; }
   function spinner(rect){ const el=ensurePreview(); el.innerHTML='<div class="first-obs-spinner">Loading…</div>'; el.style.display='block'; position(rect); }
   function render(rect, username, taxonId, payload){ const el=ensurePreview(); if(!payload||payload.notFound){ el.innerHTML='<header><strong>No research‑grade photo found</strong><button class="btn btn-sm btn-link" onclick="this.closest(\'.first-obs-preview\').style.display=\'none\'">✕</button></header><div class="body"><div class="text-muted">Try relaxing filters on iNat</div></div>'; el.style.display='block'; position(rect); return; } const {obs_url, observed_on, image_urls}=payload; const img=image_urls?.medium||image_urls?.small||image_urls?.thumb||''; const full=image_urls?.original||img||obs_url; el.innerHTML=`<header><div>First RG photo • <span class="text-muted">${observed_on?new Date(observed_on).toLocaleDateString():'date unknown'}</span></div><button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button></header><div class="body">${img?`<img alt="First observation photo" src="${img}">`:''}<div class="actions"><a class="btn btn-sm btn-primary" href="${obs_url}" target="_blank" rel="noopener">Open observation</a>${full?`<a class="btn btn-sm btn-outline-secondary" href="${full}" target="_blank" rel="noopener">Open image</a>`:''}</div></div>`; el.style.display='block'; position(rect); }
