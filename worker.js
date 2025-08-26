@@ -358,8 +358,9 @@ async function compareTaxa(request, env) {
   const tree = await buildComparisonTree(env, user1TaxonIds, user2TaxonIds, taxonId);
   const stats = generateComparisonStats(user1TaxonIds, user2TaxonIds);
   const markdown = treeToMarkdown(tree, 0, { username1, username2, mode: 'compare' });
+  const plainMarkdown = toPlainMarkdown(markdown);
 
-  return json({ markdown, stats, user1Count: user1TaxonIds.length, user2Count: user2TaxonIds.length }, 200, request);
+  return json({ markdown, plainMarkdown, stats, user1Count: user1TaxonIds.length, user2Count: user2TaxonIds.length }, 200, request);
 }
 
 async function buildTaxonomy(request, env) {
@@ -412,7 +413,8 @@ async function buildTaxonomy(request, env) {
 
     const tree = await buildTreeFromDatabase(env, speciesIds, taxonId);
     const markdown = treeToMarkdown(tree, 0, { username });
-    return json({ markdown, speciesTaxonIds: speciesIds, rankCounts, highWatermarkUpdatedAt: highWatermark, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
+    const plainMarkdown = toPlainMarkdown(markdown);
+    return json({ markdown, plainMarkdown, speciesTaxonIds: speciesIds, rankCounts, highWatermarkUpdatedAt: highWatermark, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
   } catch (e) {
     const msg = e?.message || String(e);
     // Try to echo the auth debug on errors too
@@ -585,7 +587,8 @@ async function treeFromSpecies(request, env) {
     }
     const tree = await buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId);
     const markdown = treeToMarkdown(tree);
-    return json({ markdown }, 200, request);
+    const plainMarkdown = toPlainMarkdown(markdown);
+    return json({ markdown, plainMarkdown }, 200, request);
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }
@@ -736,7 +739,8 @@ async function timelineTreeAtDate(request, env) {
 
   const tree = await buildTreeFromDatabase(env, speciesIds, parseInt(taxonId,10));
   const markdown = treeToMarkdown(tree);
-  return json({ markdown, speciesCount: speciesIds.length }, 200, request);
+  const plainMarkdown = toPlainMarkdown(markdown);
+  return json({ markdown, plainMarkdown, speciesCount: speciesIds.length }, 200, request);
 }
 
 // GET /first-observation?username=:u&taxon_id=:t
@@ -805,6 +809,13 @@ async function firstObservation(request, env) {
   }
 }
 
+function toPlainMarkdown(md) {
+  return String(md)
+    .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
+    .replace(/<span[^>]*>.*?<\/span>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+$/gm, '');
+}
 // POST /timeline/precache { username, taxonId, checkpointId }
 async function timelinePrecache(request, env) {
   try {
