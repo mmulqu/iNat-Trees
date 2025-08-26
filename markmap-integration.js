@@ -34,11 +34,16 @@ document.addEventListener('DOMContentLoaded', function() {
 (() => {
   const style = document.createElement('style');
   style.textContent += `
-  .mm-badge{display:inline-block; font-size:.72rem; line-height:1; padding:.18rem .36rem; border-radius:.4rem; margin-left:.3rem; background:#eef2f7; color:#334155; vertical-align:middle}
-  .mm-badge.mm-rank{font-weight:600; letter-spacing:.02em}
+  .mm-badge{display:inline-block; font-size:.72rem; line-height:1; padding:.18rem .36rem; border-radius:.4rem; margin-left:.3rem; background:#eef2f7; color:#334155; vertical-align:middle; border:1px solid rgba(0,0,0,.08)}
+  .mm-badge.mm-rank{font-weight:600; letter-spacing:.02em; background:#e2e8f0; color:#1f2937}
   .mm-badge.mm-count{background:#e6f4ea; color:#1e4620}
   .mm-badge.mm-photo{text-decoration:none; background:#e8f0fe; cursor:pointer; padding:0; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent}
   .mm-badge.mm-photo::before{content:''; width:12px; height:12px; display:block; background:#334155; -webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23000"><path d="M9 3l-1.8 2H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.2L15 3H9zm3 4a5 5 0 110 10 5 5 0 010-10zm0 2.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/></svg>') no-repeat center / contain; mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23000"><path d="M9 3l-1.8 2H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.2L15 3H9zm3 4a5 5 0 110 10 5 5 0 010-10zm0 2.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/></svg>') no-repeat center / contain}
+  /* Dark theme overrides for badges */
+  body.dark-theme .mm-badge{background:#2a2d2f; color:#e6e6e6 !important; border-color:#3a3f42}
+  body.dark-theme .mm-badge.mm-rank{background:#334155; color:#e5e7eb !important}
+  body.dark-theme .mm-badge.mm-count{background:#123524; color:#a7f3d0}
+  body.dark-theme .mm-badge.mm-photo::before{background:#e5e7eb}
   .mm-common{opacity:.7}
   .first-obs-preview{position:absolute; z-index:9999; width:300px; max-width:44vw; box-shadow:0 8px 24px rgba(0,0,0,.18); border:1px solid rgba(0,0,0,.08); border-radius:10px; overflow:hidden; background:#fff}
   .first-obs-preview header{display:flex; justify-content:space-between; align-items:center; padding:.5rem .7rem; font-size:.85rem; background:#f8fafc; border-bottom:1px solid #eee}
