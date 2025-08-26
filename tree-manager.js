@@ -102,6 +102,8 @@ class TreeManager {
       tabContent.className = 'tab-pane fade';
     }
     tabContent.id = `${tree.id}-content`;
+    // expose username for downstream controllers
+    tabContent.dataset.username = tree.username;
     tabContent.setAttribute('role', 'tabpanel');
     tabContent.setAttribute('aria-labelledby', `${tree.id}-tab`);
     const svgContainer = document.createElement('div');
@@ -162,7 +164,7 @@ class TreeManager {
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
-    const mm = Markmap.create(svg, null, root);
+    const mm = Markmap.create(svg, { htmlLabels: true }, root);
     try {
       // ensure labels are bright in dark theme (html labels too)
       const isDark = document.body.classList.contains('dark-theme');

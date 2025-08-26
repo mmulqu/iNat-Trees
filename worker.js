@@ -104,6 +104,10 @@ export default {
         await ensureCheckpointTables(env);
         return timelineTreeAtDate(request, env);
       }
+      // First observation lookup
+      if (pathname === '/first-observation' && request.method === 'GET') {
+        return firstObservation(request, env);
+      }
 
       if (pathname === '/timeline/precache' && request.method === 'POST') {
         await ensureCheckpointTables(env);
@@ -407,7 +411,7 @@ async function buildTaxonomy(request, env) {
     }
 
     const tree = await buildTreeFromDatabase(env, speciesIds, taxonId);
-    const markdown = treeToMarkdown(tree);
+    const markdown = treeToMarkdown(tree, 0, { username });
     return json({ markdown, speciesTaxonIds: speciesIds, rankCounts, highWatermarkUpdatedAt: highWatermark, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
   } catch (e) {
     const msg = e?.message || String(e);
@@ -735,6 +739,72 @@ async function timelineTreeAtDate(request, env) {
   return json({ markdown, speciesCount: speciesIds.length }, 200, request);
 }
 
+// GET /first-observation?username=:u&taxon_id=:t
+async function firstObservation(request, env) {
+  try {
+    const url = new URL(request.url);
+    const username = url.searchParams.get('username');
+    const taxonId = parseInt(url.searchParams.get('taxon_id') || '0', 10);
+    if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxon_id' }, 400, request);
+
+    const rawAuth = request.headers.get('Authorization') || '';
+    const jwt = await processAuthHeader(rawAuth);
+    const authHeader = jwt ? `Bearer ${jwt}` : (rawAuth || undefined);
+
+    const cacheKey = `firstObs:${username}:${taxonId}`;
+    const cached = requestCache.get(cacheKey);
+    const now = Date.now();
+    const ttlMs = (RATE_LIMIT_CONFIG.cacheTTL || 300) * 1000;
+    if (cached && (now - cached.timestamp) < ttlMs) {
+      return json(cached.data, 200, request);
+    }
+
+    const api = new URL('https://api.inaturalist.org/v1/observations');
+    api.searchParams.set('user_id', username);
+    api.searchParams.set('taxon_id', String(taxonId));
+    api.searchParams.set('order', 'asc');
+    api.searchParams.set('order_by', 'observed_on');
+    api.searchParams.set('quality_grade', 'research');
+    api.searchParams.set('per_page', '1');
+    api.searchParams.set('page', '1');
+
+    const headers = { 'User-Agent': 'iNat-Trees-Cloudflare/1.0' };
+    if (authHeader) headers['Authorization'] = authHeader;
+
+    await acquireLimiter(env, authHeader || `${username}:firstObs`, RATE_LIMIT_CONFIG.minGlobalGapMs);
+
+    const r = await fetch(api.toString(), { headers });
+    if (!r.ok) {
+      const msg = `iNat HTTP ${r.status}`;
+      if (r.status === 429) return json({ error: msg }, 429, request);
+      return json({ error: msg }, 502, request);
+    }
+    const data = await r.json();
+    const result = (data.results && data.results[0]) || null;
+    if (!result) {
+      const payload = { notFound: true };
+      requestCache.set(cacheKey, { data: payload, timestamp: now });
+      return json(payload, 200, request);
+    }
+    const obsId = result.id;
+    const obsUrl = `https://www.inaturalist.org/observations/${obsId}`;
+    const observedOn = result.observed_on || result.time_observed_at || result.created_at;
+    const photo = (result.photos && result.photos[0]) || null;
+    const imageUrls = photo ? {
+      thumb: photo.url?.replace('square', 'thumb') || photo.url,
+      small: photo.url?.replace('square', 'small') || photo.url,
+      medium: photo.url?.replace('square', 'medium') || photo.url,
+      large: photo.url?.replace('square', 'large') || photo.url,
+      original: photo.original_url || photo.url
+    } : null;
+    const payload = { obs_id: obsId, obs_url: obsUrl, observed_on: observedOn, image_urls: imageUrls };
+    requestCache.set(cacheKey, { data: payload, timestamp: now });
+    return json(payload, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
+}
+
 // POST /timeline/precache { username, taxonId, checkpointId }
 async function timelinePrecache(request, env) {
   try {
@@ -1028,29 +1098,41 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
   return root;
 }
 
-function treeToMarkdown(node, level = 0) {
+function treeToMarkdown(node, level = 0, ctx = {}) {
   const indent = '  '.repeat(level);
   let colorStart = '';
   let colorEnd = '';
-  if (node.color) {
-    colorStart = `{color:${node.color}}`;
-    colorEnd = '{/color}';
-  }
-  let line = `${indent}- ${colorStart}${node.name}`;
-  if (node.common_name) line += ` (${node.common_name})`;
-  if (node.rank && node.rank !== 'no rank') line += ` [${node.rank}]`;
-  line += colorEnd;
+  if (node.color) { colorStart = `{color:${node.color}}`; colorEnd = '{/color}'; }
+
+  const taxonUrl = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '#';
+  const nameHtml = `<a class="taxon-link" href="${taxonUrl}" target="_blank" rel="noopener">${escapeHtml(node.name)}</a>`;
+  const common = node.common_name ? ` <span class="mm-common">(${escapeHtml(node.common_name)})</span>` : '';
+  const shortRank = shortRankCode(node.rank);
+  const rankChip = shortRank ? ` <span class="mm-badge mm-rank" title="${escapeHtml(node.rank)}">${shortRank}</span>` : '';
+  const countChip = Number.isFinite(node.sppCount) ? ` <span class="mm-badge mm-count" title="Distinct species in this branch">${node.sppCount} spp</span>` : '';
+  const isSpecies = (node.rank || '').toLowerCase() === 'species';
+  const photoChip = (isSpecies && ctx.username)
+    ? ` <a href="#" class="mm-badge mm-photo first-obs-trigger" data-taxon-id="${node.id}" data-username="${ctx.username}" title="First research‑grade photo (click)">🖼️</a>`
+    : '';
+
+  let line = `${indent}- ${colorStart}${nameHtml}${common}${rankChip}${countChip}${photoChip}${colorEnd}`;
   let md = line + '\n';
   if (node.children && Object.keys(node.children).length > 0) {
-    const children = Object.values(node.children).sort((a, b) => {
-      const ra = getRankOrder(a.rank);
-      const rb = getRankOrder(b.rank);
-      if (ra !== rb) return rb - ra;
+    const children = Object.values(node.children).sort((a,b) => {
+      const ra = getRankOrder(a.rank); const rb = getRankOrder(b.rank);
+      if (ra !== rb) return rb - ra; // higher ranks first
       return (a.name || '').localeCompare(b.name || '');
     });
-    for (const child of children) {
-      md += treeToMarkdown(child, level + 1);
-    }
+    for (const child of children) md += treeToMarkdown(child, level + 1, ctx);
   }
   return md;
 }
+
+function shortRankCode(rank) {
+  if (!rank) return '';
+  const r = String(rank).toLowerCase();
+  const map = { kingdom: 'K', phylum: 'P', class: 'C', order: 'O', family: 'F', genus: 'G', species: 'S' };
+  return map[r] || '';
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
