@@ -125,17 +125,24 @@ class TaxonomyStats {
     const rankLetterToName = { K:'kingdom', P:'phylum', C:'class', O:'order', F:'family', G:'genus', S:'species' };
     function stripColorTags(s) { return s.replace(/\{color:.*?\}|\{\/color\}/g, ''); }
     function extractRank(line) {
+      // Prefer explicit title attribute emitted by backend
+      const t = line.match(/mm-badge\s+mm-rank[^>]*title=\"([^\"]+)\"/i);
+      if (t && t[1]) return String(t[1]).toLowerCase();
+      // Fallback to letter content
       const m = line.match(/mm-badge\s+mm-rank[^>]*>([A-Z])<\/span>/i);
       if (m && rankLetterToName[m[1].toUpperCase()]) return rankLetterToName[m[1].toUpperCase()];
-      const m2 = line.match(/\[(.*?)\]/); // fallback to legacy [rank]
+      // Legacy fallback [rank]
+      const m2 = line.match(/\[(.*?)\]/);
       return m2 ? String(m2[1]).toLowerCase() : '';
     }
     function extractName(line) {
       const a = line.match(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/i);
-      let name = a ? a[1] : (line.match(/-\s+([^<\[]+)/)?.[1] || '');
-      name = stripColorTags(name);
-      name = name.replace(/<[^>]+>/g, '');
-      return name.trim();
+      let raw = a ? a[1] : (line.match(/-\s+([^<\[]+)/)?.[1] || '');
+      // Remove trailing common name parens if present e.g. "Quercus (oaks)"
+      raw = raw.replace(/\s*\([^)]*\)\s*$/, '');
+      raw = stripColorTags(raw);
+      raw = raw.replace(/<[^>]+>/g, '');
+      return raw.trim();
     }
 
     const stats = {
