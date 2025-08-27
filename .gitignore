@@ -12,3 +12,12 @@ full_schema.sql
 .~lock.*
 .wrangler/
 .config/
+# Media files (large, shouldn't be tracked in Git)
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.mov
+*.avi
