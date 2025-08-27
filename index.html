@@ -94,14 +94,29 @@
     body.dark-theme .markmap-container svg tspan,
     body.dark-theme .markmap-container svg .markmap-node text { fill: #f8fafc !important; opacity: 0.96 !important; }
     body.dark-theme .markmap-container .markmap-foreign * { color: #f8fafc !important; }
-    /* Preserve red/blue/shared coloring in compare mode */
-    body.dark-theme .markmap-container svg path { stroke: #6f918a !important; }
 
     /* Explicit light-mode markmap text so it never ends up white on white */
     body:not(.dark-theme) .markmap-container svg text,
     body:not(.dark-theme) .markmap-container svg tspan,
     body:not(.dark-theme) .markmap-container svg .markmap-node text { fill: #111827 !important; opacity: 1 !important; }
     body:not(.dark-theme) .markmap-container .markmap-foreign * { color: #111827 !important; }
+
+    /* Default link strokes */
+    .markmap-container svg path { stroke: #9aa1a7; }                /* light */
+    body.dark-theme .markmap-container svg path { stroke: #6f918a; } /* dark */
+
+    /* PVP edges (override defaults in both themes) */
+    .markmap-container svg path.user1-edge { stroke: #ff6b6b !important; }
+    .markmap-container svg path.user2-edge { stroke: #4dabf7 !important; }
+    .markmap-container svg path.shared-edge { stroke: #cc5de8 !important; }
+
+    /* PVP label colors (SVG text + HTML labels) */
+    .markmap-node.cmp-user1 text { fill: #ff6b6b !important; }
+    .markmap-node.cmp-user2 text { fill: #4dabf7 !important; }
+    .markmap-node.cmp-shared text { fill: #cc5de8 !important; }
+    .markmap-node.cmp-user1 .markmap-foreign * { color: #ff6b6b !important; }
+    .markmap-node.cmp-user2 .markmap-foreign * { color: #4dabf7 !important; }
+    .markmap-node.cmp-shared .markmap-foreign * { color: #cc5de8 !important; }
 
     .navbar {
       background-color: var(--primary-color);

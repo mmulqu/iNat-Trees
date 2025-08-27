@@ -355,47 +355,66 @@ class TreeManager {
   }
 
   setupComparisonTreeRendering(svg) {
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      .user1-node {
-        color: #ff6b6b !important;
-        font-weight: bold !important;
-      }
-      .user2-node {
-        color: #4dabf7 !important;
-        font-weight: bold !important;
-      }
-      .shared-node {
-        color: #cc5de8 !important;
-        font-weight: bold !important;
-      }
-    `;
-    document.head.appendChild(styleElement);
-    const applyClassesAndEdgeColors = () => {
-      const nodes = svg.querySelectorAll('.markmap-node');
+    const COLOR_TOKENS = [
+      { token: 'red',    clsNode: 'cmp-user1',  clsEdge: 'user1-edge'  },
+      { token: 'blue',   clsNode: 'cmp-user2',  clsEdge: 'user2-edge'  },
+      { token: 'purple', clsNode: 'cmp-shared', clsEdge: 'shared-edge' }
+    ];
+    const tokenRegex = /\{color:(red|blue|purple)\}|\{\/color\}/ig;
+
+    const classifyAndColor = () => {
+      // Each Markmap node is a <g class="markmap-node">...
+      const nodes = svg.querySelectorAll('g.markmap-node');
       nodes.forEach(node => {
-        const text = node.querySelector('text');
-        if (!text) return;
-        const html = text.innerHTML;
-        const kind = html.includes('{color:red}') ? 'user1' : html.includes('{color:blue}') ? 'user2' : html.includes('{color:purple}') ? 'shared' : '';
-        // Color the incoming edge to this node (previous sibling path)
-        const prev = node.previousElementSibling;
-        if (!prev || prev.tagName?.toLowerCase() !== 'path') return;
-        if (kind === 'user1') {
-          prev.classList.add('user1-edge');
-          prev.setAttribute('stroke', '#ff6b6b');
-        } else if (kind === 'user2') {
-          prev.classList.add('user2-edge');
-          prev.setAttribute('stroke', '#4dabf7');
-        } else if (kind === 'shared') {
-          prev.classList.add('shared-edge');
-          prev.setAttribute('stroke', '#cc5de8');
+        // Prefer HTML label (foreignObject), else fall back to <text>
+        const foreign = node.querySelector('.markmap-foreign');
+        const textEl  = node.querySelector('text');
+
+        // Read the visible label string in a way that works in both modes
+        const labelStr =
+          (foreign && foreign.textContent) ||
+          (textEl && textEl.textContent)   ||
+          '';
+
+        // Which token is present?
+        let match = /{color:(red|blue|purple)}/i.exec(labelStr);
+        if (!match) return;
+
+        const colorKey = match[1].toLowerCase();
+        const spec = COLOR_TOKENS.find(c => c.token === colorKey);
+        if (!spec) return;
+
+        // 1) Color the label by classing the node (CSS handles SVG + HTML)
+        node.classList.remove('cmp-user1', 'cmp-user2', 'cmp-shared');
+        node.classList.add(spec.clsNode);
+
+        // 2) Strip tokens from the visible label (don't break your HTML)
+        if (foreign) {
+          // safe string replace inside our own generated HTML
+          foreign.innerHTML = foreign.innerHTML.replace(tokenRegex, '');
+        } else if (textEl) {
+          textEl.textContent = textEl.textContent.replace(tokenRegex, '');
+        }
+
+        // 3) Color the incoming edge. In Markmap's DOM the connecting path
+        //     is typically the previous sibling to the node group. Fall back
+        //     to a path inside this group if present.
+        let edge = node.previousElementSibling;
+        if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
+          edge = node.querySelector('path');
+        }
+        if (edge) {
+          edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+          edge.classList.add(spec.clsEdge);
         }
       });
     };
-    setTimeout(applyClassesAndEdgeColors, 500);
-    // Re-apply on DOM changes (expands/collapses)
-    const mo = new MutationObserver(() => applyClassesAndEdgeColors());
+
+    // First pass after render
+    setTimeout(classifyAndColor, 0);
+
+    // Re-apply on expand/collapse or zoom changes
+    const mo = new MutationObserver(() => classifyAndColor());
     mo.observe(svg, { subtree: true, childList: true, attributes: false });
   }
 
