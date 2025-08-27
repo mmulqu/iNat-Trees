@@ -979,6 +979,35 @@ async function fetchTaxonById(env, id) {
   return row || null;
 }
 
+// Choose the start root as the parent of the requested base taxon (fallback to Life)
+async function resolveStartRoot(env, baseTaxonId) {
+  // Default to Life
+  const lifeNode = { id: LIFE_TAXON_ID, name: 'Life', rank: 'stateofmatter', common_name: 'Life' };
+
+  const base = await fetchTaxonById(env, baseTaxonId).catch(() => null);
+  if (!base) return { startId: LIFE_TAXON_ID, startNode: lifeNode };
+
+  // Ensure the ancestor list begins at Life
+  let anc = parseAncestorIds(base.ancestor_ids);
+  if (anc.length === 0 || anc[0] !== LIFE_TAXON_ID) {
+    anc = [LIFE_TAXON_ID, ...anc.filter(id => id !== LIFE_TAXON_ID)];
+  }
+
+  // Parent = last ID in the ancestor chain (just above the base taxon)
+  const parentId = anc.length ? anc[anc.length - 1] : LIFE_TAXON_ID;
+  if (parentId === LIFE_TAXON_ID) {
+    return { startId: LIFE_TAXON_ID, startNode: lifeNode };
+  }
+
+  const parent = await fetchTaxonById(env, parentId).catch(() => null);
+  if (!parent) return { startId: LIFE_TAXON_ID, startNode: lifeNode };
+
+  return {
+    startId: parent.taxon_id || parent.id || parentId,
+    startNode: parent
+  };
+}
+
 async function fetchTaxaByIds(env, ids) {
   if (!ids || ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
