@@ -814,6 +814,9 @@ function toPlainMarkdown(md) {
   return String(md)
     .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
     .replace(/<span[^>]*>.*?<\/span>/gi, '')
+    // strip custom color tokens used for markmap/text coloring
+    .replace(/\{color:[^}]+\}/gi, '')
+    .replace(/\{\/color\}/gi, '')
     .replace(/<[^>]+>/g, '')
     .replace(/\s+$/gm, '');
 }

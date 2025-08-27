@@ -350,11 +350,8 @@ class TreeManager {
   }
 
   processComparisonMarkdown(markdown) {
-    let processedMarkdown = markdown
-      .replace(/\{color:red\}(.*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
-      .replace(/\{color:blue\}(.*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
-      .replace(/\{color:purple\}(.*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
-    return processedMarkdown;
+    // Keep markdown text clean; don't inject color spans into the text layer
+    return markdown;
   }
 
   setupComparisonTreeRendering(svg) {
@@ -379,17 +376,8 @@ class TreeManager {
       nodes.forEach(node => {
         const text = node.querySelector('text');
         if (!text) return;
-        let kind = '';
-        if (text.innerHTML.includes('class="user1-node"')) {
-          node.classList.add('user1-node-wrapper');
-          kind = 'user1';
-        } else if (text.innerHTML.includes('class="user2-node"')) {
-          node.classList.add('user2-node-wrapper');
-          kind = 'user2';
-        } else if (text.innerHTML.includes('class="shared-node"')) {
-          node.classList.add('shared-node-wrapper');
-          kind = 'shared';
-        }
+        const html = text.innerHTML;
+        const kind = html.includes('{color:red}') ? 'user1' : html.includes('{color:blue}') ? 'user2' : html.includes('{color:purple}') ? 'shared' : '';
         // Color the incoming edge to this node (previous sibling path)
         const prev = node.previousElementSibling;
         if (!prev || prev.tagName?.toLowerCase() !== 'path') return;
@@ -406,6 +394,9 @@ class TreeManager {
       });
     };
     setTimeout(applyClassesAndEdgeColors, 500);
+    // Re-apply on DOM changes (expands/collapses)
+    const mo = new MutationObserver(() => applyClassesAndEdgeColors());
+    mo.observe(svg, { subtree: true, childList: true, attributes: false });
   }
 
   renderComparisonTree(tree) {
