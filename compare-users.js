@@ -201,6 +201,7 @@ document.addEventListener('DOMContentLoaded', function() {
           showError("No observations found for at least one of the users under the selected taxon.");
           return;
         }
+        window.lastComparePlainMarkdown = result.plainMarkdown;
         renderComparison(markdown, username1, username2, taxonName, taxonId);
       } catch (err) {
         clearInterval(messageInterval);
@@ -223,7 +224,7 @@ function toPlain(md) {
 }
 
 function renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown) {
-  document.getElementById("markdownResult").textContent = plainMarkdown || toPlain(markdown);
+  document.getElementById("markdownResult").textContent = (window.lastComparePlainMarkdown || markdown);
 
   // Calculate statistics before adding the tree
   let stats = null;

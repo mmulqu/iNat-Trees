@@ -102,21 +102,18 @@
     body:not(.dark-theme) .markmap-container .markmap-foreign * { color: #111827 !important; }
 
     /* Default link strokes */
-    .markmap-container svg path { stroke: #9aa1a7; }                /* light */
+    .markmap-container svg path { stroke: #9aa1a7; }                 /* light */
     body.dark-theme .markmap-container svg path { stroke: #6f918a; } /* dark */
 
-    /* PVP edges (override defaults in both themes) */
+    /* PVP edges (win in both themes) */
     .markmap-container svg path.user1-edge { stroke: #ff6b6b !important; }
     .markmap-container svg path.user2-edge { stroke: #4dabf7 !important; }
     .markmap-container svg path.shared-edge { stroke: #cc5de8 !important; }
 
-    /* PVP label colors (SVG text + HTML labels) */
-    .markmap-node.cmp-user1 text { fill: #ff6b6b !important; }
-    .markmap-node.cmp-user2 text { fill: #4dabf7 !important; }
-    .markmap-node.cmp-shared text { fill: #cc5de8 !important; }
-    .markmap-node.cmp-user1 .markmap-foreign * { color: #ff6b6b !important; }
-    .markmap-node.cmp-user2 .markmap-foreign * { color: #4dabf7 !important; }
-    .markmap-node.cmp-shared .markmap-foreign * { color: #cc5de8 !important; }
+    /* PVP label colors (apply to spans, anchors, and any descendants) */
+    .user1-node, .user1-node a, .user1-node * { color: #ff6b6b !important; }
+    .user2-node, .user2-node a, .user2-node * { color: #4dabf7 !important; }
+    .shared-node, .shared-node a, .shared-node * { color: #cc5de8 !important; }
 
     .navbar {
       background-color: var(--primary-color);

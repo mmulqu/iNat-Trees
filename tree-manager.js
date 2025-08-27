@@ -350,71 +350,40 @@ class TreeManager {
   }
 
   processComparisonMarkdown(markdown) {
-    // Keep markdown text clean; don't inject color spans into the text layer
-    return markdown;
+    // Turn {color:*}...{/color} into spans Markmap can render as HTML labels
+    return String(markdown)
+      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
+      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
   setupComparisonTreeRendering(svg) {
-    const COLOR_TOKENS = [
-      { token: 'red',    clsNode: 'cmp-user1',  clsEdge: 'user1-edge'  },
-      { token: 'blue',   clsNode: 'cmp-user2',  clsEdge: 'user2-edge'  },
-      { token: 'purple', clsNode: 'cmp-shared', clsEdge: 'shared-edge' }
-    ];
-    const tokenRegex = /\{color:(red|blue|purple)\}|\{\/color\}/ig;
-
-    const classifyAndColor = () => {
-      // Each Markmap node is a <g class="markmap-node">...
+    // Paint incoming edges based on which colored span is present in the label
+    const paint = () => {
       const nodes = svg.querySelectorAll('g.markmap-node');
       nodes.forEach(node => {
-        // Prefer HTML label (foreignObject), else fall back to <text>
-        const foreign = node.querySelector('.markmap-foreign');
-        const textEl  = node.querySelector('text');
+        const has1 = !!node.querySelector('.user1-node');
+        const has2 = !!node.querySelector('.user2-node');
+        const hasS = !!node.querySelector('.shared-node');
 
-        // Read the visible label string in a way that works in both modes
-        const labelStr =
-          (foreign && foreign.textContent) ||
-          (textEl && textEl.textContent)   ||
-          '';
-
-        // Which token is present?
-        let match = /{color:(red|blue|purple)}/i.exec(labelStr);
-        if (!match) return;
-
-        const colorKey = match[1].toLowerCase();
-        const spec = COLOR_TOKENS.find(c => c.token === colorKey);
-        if (!spec) return;
-
-        // 1) Color the label by classing the node (CSS handles SVG + HTML)
-        node.classList.remove('cmp-user1', 'cmp-user2', 'cmp-shared');
-        node.classList.add(spec.clsNode);
-
-        // 2) Strip tokens from the visible label (don't break your HTML)
-        if (foreign) {
-          // safe string replace inside our own generated HTML
-          foreign.innerHTML = foreign.innerHTML.replace(tokenRegex, '');
-        } else if (textEl) {
-          textEl.textContent = textEl.textContent.replace(tokenRegex, '');
-        }
-
-        // 3) Color the incoming edge. In Markmap's DOM the connecting path
-        //     is typically the previous sibling to the node group. Fall back
-        //     to a path inside this group if present.
+        // Find the incoming edge for this node
         let edge = node.previousElementSibling;
         if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
+          // Fallback: some markmap versions nest the path inside
           edge = node.querySelector('path');
         }
-        if (edge) {
-          edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-          edge.classList.add(spec.clsEdge);
-        }
+        if (!edge) return;
+
+        edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
+        else if (has1) edge.classList.add('user1-edge');
+        else if (has2) edge.classList.add('user2-edge');
       });
     };
 
-    // First pass after render
-    setTimeout(classifyAndColor, 0);
-
-    // Re-apply on expand/collapse or zoom changes
-    const mo = new MutationObserver(() => classifyAndColor());
+    // Initial pass, then keep repainting on expand/collapse
+    setTimeout(paint, 0);
+    const mo = new MutationObserver(paint);
     mo.observe(svg, { subtree: true, childList: true, attributes: false });
   }
 
