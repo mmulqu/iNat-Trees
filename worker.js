@@ -1031,8 +1031,16 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
   const user1OnlyTaxa = new Set(user1TaxonIds.filter(id => !user2Set.has(id)));
   const user2OnlyTaxa = new Set(user2TaxonIds.filter(id => !user1Set.has(id)));
 
-  const root = { id: LIFE_TAXON_ID, name: 'Life', rank: 'stateofmatter', common_name: 'Life', color: SHARED_COLOR, children: {} };
-  const added = new Set([LIFE_TAXON_ID]);
+  const { startId, startNode } = await resolveStartRoot(env, baseTaxonId);
+  const root = {
+    id: startId,
+    name: startNode.name || 'Life',
+    rank: startNode.rank || 'stateofmatter',
+    common_name: startNode.common_name || (startId === LIFE_TAXON_ID ? 'Life' : ''),
+    color: SHARED_COLOR,
+    children: {}
+  };
+  const added = new Set([startId]);
 
   let baseTaxon = await fetchTaxonById(env, baseTaxonId);
   if (baseTaxon) {
@@ -1062,12 +1070,16 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
     }
     ancestorIds = Array.from(new Set(ancestorIds));
 
+    // Trim everything above the new root (startId)
+    const idx = ancestorIds.indexOf(startId);
+    const path = idx >= 0 ? ancestorIds.slice(idx) : [startId, ...ancestorIds];
+
     let current = root;
-    if (ancestorIds.length > 0) {
-      const ancestorRows = await fetchTaxaByIds(env, ancestorIds);
+    if (path.length > 0) {
+      const ancestorRows = await fetchTaxaByIds(env, path);
       const map = new Map(ancestorRows.map(a => [a.taxon_id, a]));
-      for (const ancId of ancestorIds) {
-        if (ancId === LIFE_TAXON_ID) continue;
+      for (const ancId of path) {
+        if (ancId === startId) continue;
         const anc = map.get(ancId);
         if (!anc) continue;
         if (!current.children[ancId]) {
@@ -1094,8 +1106,15 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
 }
 
 async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
-  const root = { id: LIFE_TAXON_ID, name: 'Life', rank: 'stateofmatter', common_name: 'Life', children: {} };
-  const added = new Set([LIFE_TAXON_ID]);
+  const { startId, startNode } = await resolveStartRoot(env, baseTaxonId);
+  const root = {
+    id: startId,
+    name: startNode.name || 'Life',
+    rank: startNode.rank || 'stateofmatter',
+    common_name: startNode.common_name || (startId === LIFE_TAXON_ID ? 'Life' : ''),
+    children: {}
+  };
+  const added = new Set([startId]);
 
   let baseTaxon = await fetchTaxonById(env, baseTaxonId);
   if (baseTaxon) {
@@ -1120,12 +1139,16 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
     }
     ancestorIds = Array.from(new Set(ancestorIds));
 
+    // Trim everything above the new root (startId)
+    const idx = ancestorIds.indexOf(startId);
+    const path = idx >= 0 ? ancestorIds.slice(idx) : [startId, ...ancestorIds];
+
     let current = root;
-    if (ancestorIds.length > 0) {
-      const ancestorRows = await fetchTaxaByIds(env, ancestorIds);
+    if (path.length > 0) {
+      const ancestorRows = await fetchTaxaByIds(env, path);
       const map = new Map(ancestorRows.map(a => [a.taxon_id, a]));
-      for (const ancId of ancestorIds) {
-        if (ancId === LIFE_TAXON_ID) continue;
+      for (const ancId of path) {
+        if (ancId === startId) continue; // we already ARE at the trimmed root
         const anc = map.get(ancId);
         if (!anc) continue;
         if (!current.children[ancId]) {
