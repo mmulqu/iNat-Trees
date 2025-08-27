@@ -374,20 +374,38 @@ class TreeManager {
       }
     `;
     document.head.appendChild(styleElement);
-    setTimeout(() => {
+    const applyClassesAndEdgeColors = () => {
       const nodes = svg.querySelectorAll('.markmap-node');
       nodes.forEach(node => {
         const text = node.querySelector('text');
         if (!text) return;
+        let kind = '';
         if (text.innerHTML.includes('class="user1-node"')) {
           node.classList.add('user1-node-wrapper');
+          kind = 'user1';
         } else if (text.innerHTML.includes('class="user2-node"')) {
           node.classList.add('user2-node-wrapper');
+          kind = 'user2';
         } else if (text.innerHTML.includes('class="shared-node"')) {
           node.classList.add('shared-node-wrapper');
+          kind = 'shared';
+        }
+        // Color the incoming edge to this node (previous sibling path)
+        const prev = node.previousElementSibling;
+        if (!prev || prev.tagName?.toLowerCase() !== 'path') return;
+        if (kind === 'user1') {
+          prev.classList.add('user1-edge');
+          prev.setAttribute('stroke', '#ff6b6b');
+        } else if (kind === 'user2') {
+          prev.classList.add('user2-edge');
+          prev.setAttribute('stroke', '#4dabf7');
+        } else if (kind === 'shared') {
+          prev.classList.add('shared-edge');
+          prev.setAttribute('stroke', '#cc5de8');
         }
       });
-    }, 500);
+    };
+    setTimeout(applyClassesAndEdgeColors, 500);
   }
 
   renderComparisonTree(tree) {
