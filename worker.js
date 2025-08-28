@@ -817,6 +817,8 @@ function toPlainMarkdown(md) {
     // strip custom color tokens used for markmap/text coloring
     .replace(/\{color:[^}]+\}/gi, '')
     .replace(/\{\/color\}/gi, '')
+    // remove picture emojis inserted for photo chips
+    .replace(/🖼️/g, '')
     .replace(/<[^>]+>/g, '')
     .replace(/\s+$/gm, '');
 }

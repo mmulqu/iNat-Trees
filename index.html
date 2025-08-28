@@ -93,13 +93,13 @@
     body.dark-theme .markmap-container svg text,
     body.dark-theme .markmap-container svg tspan,
     body.dark-theme .markmap-container svg .markmap-node text { fill: #f8fafc !important; opacity: 0.96 !important; }
-    body.dark-theme .markmap-container .markmap-foreign * { color: #f8fafc !important; }
+    body.dark-theme .markmap-container .markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node) { color: #f8fafc !important; }
 
     /* Explicit light-mode markmap text so it never ends up white on white */
     body:not(.dark-theme) .markmap-container svg text,
     body:not(.dark-theme) .markmap-container svg tspan,
     body:not(.dark-theme) .markmap-container svg .markmap-node text { fill: #111827 !important; opacity: 1 !important; }
-    body:not(.dark-theme) .markmap-container .markmap-foreign * { color: #111827 !important; }
+    body:not(.dark-theme) .markmap-container .markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node) { color: #111827 !important; }
 
     /* Default link strokes */
     .markmap-container svg path { stroke: #9aa1a7; }                 /* light */
