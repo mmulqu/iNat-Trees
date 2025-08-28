@@ -813,11 +813,13 @@ async function firstObservation(request, env) {
 function toPlainMarkdown(md) {
   return String(md)
     .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
+    .replace(/<a[^>]*class=\"mm-badge mm-photo[^>]*>.*?<\/a>/gi, '')
     .replace(/<span[^>]*>.*?<\/span>/gi, '')
     // strip custom color tokens used for markmap/text coloring
     .replace(/\{color:[^}]+\}/gi, '')
     .replace(/\{\/color\}/gi, '')
     .replace(/<[^>]+>/g, '')
+    .replace(/🖼️/g, '')
     .replace(/\s+$/gm, '');
 }
 // POST /timeline/precache { username, taxonId, checkpointId }

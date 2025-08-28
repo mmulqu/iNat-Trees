@@ -361,25 +361,33 @@ class TreeManager {
     // Paint incoming edges based on which colored span is present in the label
     const paint = () => {
       const nodes = svg.querySelectorAll('g.markmap-node');
-      nodes.forEach(node => {
-        const has1 = !!node.querySelector('.user1-node');
-        const has2 = !!node.querySelector('.user2-node');
-        const hasS = !!node.querySelector('.shared-node');
+        nodes.forEach(node => {
+          const has1 = !!node.querySelector('.user1-node');
+          const has2 = !!node.querySelector('.user2-node');
+          const hasS = !!node.querySelector('.shared-node');
 
-        // Find the incoming edge for this node
-        let edge = node.previousElementSibling;
-        if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
-          // Fallback: some markmap versions nest the path inside
-          edge = node.querySelector('path');
-        }
-        if (!edge) return;
+          // Find the incoming edge for this node
+          let edge = node.previousElementSibling;
+          if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
+            // Fallback: some markmap versions nest the path inside
+            edge = node.querySelector('path');
+          }
 
-        edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
-        else if (has1) edge.classList.add('user1-edge');
-        else if (has2) edge.classList.add('user2-edge');
-      });
-    };
+          node.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+          if (edge) edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+
+          if (hasS || (has1 && has2)) {
+            if (edge) edge.classList.add('shared-edge');
+            node.classList.add('shared-edge');
+          } else if (has1) {
+            if (edge) edge.classList.add('user1-edge');
+            node.classList.add('user1-edge');
+          } else if (has2) {
+            if (edge) edge.classList.add('user2-edge');
+            node.classList.add('user2-edge');
+          }
+        });
+      };
 
     // Initial pass, then keep repainting on expand/collapse
     setTimeout(paint, 0);
