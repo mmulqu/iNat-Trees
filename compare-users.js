@@ -196,13 +196,13 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         const markdown = result.markdown;
-        const plainMarkdown = result.plainMarkdown;
+        const plainMarkdown = result.plainMarkdown || toPlain(markdown);
         if (!markdown || markdown.trim() === "" || markdown.includes("No observations found")) {
           showError("No observations found for at least one of the users under the selected taxon.");
           return;
         }
-        window.lastComparePlainMarkdown = result.plainMarkdown;
-        renderComparison(markdown, username1, username2, taxonName, taxonId);
+        window.lastComparePlainMarkdown = plainMarkdown;
+        renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown);
       } catch (err) {
         clearInterval(messageInterval);
         hideCompareLoadingSpinner();
@@ -218,13 +218,17 @@ function toPlain(md) {
     return String(md)
       .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
       .replace(/<span[^>]*>.*?<\/span>/gi, '')
+      // remove custom color tokens and picture emojis
+      .replace(/\{color:[^}]+\}/gi, '')
+      .replace(/\{\/color\}/gi, '')
+      .replace(/🖼️/g, '')
       .replace(/<[^>]+>/g, '')
       .replace(/\s+$/gm, '');
   } catch(_) { return md; }
 }
 
 function renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown) {
-  document.getElementById("markdownResult").textContent = (window.lastComparePlainMarkdown || markdown);
+  document.getElementById("markdownResult").textContent = plainMarkdown || window.lastComparePlainMarkdown || toPlain(markdown);
 
   // Calculate statistics before adding the tree
   let stats = null;

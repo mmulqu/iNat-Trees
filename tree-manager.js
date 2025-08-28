@@ -165,18 +165,6 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
     const mm = Markmap.create(svg, { htmlLabels: true }, root);
-    try {
-      // ensure labels are bright in dark theme (html labels too)
-      const isDark = document.body.classList.contains('dark-theme');
-      if (isDark) {
-        setTimeout(() => {
-          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
-        }, 0);
-      }
-    } catch (_) {}
 
     // Add statistics dashboard if available
     try {
@@ -373,11 +361,18 @@ class TreeManager {
           edge = node.querySelector('path');
         }
         if (!edge) return;
-
         edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
-        else if (has1) edge.classList.add('user1-edge');
-        else if (has2) edge.classList.add('user2-edge');
+        node.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (hasS || (has1 && has2)) {
+          edge.classList.add('shared-edge');
+          node.classList.add('shared-edge');
+        } else if (has1) {
+          edge.classList.add('user1-edge');
+          node.classList.add('user1-edge');
+        } else if (has2) {
+          edge.classList.add('user2-edge');
+          node.classList.add('user2-edge');
+        }
       });
     };
 
@@ -402,16 +397,6 @@ class TreeManager {
         console.log("Clicked node:", node);
       }
     }, root);
-    try {
-      if (document.body.classList.contains('dark-theme')) {
-        setTimeout(() => {
-          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
-        }, 0);
-      }
-    } catch (_) {}
     this.setupComparisonTreeRendering(svg);
 
     // Remove any existing statistics elements to prevent duplicates
