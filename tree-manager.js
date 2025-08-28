@@ -203,6 +203,55 @@ class TreeManager {
     }
   }
 
+  renderComparisonTree(tree) {
+    const svg = document.getElementById(`${tree.id}-svg`);
+    if (!svg) return;
+  
+    // Clean slate
+    svg.innerHTML = '';
+  
+    // 1) Convert {color:*} tags → <span class="user*-node">…</span>
+    const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
+  
+    // 2) Render with HTML labels (so the colored spans + taxon-link styles apply)
+    const { Transformer, Markmap } = window.markmap;
+    const transformer = new Transformer();
+    const { root } = transformer.transform(processedMarkdown);
+    Markmap.create(svg, { htmlLabels: true }, root);
+  
+    // 3) Dark theme: keep labels readable (CSS for links uses !important, so it will still win)
+    try {
+      if (document.body.classList.contains('dark-theme')) {
+        setTimeout(() => {
+          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
+          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          const foreign = svg.querySelectorAll('.markmap-foreign *');
+          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+        }, 0);
+      }
+    } catch (_) {}
+  
+    // 4) Comparison stats (if available)
+    const tabContent = document.getElementById(`${tree.id}-content`);
+    if (tabContent) {
+      const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary, .taxonomy-stats');
+      existingStats.forEach(el => el.remove());
+    }
+    if (tree.stats && window.taxonomyStats) {
+      try {
+        const comparisonDashboard = window.taxonomyStats.createComparisonDashboard(
+          tree.stats, tree.username1, tree.username2
+        );
+        if (comparisonDashboard && tabContent) {
+          tabContent.appendChild(comparisonDashboard);
+        }
+      } catch (err) {
+        console.error('Error creating comparison dashboard:', err);
+      }
+    }
+  }
+  
+
   // Create statistics dashboard for a single tree
   createStatsDashboard(tree) {
     try {
@@ -357,88 +406,7 @@ class TreeManager {
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
-  setupComparisonTreeRendering(svg) {
-    const colorize = () => {
-      const paths = svg.querySelectorAll('path');
-      paths.forEach(p => {
-        const d = p.__data__;
-        if (!d || !d.target || !d.target.data) return;
   
-        const html = d.target.data.content || '';
-        let color = null;
-        if (html.includes('class="shared-node"')) color = '#cc5de8'; // purple
-        else if (html.includes('class="user1-node"')) color = '#ff6b6b'; // red
-        else if (html.includes('class="user2-node"')) color = '#4dabf7'; // blue
-  
-        if (color) {
-          p.style.setProperty('stroke', color, 'important');
-          p.setAttribute('stroke', color);
-        }
-      });
-    };
-  
-    // run once after render and again after expand/collapse
-    setTimeout(colorize, 0);
-    svg.__colorizeEdges__ = colorize;
-  }
-  
-
-  renderComparisonTree(tree) {
-    const svg = document.getElementById(`${tree.id}-svg`);
-    if (!svg) return;
-    // Clear the SVG container before rendering
-    svg.innerHTML = '';
-    const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
-    const { Transformer, Markmap } = window.markmap;
-    const transformer = new Transformer();
-    const { root } = transformer.transform(processedMarkdown);
-    const mm = Markmap.create(svg, {
-      htmlLabels: true,
-      nodeClick: (_, node) => {
-        // let markmap update first, then recolor links once
-        setTimeout(() => svg.__colorizeEdges__ && svg.__colorizeEdges__(), 0);
-      }
-    }, root);
-    try {
-      if (document.body.classList.contains('dark-theme')) {
-        setTimeout(() => {
-          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
-        }, 0);
-      }
-    } catch (_) {}
-    this.setupComparisonTreeRendering(svg);
-
-    // Remove any existing statistics elements to prevent duplicates
-    const tabContent = document.getElementById(`${tree.id}-content`);
-    if (tabContent) {
-      const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
-      existingStats.forEach(el => el.remove());
-    }
-
-    const svgContainer = document.getElementById(`${tree.id}-svg`).parentElement;
-    if (svgContainer) svgContainer.classList.add('comparison-tree');
-
-
-    // Add comparison statistics dashboard
-    if (tree.stats && window.taxonomyStats) {
-      try {
-        const comparisonDashboard = window.taxonomyStats.createComparisonDashboard(
-          tree.stats, tree.username1, tree.username2
-        );
-        if (comparisonDashboard && tabContent) {
-          tabContent.appendChild(comparisonDashboard);
-        }
-
-        // We're replacing the original battle summary with our new stats dashboard
-        // Don't call this.createBattleSummary(tree) anymore
-      } catch (error) {
-        console.error('Error creating comparison dashboard:', error);
-      }
-    }
-  }
 
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates

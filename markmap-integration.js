@@ -1,43 +1,37 @@
 // markmap-integration.js
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function() {
   const style = document.createElement('style');
   style.textContent = `
-    /* Label coloring for compare trees */
+    /* Keep labels a bit bolder, but don't color the whole span */
     .user1-node, .user2-node, .shared-node { font-weight: 600 !important; }
 
-    .user1-node { color: #ff6b6b !important; }
-    .user2-node { color: #4dabf7 !important; }
-    .shared-node { color: #cc5de8 !important; }
+    /* Color ONLY the iNat taxon link inside the span */
+    .user1-node a.taxon-link { color: #ff6b6b !important; text-decoration: underline; text-decoration-color: #ff6b6b; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+    .user2-node a.taxon-link { color: #4dabf7 !important; text-decoration: underline; text-decoration-color: #4dabf7; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+    .shared-node a.taxon-link { color: #cc5de8 !important; text-decoration: underline; text-decoration-color: #cc5de8; text-decoration-thickness: 2px; text-underline-offset: 2px; }
 
-    /* subtle underline in the same color for quick scan */
-    .user1-node { text-decoration: underline; text-decoration-color: #ff6b6b; text-decoration-thickness: 2px; text-underline-offset: 2px; }
-    .user2-node { text-decoration: underline; text-decoration-color: #4dabf7; text-decoration-thickness: 2px; text-underline-offset: 2px; }
-    .shared-node { text-decoration: underline; text-decoration-color: #cc5de8; text-decoration-thickness: 2px; text-underline-offset: 2px; }
-
-    /* small leading dot chip (works inside foreignObject HTML) */
-    .user1-node::before, .user2-node::before, .shared-node::before {
+    /* Optional: tiny colored dot before the link for quick scanning */
+    .user1-node a.taxon-link::before,
+    .user2-node a.taxon-link::before,
+    .shared-node a.taxon-link::before {
       content: "";
       display: inline-block;
-      width: 0.55em; height: 0.55em; margin-right: 0.35em;
-      border-radius: 50%; transform: translateY(-0.06em);
+      width: .55em; height: .55em; margin-right: .35em; border-radius: 50%;
+      transform: translateY(-.06em);
     }
-    .user1-node::before { background: #ff6b6b; }
-    .user2-node::before { background: #4dabf7; }
-    .shared-node::before { background: #cc5de8; }
+    .user1-node a.taxon-link::before { background: #ff6b6b; }
+    .user2-node a.taxon-link::before { background: #4dabf7; }
+    .shared-node a.taxon-link::before { background: #cc5de8; }
 
-    /* optional dark-theme label tinting */
-    body.dark-theme .user1-node { color: #ffa8a8 !important; }
-    body.dark-theme .user2-node { color: #9bd1ff !important; }
-    body.dark-theme .shared-node { color: #e1b0ff !important; }
-
-    /* keep your existing bits */
+    /* Keep your existing UI bits */
     .battle-summary { margin-top: 20px; border-radius: 8px; overflow: hidden; }
     .vs-badge { background-color: #f8f9fa; color: #495057; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
   `;
   document.head.appendChild(style);
 });
 
-// === Inline chip + preview styles and controller (unchanged) ===
+
+// === Inline chip + preview styles and controller ===
 (() => {
   const style = document.createElement('style');
   style.textContent += `
@@ -82,6 +76,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function key(u,t){ return `${u}:${t}`; }
   async function fetchFirstObs(username, taxonId){
     const k = key(username, taxonId);
+    // localStorage cache (persist across reloads)
     try {
       const raw = localStorage.getItem('firstObsCache');
       if (raw) {
@@ -101,6 +96,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const raw = localStorage.getItem('firstObsCache');
       const obj = raw ? JSON.parse(raw) : {};
       obj[k] = data;
+      // cap size to ~100 entries
       const keys = Object.keys(obj);
       if (keys.length > 100) delete obj[keys[0]];
       localStorage.setItem('firstObsCache', JSON.stringify(obj));
@@ -113,67 +109,18 @@ document.addEventListener('DOMContentLoaded', function () {
     previewEl.className='first-obs-preview';
     previewEl.style.display='none';
     document.body.appendChild(previewEl);
+    // Close on ESC
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') previewEl.style.display='none';});
+    // Outside click close (bubble phase) and ignore clicks on chips
     document.addEventListener('click', e=>{
       if (e.target && e.target.closest && e.target.closest('a.first-obs-trigger')) return;
       if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(e.target)) previewEl.style.display='none';
     });
     return previewEl;
   }
-  function position(rect){ const el=ensurePreview(); const m=8; const top=window.scrollY+rect.bottom+m; const left=Math.min(window.scrollX+rect.left, window.scrollX+document.documentElement.clientWidth-el.offsetWidth+m*-1); el.style.top=\`\${top}px\`; el.style.left=\`\${left}px\`; }
+  function position(rect){ const el=ensurePreview(); const m=8; const top=window.scrollY+rect.bottom+m; const left=Math.min(window.scrollX+rect.left, window.scrollX+document.documentElement.clientWidth-el.offsetWidth-m); el.style.top=`${top}px`; el.style.left=`${left}px`; }
   function spinner(rect){ const el=ensurePreview(); el.innerHTML='<div class="first-obs-spinner">Loading…</div>'; el.style.display='block'; position(rect); }
-  function render(rect, username, taxonId, payload){
-    const el=ensurePreview();
-    if(!payload||payload.notFound){
-      el.innerHTML='<header><strong>No photo found</strong><button class="btn btn-sm btn-link" onclick="this.closest(\\' .first-obs-preview\\').style.display=\\'none\\'">✕</button></header><div class="body"><div class="text-muted">Try relaxing filters on iNat</div></div>';
-      el.style.display='block'; position(rect); return;
-    }
-    const {obs_url, observed_on, image_urls}=payload;
-    const img=image_urls?.medium||image_urls?.small||image_urls?.thumb||'';
-    const full=image_urls?.original||img||obs_url;
-    el.innerHTML=\`<header><div>First photo • <span class="text-muted">\${observed_on?new Date(observed_on).toLocaleDateString():'date unknown'}</span></div><button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button></header><div class="body">\${img?`<img alt="First observation photo" src="\${img}">`:''}<div class="actions"><a class="btn btn-sm btn-primary" href="\${obs_url}" target="_blank" rel="noopener">Open observation</a>\${full?`<a class="btn btn-sm btn-outline-secondary" href="\${full}" target="_blank" rel="noopener">Open image</a>`:''}</div></div>\`;
-    el.style.display='block'; position(rect);
-  }
-  let t=null;
-  document.addEventListener('mouseenter', e=>{
-    const a=e.target.closest('a.first-obs-trigger'); if(!a) return;
-    const pane=closestPane(a);
-    const username=a.dataset.username||pane?.dataset.username;
-    const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id');
-    if(!username||!taxonId) return;
-    t=setTimeout(async ()=>{
-      try{
-        const payload=await fetchFirstObs(username, taxonId);
-        if(!payload||payload.notFound||!payload.image_urls){ a.remove(); }
-      }catch(_){}
-    },250);
-  }, true);
-  document.addEventListener('mouseleave', e=>{ if(t){clearTimeout(t); t=null;} }, true);
-  document.addEventListener('click', async e=>{
-    const a=e.target.closest('a.first-obs-trigger'); if(!a) return;
-    e.preventDefault();
-    if (e.stopPropagation) e.stopPropagation();
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    const pane=closestPane(a);
-    const username=a.dataset.username||pane?.dataset.username||a.dataset.username1||a.dataset.username2;
-    const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id');
-    if(!username||!taxonId) return;
-    const rect=a.getBoundingClientRect();
-    spinner(rect);
-    try{
-      const payload=await fetchFirstObs(username, taxonId);
-      if(e.metaKey||e.ctrlKey){
-        if(payload&&payload.obs_url) window.open(payload.obs_url,'_blank');
-        ensurePreview().style.display='none';
-        return;
-      }
-      if(!payload||payload.notFound||!payload.image_urls){
-        a.remove(); ensurePreview().style.display='none'; return;
-      }
-      render(rect, username, taxonId, payload);
-    }catch(err){
-      ensurePreview().style.display='none';
-      console.error('first-observation error', err);
-    }
-  }, true);
+  function render(rect, username, taxonId, payload){ const el=ensurePreview(); if(!payload||payload.notFound){ el.innerHTML='<header><strong>No photo found</strong><button class="btn btn-sm btn-link" onclick="this.closest(\'.first-obs-preview\').style.display=\'none\'">✕</button></header><div class="body"><div class="text-muted">Try relaxing filters on iNat</div></div>'; el.style.display='block'; position(rect); return; } const {obs_url, observed_on, image_urls}=payload; const img=image_urls?.medium||image_urls?.small||image_urls?.thumb||''; const full=image_urls?.original||img||obs_url; el.innerHTML=`<header><div>First photo • <span class="text-muted">${observed_on?new Date(observed_on).toLocaleDateString():'date unknown'}</span></div><button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button></header><div class="body">${img?`<img alt="First observation photo" src="${img}">`:''}<div class="actions"><a class="btn btn-sm btn-primary" href="${obs_url}" target="_blank" rel="noopener">Open observation</a>${full?`<a class="btn btn-sm btn-outline-secondary" href="${full}" target="_blank" rel="noopener">Open image</a>`:''}</div></div>`; el.style.display='block'; position(rect); }
+  let t=null; document.addEventListener('mouseenter', e=>{ const a=e.target.closest('a.first-obs-trigger'); if(!a) return; const pane=closestPane(a); const username=a.dataset.username||pane?.dataset.username; const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id'); if(!username||!taxonId) return; t=setTimeout(async ()=>{ try{ const payload=await fetchFirstObs(username, taxonId); if(!payload||payload.notFound||!payload.image_urls){ a.remove(); } }catch(_){} },250); }, true); document.addEventListener('mouseleave', e=>{ if(t){clearTimeout(t); t=null;} }, true);
+  document.addEventListener('click', async e=>{ const a=e.target.closest('a.first-obs-trigger'); if(!a) return; e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); const pane=closestPane(a); const username=a.dataset.username||pane?.dataset.username||a.dataset.username1||a.dataset.username2; const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id'); if(!username||!taxonId) return; const rect=a.getBoundingClientRect(); spinner(rect); try{ const payload=await fetchFirstObs(username, taxonId); if(e.metaKey||e.ctrlKey){ if(payload&&payload.obs_url) window.open(payload.obs_url,'_blank'); ensurePreview().style.display='none'; return;} if(!payload||payload.notFound||!payload.image_urls){ a.remove(); ensurePreview().style.display='none'; return;} render(rect, username, taxonId, payload);}catch(err){ ensurePreview().style.display='none'; console.error('first-observation error', err);} }, true);
 })();
