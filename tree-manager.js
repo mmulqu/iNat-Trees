@@ -358,65 +358,45 @@ class TreeManager {
   }
 
   setupComparisonTreeRendering(svg) {
-    const schedule = (() => {
-      let raf = null;
-      return (fn) => {
-        if (raf) cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(() => { raf = null; fn(); });
-      };
-    })();
+    // Color links by reading each path's bound datum (target x,y)
+    const colorize = () => {
+      // Map node positions -> edge class
+      const posToClass = new Map();
+      svg.querySelectorAll('g.markmap-node').forEach(node => {
+        const tr = node.getAttribute('transform') || '';
+        const m = tr.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
+        if (!m) return;
+        const key = `${Math.round(parseFloat(m[1]))},${Math.round(parseFloat(m[2]))}`;
   
-    const paint = () => {
-      // index nodes by position + ownership
-      const nodes = Array.from(svg.querySelectorAll('g.markmap-node')).map(node => {
-        const m = (node.getAttribute('transform') || '').match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
-        const x = m ? parseFloat(m[1]) : 0;
-        const y = m ? parseFloat(m[2]) : 0;
         const has1 = !!node.querySelector('.user1-node');
         const has2 = !!node.querySelector('.user2-node');
         const hasS = !!node.querySelector('.shared-node');
+  
         let cls = null;
         if (hasS || (has1 && has2)) cls = 'shared-edge';
         else if (has1) cls = 'user1-edge';
         else if (has2) cls = 'user2-edge';
-        return { x, y, cls };
+  
+        if (cls) posToClass.set(key, cls);
       });
-      if (!nodes.length) return;
   
-      const nearest = (x, y) => {
-        let best = null, bestD = Infinity;
-        for (const n of nodes) {
-          const dx = n.x - x, dy = n.y - y; const d = dx*dx + dy*dy;
-          if (d < bestD) { bestD = d; best = n; }
-        }
-        return best;
-      };
+      // Apply class to each link by its target coords
+      svg.querySelectorAll('path.markmap-link').forEach(p => {
+        const d = p.__data__;
+        if (!d || !d.target) return; // older markmap? then skip instead of doing heavy geometry
+        const key = `${Math.round(d.target.x)},${Math.round(d.target.y)}`;
+        const cls = posToClass.get(key);
   
-      // only style actual markmap links
-      const paths = svg.querySelectorAll('path.markmap-link');
-      paths.forEach(p => {
-        try {
-          const L = p.getTotalLength(); if (!L) return;
-          const pt = p.getPointAtLength(L);
-          const tgt = nearest(pt.x, pt.y);
-          if (!tgt || !tgt.cls) return;
-          p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-          p.classList.add(tgt.cls);
-        } catch { /* ignore non-geometry paths */ }
+        p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (cls) p.classList.add(cls);
       });
     };
   
-    // initial paint
-    schedule(paint);
+    // run once after initial render
+    setTimeout(colorize, 0);
   
-    // repaint only on structural/geometry changes (not style/opacity)
-    const mo = new MutationObserver(muts => {
-      if (muts.some(m => m.type === 'childList' ||
-                         (m.type === 'attributes' && (m.attributeName === 'd' || m.attributeName === 'transform')))) {
-        schedule(paint);
-      }
-    });
-    mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d', 'transform'] });
+    // expose a hook so other code (nodeClick, re-renders) can recolor cheaply
+    svg.__colorizeEdges__ = colorize;
   }
   
   
@@ -433,7 +413,8 @@ class TreeManager {
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       nodeClick: (_, node) => {
-        console.log("Clicked node:", node);
+        // let markmap update first, then recolor links once
+        setTimeout(() => svg.__colorizeEdges__ && svg.__colorizeEdges__(), 0);
       }
     }, root);
     try {
