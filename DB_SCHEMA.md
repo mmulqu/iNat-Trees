@@ -81,6 +81,22 @@ This document summarizes the tables used by the Cloudflare Worker backend (`work
   - `POST /timeline/first-seen` (primary source for first-seen map; falls back to `first_seen`)
   - Populated/updated by `POST /timeline/index` while ingesting observations.
 
+### 6) `timeline_precache`
+- Purpose: Per-checkpoint precomputed timeline snapshots to speed up the slider UI.
+- Fields:
+  - `id` TEXT PRIMARY KEY
+  - `user_login` TEXT NOT NULL
+  - `taxon_id` INTEGER NOT NULL
+  - `checkpoint_id` TEXT NOT NULL
+  - `dates_json` TEXT NOT NULL      # ["YYYY-MM-DD", ...]
+  - `markdowns_json` TEXT NOT NULL  # ["- Life\n  - ...", ...]
+  - `created_at` TEXT NOT NULL
+- Indexes:
+  - `idx_precache_user_taxon` on (`user_login`, `taxon_id`, `checkpoint_id`)
+- Used by:
+  - `POST /timeline/precache` (invoked automatically by `POST /checkpoints/save`; may call `POST /timeline/index` if no range exists).
+
+
 ## Endpoint-to-Table Map (relevant)
 - `POST /build-taxonomy`: Fetches fresh observations from iNaturalist for the selected base taxon; does NOT write to timeline tables. Builds a one-off tree and returns markdown.
 - `POST /checkpoints/save`: Inserts into `checkpoints`.
