@@ -2,31 +2,47 @@
 document.addEventListener('DOMContentLoaded', function() {
   const style = document.createElement('style');
   style.textContent = `
-    .user1-node {
-      color: #ff6b6b !important;
-      font-weight: bold !important;
-    }
-    .user2-node {
-      color: #4dabf7 !important;
-      font-weight: bold !important;
-    }
-    .shared-node {
-      color: #cc5de8 !important;
-      font-weight: bold !important;
-    }
-    .battle-summary {
-      margin-top: 20px;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .vs-badge {
-      background-color: #f8f9fa;
-      color: #495057;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-    }
-  `;
+      :root {
+        --user1-color: #ff6b6b;
+        --user2-color: #4dabf7;
+        --shared-color: #cc5de8;
+      }
+      body.dark-theme {
+        --user1-color: #ff8787;
+        --user2-color: #74c0fc;
+        --shared-color: #da77f2;
+      }
+      .user1-node {
+        color: var(--user1-color) !important;
+        font-weight: bold !important;
+      }
+      .user2-node {
+        color: var(--user2-color) !important;
+        font-weight: bold !important;
+      }
+      .shared-node {
+        color: var(--shared-color) !important;
+        font-weight: bold !important;
+      }
+      .markmap-container svg path.user1-edge { stroke: var(--user1-color); }
+      .markmap-container svg path.user2-edge { stroke: var(--user2-color); }
+      .markmap-container svg path.shared-edge { stroke: var(--shared-color); }
+      .markmap-container svg g.user1-edge > circle { fill: var(--user1-color); stroke: var(--user1-color); }
+      .markmap-container svg g.user2-edge > circle { fill: var(--user2-color); stroke: var(--user2-color); }
+      .markmap-container svg g.shared-edge > circle { fill: var(--shared-color); stroke: var(--shared-color); }
+      .battle-summary {
+        margin-top: 20px;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .vs-badge {
+        background-color: #f8f9fa;
+        color: #495057;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+    `;
   document.head.appendChild(style);
 });
 

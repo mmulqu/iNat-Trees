@@ -375,7 +375,14 @@ async function drawTreeAtDate(isoDate) {
   if (!r.ok || !data?.markdown) { console.error('tree-at-date error', data); return; }
   const pre = document.getElementById('cpMarkdownResult');
   try {
-    const plain = data.plainMarkdown || String(data.markdown).replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi,'$1').replace(/<span[^>]*>.*?<\/span>/gi,'').replace(/<[^>]+>/g,'').replace(/\s+$/gm,'');
+    const plain = data.plainMarkdown || String(data.markdown)
+      .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi,'$1')
+      .replace(/<span[^>]*>.*?<\/span>/gi,'')
+      .replace(/\{color:[^}]+\}/gi,'')
+      .replace(/\{\/color\}/gi,'')
+      .replace(/🖼️/g,'')
+      .replace(/<[^>]+>/g,'')
+      .replace(/\s+$/gm,'');
     if (pre) pre.textContent = plain;
   } catch(_) { if (pre) pre.textContent = data.markdown; }
   const tabId = currentCpTabId || `cp-live-${currentTaxonId}`;
@@ -463,7 +470,14 @@ async function renderCheckpointTree(group, idx) {
     renderMarkdownToTab(tabId, markdown);
     const pre = document.getElementById('cpMarkdownResult');
     try {
-      const plain = data.plainMarkdown || String(markdown).replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi,'$1').replace(/<span[^>]*>.*?<\/span>/gi,'').replace(/<[^>]+>/g,'').replace(/\s+$/gm,'');
+      const plain = data.plainMarkdown || String(markdown)
+        .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi,'$1')
+        .replace(/<span[^>]*>.*?<\/span>/gi,'')
+        .replace(/\{color:[^}]+\}/gi,'')
+        .replace(/\{\/color\}/gi,'')
+        .replace(/🖼️/g,'')
+        .replace(/<[^>]+>/g,'')
+        .replace(/\s+$/gm,'');
       if (pre) pre.textContent = plain;
     } catch(_) { if (pre) pre.textContent = markdown; }
     cpCacheSet(cachedKey, markdown);

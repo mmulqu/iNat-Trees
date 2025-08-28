@@ -375,9 +375,17 @@ class TreeManager {
         if (!edge) return;
 
         edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
-        else if (has1) edge.classList.add('user1-edge');
-        else if (has2) edge.classList.add('user2-edge');
+        node.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (hasS || (has1 && has2)) {
+          edge.classList.add('shared-edge');
+          node.classList.add('shared-edge');
+        } else if (has1) {
+          edge.classList.add('user1-edge');
+          node.classList.add('user1-edge');
+        } else if (has2) {
+          edge.classList.add('user2-edge');
+          node.classList.add('user2-edge');
+        }
       });
     };
 
