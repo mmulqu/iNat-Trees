@@ -358,34 +358,28 @@ class TreeManager {
   }
 
   setupComparisonTreeRendering(svg) {
-    const colorizeOnce = () => {
-      // 1) Build map: node datum -> edge class (read from datum HTML)
-      const datumToClass = new WeakMap();
-      svg.querySelectorAll('g.markmap-node').forEach(node => {
-        const d = node.__data__;
-        if (!d) return;
-        const html = (d.data && d.data.content) || d.content || '';
-        let cls = null;
-        if (html.includes('class="shared-node"')) cls = 'shared-edge';
-        else if (html.includes('class="user1-node"')) cls = 'user1-edge';
-        else if (html.includes('class="user2-node"')) cls = 'user2-edge';
-        if (cls) datumToClass.set(d, cls);
-      });
+    const colorize = () => {
+      const paths = svg.querySelectorAll('path');
+      paths.forEach(p => {
+        const d = p.__data__;
+        if (!d || !d.target || !d.target.data) return;
   
-      // 2) Apply to all real link paths (filter by having a target datum)
-      svg.querySelectorAll('path').forEach(p => {
-        const ld = p.__data__;
-        const target = ld && (ld.target || (ld.data && ld.data.target));
-        const cls = target && datumToClass.get(target);
-        p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (cls) p.classList.add(cls);
+        const html = d.target.data.content || '';
+        let color = null;
+        if (html.includes('class="shared-node"')) color = '#cc5de8'; // purple
+        else if (html.includes('class="user1-node"')) color = '#ff6b6b'; // red
+        else if (html.includes('class="user2-node"')) color = '#4dabf7'; // blue
+  
+        if (color) {
+          p.style.setProperty('stroke', color, 'important');
+          p.setAttribute('stroke', color);
+        }
       });
     };
   
-    // run after render and once more next frame (layout settles)
-    const run = () => { colorizeOnce(); requestAnimationFrame(colorizeOnce); };
-    run();
-    svg.__colorizeEdges__ = run; // cheap hook for later toggles
+    // run once after render and again after expand/collapse
+    setTimeout(colorize, 0);
+    svg.__colorizeEdges__ = colorize;
   }
   
 
@@ -423,6 +417,10 @@ class TreeManager {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
       existingStats.forEach(el => el.remove());
     }
+
+    const svgContainer = document.getElementById(`${tree.id}-svg`).parentElement;
+    if (svgContainer) svgContainer.classList.add('comparison-tree');
+
 
     // Add comparison statistics dashboard
     if (tree.stats && window.taxonomyStats) {
