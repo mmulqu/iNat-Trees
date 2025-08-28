@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         window.lastComparePlainMarkdown = result.plainMarkdown;
-        renderComparison(markdown, username1, username2, taxonName, taxonId);
+        renderComparison(markdown, username1, username2, taxonName, taxonId, result.plainMarkdown);
       } catch (err) {
         clearInterval(messageInterval);
         hideCompareLoadingSpinner();
@@ -224,7 +224,7 @@ function toPlain(md) {
 }
 
 function renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown) {
-  document.getElementById("markdownResult").textContent = (window.lastComparePlainMarkdown || markdown);
+  document.getElementById("markdownResult").textContent = (plainMarkdown || window.lastComparePlainMarkdown || markdown);
 
   // Calculate statistics before adding the tree
   let stats = null;

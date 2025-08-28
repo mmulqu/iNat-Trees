@@ -358,34 +358,68 @@ class TreeManager {
   }
 
   setupComparisonTreeRendering(svg) {
-    // Paint incoming edges based on which colored span is present in the label
+    // Color link paths (edges) to match the node they point to.
+    // Markmap draws links separately from nodes, so we infer the target node for
+    // each path by comparing the path endpoint to node <g> translate(x,y).
     const paint = () => {
-      const nodes = svg.querySelectorAll('g.markmap-node');
-      nodes.forEach(node => {
+      // Collect node positions and their ownership class
+      const nodeInfos = Array.from(svg.querySelectorAll('g.markmap-node')).map(node => {
+        const tr = node.getAttribute('transform') || '';
+        const m = tr.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
+        const x = m ? parseFloat(m[1]) : 0;
+        const y = m ? parseFloat(m[2]) : 0;
+  
         const has1 = !!node.querySelector('.user1-node');
         const has2 = !!node.querySelector('.user2-node');
         const hasS = !!node.querySelector('.shared-node');
-
-        // Find the incoming edge for this node
-        let edge = node.previousElementSibling;
-        if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
-          // Fallback: some markmap versions nest the path inside
-          edge = node.querySelector('path');
+  
+        let cls = null;
+        if (hasS || (has1 && has2)) cls = 'shared-edge';
+        else if (has1) cls = 'user1-edge';
+        else if (has2) cls = 'user2-edge';
+        return { node, x, y, cls };
+      });
+  
+      // Helper to find nearest node to a point
+      function nearestNode(x, y) {
+        let best = null, bestD = Infinity;
+        for (const info of nodeInfos) {
+          const dx = info.x - x, dy = info.y - y;
+          const d = dx*dx + dy*dy;
+          if (d < bestD) { bestD = d; best = info; }
         }
-        if (!edge) return;
-
-        edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
-        else if (has1) edge.classList.add('user1-edge');
-        else if (has2) edge.classList.add('user2-edge');
+        return best;
+      }
+  
+      // Color all link paths
+      const paths = svg.querySelectorAll('path.markmap-link, .markmap-link, svg path');
+      paths.forEach(p => {
+        // Only style actual links: markmap gives them the class 'markmap-link'.
+        // If the class isn't present (older versions), fall back to all paths but skip tiny icons.
+        const isLikelyLink = p.classList.contains('markmap-link') || (p.getTotalLength && p.getTotalLength() > 10);
+        if (!isLikelyLink) return;
+  
+        try {
+          const L = p.getTotalLength ? p.getTotalLength() : 0;
+          if (!L) return;
+          const pt = p.getPointAtLength(L); // end of the curve = target node
+          const target = nearestNode(pt.x, pt.y);
+          if (!target || !target.cls) return;
+  
+          p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+          p.classList.add(target.cls);
+        } catch {
+          // Non-geometry paths: ignore
+        }
       });
     };
-
-    // Initial pass, then keep repainting on expand/collapse
+  
+    // Run once after render and also after expansions/collapses
     setTimeout(paint, 0);
-    const mo = new MutationObserver(paint);
-    mo.observe(svg, { subtree: true, childList: true, attributes: false });
+    const mo = new MutationObserver(() => setTimeout(paint, 0));
+    mo.observe(svg, { subtree: true, childList: true, attributes: true });
   }
+  
 
   renderComparisonTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
