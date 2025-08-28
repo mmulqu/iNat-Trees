@@ -358,67 +358,67 @@ class TreeManager {
   }
 
   setupComparisonTreeRendering(svg) {
-    // Color link paths (edges) to match the node they point to.
-    // Markmap draws links separately from nodes, so we infer the target node for
-    // each path by comparing the path endpoint to node <g> translate(x,y).
+    const schedule = (() => {
+      let raf = null;
+      return (fn) => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => { raf = null; fn(); });
+      };
+    })();
+  
     const paint = () => {
-      // Collect node positions and their ownership class
-      const nodeInfos = Array.from(svg.querySelectorAll('g.markmap-node')).map(node => {
-        const tr = node.getAttribute('transform') || '';
-        const m = tr.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
+      // index nodes by position + ownership
+      const nodes = Array.from(svg.querySelectorAll('g.markmap-node')).map(node => {
+        const m = (node.getAttribute('transform') || '').match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
         const x = m ? parseFloat(m[1]) : 0;
         const y = m ? parseFloat(m[2]) : 0;
-  
         const has1 = !!node.querySelector('.user1-node');
         const has2 = !!node.querySelector('.user2-node');
         const hasS = !!node.querySelector('.shared-node');
-  
         let cls = null;
         if (hasS || (has1 && has2)) cls = 'shared-edge';
         else if (has1) cls = 'user1-edge';
         else if (has2) cls = 'user2-edge';
-        return { node, x, y, cls };
+        return { x, y, cls };
       });
+      if (!nodes.length) return;
   
-      // Helper to find nearest node to a point
-      function nearestNode(x, y) {
+      const nearest = (x, y) => {
         let best = null, bestD = Infinity;
-        for (const info of nodeInfos) {
-          const dx = info.x - x, dy = info.y - y;
-          const d = dx*dx + dy*dy;
-          if (d < bestD) { bestD = d; best = info; }
+        for (const n of nodes) {
+          const dx = n.x - x, dy = n.y - y; const d = dx*dx + dy*dy;
+          if (d < bestD) { bestD = d; best = n; }
         }
         return best;
-      }
+      };
   
-      // Color all link paths
-      const paths = svg.querySelectorAll('path.markmap-link, .markmap-link, svg path');
+      // only style actual markmap links
+      const paths = svg.querySelectorAll('path.markmap-link');
       paths.forEach(p => {
-        // Only style actual links: markmap gives them the class 'markmap-link'.
-        // If the class isn't present (older versions), fall back to all paths but skip tiny icons.
-        const isLikelyLink = p.classList.contains('markmap-link') || (p.getTotalLength && p.getTotalLength() > 10);
-        if (!isLikelyLink) return;
-  
         try {
-          const L = p.getTotalLength ? p.getTotalLength() : 0;
-          if (!L) return;
-          const pt = p.getPointAtLength(L); // end of the curve = target node
-          const target = nearestNode(pt.x, pt.y);
-          if (!target || !target.cls) return;
-  
+          const L = p.getTotalLength(); if (!L) return;
+          const pt = p.getPointAtLength(L);
+          const tgt = nearest(pt.x, pt.y);
+          if (!tgt || !tgt.cls) return;
           p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-          p.classList.add(target.cls);
-        } catch {
-          // Non-geometry paths: ignore
-        }
+          p.classList.add(tgt.cls);
+        } catch { /* ignore non-geometry paths */ }
       });
     };
   
-    // Run once after render and also after expansions/collapses
-    setTimeout(paint, 0);
-    const mo = new MutationObserver(() => setTimeout(paint, 0));
-    mo.observe(svg, { subtree: true, childList: true, attributes: true });
+    // initial paint
+    schedule(paint);
+  
+    // repaint only on structural/geometry changes (not style/opacity)
+    const mo = new MutationObserver(muts => {
+      if (muts.some(m => m.type === 'childList' ||
+                         (m.type === 'attributes' && (m.attributeName === 'd' || m.attributeName === 'transform')))) {
+        schedule(paint);
+      }
+    });
+    mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d', 'transform'] });
   }
+  
   
 
   renderComparisonTree(tree) {
