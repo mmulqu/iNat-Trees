@@ -357,44 +357,51 @@ class TreeManager {
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
-  setupComparisonTreeRendering(svg) {
-    const colorize = () => {
-      // Map node (x,y) → edge class by inspecting the colored span inside the label
-      const posToClass = new Map();
-      svg.querySelectorAll('g.markmap-node').forEach(node => {
+ // tree-manager.js
+setupComparisonTreeRendering(svg) {
+  const colorize = () => {
+    // Build map: (x,y from node.__data__) -> edge class
+    const posToClass = new Map();
+    svg.querySelectorAll('g.markmap-node').forEach(node => {
+      const nd = node.__data__;
+      // Prefer bound datum; fall back to transform only if needed
+      let key = null;
+      if (nd && typeof nd.x === 'number' && typeof nd.y === 'number') {
+        key = `${nd.x},${nd.y}`;
+      } else {
         const m = (node.getAttribute('transform') || '').match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
-        if (!m) return;
-        const key = `${Math.round(+m[1])},${Math.round(+m[2])}`;
-        const has1 = !!node.querySelector('.user1-node');
-        const has2 = !!node.querySelector('.user2-node');
-        const hasS = !!node.querySelector('.shared-node');
-        let cls = null;
-        if (hasS || (has1 && has2)) cls = 'shared-edge';
-        else if (has1) cls = 'user1-edge';
-        else if (has2) cls = 'user2-edge';
-        if (cls) posToClass.set(key, cls);
-      });
-  
-      // Grab ALL candidate link paths (covers different Markmap versions)
-      const paths = svg.querySelectorAll('g.markmap-links path, path.markmap-link, svg path');
-  
-      paths.forEach(p => {
-        const d = p.__data__;
-        // Real links in Markmap have a bound datum with target {x,y}
-        if (!d || !d.target || typeof d.target.x !== 'number' || typeof d.target.y !== 'number') return;
-        const key = `${Math.round(d.target.x)},${Math.round(d.target.y)}`;
-        const cls = posToClass.get(key);
-        p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (cls) p.classList.add(cls);
-      });
-    };
-  
-    // Run once after initial render
-    setTimeout(colorize, 0);
-    // Expose a cheap hook for recolor after toggles/updates
-    svg.__colorizeEdges__ = colorize;
-  }
-  
+        if (m) key = `${(+m[1]).toFixed(2)},${(+m[2]).toFixed(2)}`;
+      }
+      if (!key) return;
+
+      const has1 = node.querySelector('.user1-node');
+      const has2 = node.querySelector('.user2-node');
+      const hasS = node.querySelector('.shared-node');
+
+      let cls = null;
+      if (hasS || (has1 && has2)) cls = 'shared-edge';
+      else if (has1) cls = 'user1-edge';
+      else if (has2) cls = 'user2-edge';
+
+      if (cls) posToClass.set(key, cls);
+    });
+
+    // Color actual Markmap links using their bound datum
+    svg.querySelectorAll('g.markmap-links path, path.markmap-link').forEach(p => {
+      const d = p.__data__;
+      if (!d || !d.target) return;
+      const key = `${d.target.x},${d.target.y}`;
+      const cls = posToClass.get(key);
+      p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+      if (cls) p.classList.add(cls);
+    });
+  };
+
+  // run after initial render and expose hook
+  queueMicrotask(colorize);
+  svg.__colorizeEdges__ = colorize;
+}
+ 
   
   
 
