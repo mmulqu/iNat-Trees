@@ -2,15 +2,21 @@
 document.addEventListener('DOMContentLoaded', function() {
   const style = document.createElement('style');
   style.textContent = `
-    .user1-node {
+    .user1-node,
+    .user1-node a,
+    .user1-node .mm-common {
       color: #ff6b6b !important;
       font-weight: bold !important;
     }
-    .user2-node {
+    .user2-node,
+    .user2-node a,
+    .user2-node .mm-common {
       color: #4dabf7 !important;
       font-weight: bold !important;
     }
-    .shared-node {
+    .shared-node,
+    .shared-node a,
+    .shared-node .mm-common {
       color: #cc5de8 !important;
       font-weight: bold !important;
     }

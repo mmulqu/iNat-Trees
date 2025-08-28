@@ -817,6 +817,8 @@ function toPlainMarkdown(md) {
     // strip custom color tokens used for markmap/text coloring
     .replace(/\{color:[^}]+\}/gi, '')
     .replace(/\{\/color\}/gi, '')
+    // remove any picture emoji chips
+    .replace(/🖼️/g, '')
     .replace(/<[^>]+>/g, '')
     .replace(/\s+$/gm, '');
 }
@@ -1028,6 +1030,24 @@ function generateComparisonStats(user1TaxonIds, user2TaxonIds) {
   return { user1Total: user1TaxonIds.length, user2Total: user2TaxonIds.length, user1Only, user2Only, shared };
 }
 
+// Ensure ancestors adopt the color of their descendants unless there is a mix
+function propagateBranchColors(node) {
+  if (!node || !node.children || Object.keys(node.children).length === 0) {
+    return node?.color;
+  }
+  const childColors = new Set();
+  for (const child of Object.values(node.children)) {
+    const c = propagateBranchColors(child);
+    if (c) childColors.add(c);
+  }
+  if (childColors.size === 1) {
+    node.color = childColors.values().next().value;
+  } else if (childColors.size > 1) {
+    node.color = SHARED_COLOR;
+  }
+  return node.color;
+}
+
 async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonId) {
   const user1Set = new Set(user1TaxonIds);
   const user2Set = new Set(user2TaxonIds);
@@ -1105,6 +1125,7 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
     }
     added.add(taxonId);
   }
+  propagateBranchColors(root);
   return root;
 }
 

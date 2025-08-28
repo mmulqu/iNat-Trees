@@ -48,6 +48,10 @@ function toPlain(md) {
     return String(md)
       .replace(/<a[^>]*class=\"taxon-link\"[^>]*>(.*?)<\/a>/gi, '$1')
       .replace(/<span[^>]*>.*?<\/span>/gi, '')
+      // strip custom color tokens and picture emojis
+      .replace(/\{color:[^}]+\}/gi, '')
+      .replace(/\{\/color\}/gi, '')
+      .replace(/🖼️/g, '')
       .replace(/<[^>]+>/g, '')
       .replace(/\s+$/gm, '');
   } catch (_) { return md; }
