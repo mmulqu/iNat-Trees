@@ -357,52 +357,64 @@ class TreeManager {
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
- // tree-manager.js
-setupComparisonTreeRendering(svg) {
-  const colorize = () => {
-    // Build map: (x,y from node.__data__) -> edge class
-    const posToClass = new Map();
-    svg.querySelectorAll('g.markmap-node').forEach(node => {
-      const nd = node.__data__;
-      // Prefer bound datum; fall back to transform only if needed
-      let key = null;
-      if (nd && typeof nd.x === 'number' && typeof nd.y === 'number') {
-        key = `${nd.x},${nd.y}`;
-      } else {
-        const m = (node.getAttribute('transform') || '').match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
-        if (m) key = `${(+m[1]).toFixed(2)},${(+m[2]).toFixed(2)}`;
-      }
-      if (!key) return;
 
-      const has1 = node.querySelector('.user1-node');
-      const has2 = node.querySelector('.user2-node');
-      const hasS = node.querySelector('.shared-node');
-
-      let cls = null;
-      if (hasS || (has1 && has2)) cls = 'shared-edge';
-      else if (has1) cls = 'user1-edge';
-      else if (has2) cls = 'user2-edge';
-
-      if (cls) posToClass.set(key, cls);
-    });
-
-    // Color actual Markmap links using their bound datum
-    svg.querySelectorAll('g.markmap-links path, path.markmap-link').forEach(p => {
-      const d = p.__data__;
-      if (!d || !d.target) return;
-      const key = `${d.target.x},${d.target.y}`;
-      const cls = posToClass.get(key);
-      p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-      if (cls) p.classList.add(cls);
-    });
-  };
-
-  // run after initial render and expose hook
-  queueMicrotask(colorize);
-  svg.__colorizeEdges__ = colorize;
-}
- 
+  setupComparisonTreeRendering(svg) {
+    const classifyNodeEl = (el) => {
+      if (!el) return null;
+      const has1 = el.querySelector('.user1-node');
+      const has2 = el.querySelector('.user2-node');
+      const hasS = el.querySelector('.shared-node');
+      if (hasS || (has1 && has2)) return 'shared-edge';
+      if (has1) return 'user1-edge';
+      if (has2) return 'user2-edge';
+      return null;
+    };
   
+    const colorize = () => {
+      // Build a lightweight index only if we need the fallback
+      let nodeIndex = null;
+      const buildIndex = () => {
+        if (nodeIndex) return nodeIndex;
+        nodeIndex = Array.from(svg.querySelectorAll('g.markmap-node')).map(node => {
+          const nd = node.__data__ || {};
+          const x = typeof nd.x === 'number' ? nd.x : 0;
+          const y = typeof nd.y === 'number' ? nd.y : 0;
+          const cls = classifyNodeEl(node);
+          return { node, x, y, cls };
+        }).filter(n => n.cls);
+        return nodeIndex;
+      };
+      const nearest = (x, y) => {
+        const arr = buildIndex();
+        let best = null, bestD = Infinity;
+        for (const n of arr) {
+          const dx = n.x - x, dy = n.y - y, d = dx*dx + dy*dy;
+          if (d < bestD) { bestD = d; best = n; }
+        }
+        return best;
+      };
+  
+      // Color each real Markmap link
+      const links = svg.querySelectorAll('g.markmap-links path, path.markmap-link');
+      links.forEach(p => {
+        const d = p.__data__;
+        if (!d || !d.target) return;
+  
+        // Preferred: ask the target node for its DOM element and read its tag
+        const targetEl = d.target?.state?.el || d.target?.el || null;
+        let cls = classifyNodeEl(targetEl);
+  
+        // Fallback: nearest node by datum coords
+        if (!cls && typeof d.target.x === 'number' && typeof d.target.y === 'number') {
+          const n = nearest(d.target.x, d.target.y);
+          cls = n?.cls || null;
+        }
+  
+        p.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (cls) p.classList.add(cls);
+      });
+    };
+    
   
 
   renderComparisonTree(tree) {
