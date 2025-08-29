@@ -384,81 +384,111 @@ class TreeManager {
       duration: 500
     }, root);
     
-    // Color paths based on their DESTINATION node
+    // Wait longer and use requestAnimationFrame to ensure rendering is complete
     setTimeout(() => {
-      // First, build a map of node positions and colors
-      const nodeMap = new Map();
-      const nodes = svg.querySelectorAll('g.markmap-node');
-      
-      nodes.forEach(node => {
-        const transform = node.getAttribute('transform');
-        if (transform) {
-          const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
-          if (match) {
-            const x = parseFloat(match[1]);
-            const y = parseFloat(match[2]);
+      requestAnimationFrame(() => {
+        console.log('Starting path coloring for tree:', tree.id);
+        
+        // Get all paths and log their structure
+        const allPaths = svg.querySelectorAll('path');
+        console.log('Total paths found:', allPaths.length);
+        
+        if (allPaths.length > 0) {
+          console.log('First path d attribute:', allPaths[0].getAttribute('d'));
+          console.log('First path stroke:', allPaths[0].getAttribute('stroke'));
+          console.log('First path style:', allPaths[0].getAttribute('style'));
+        }
+        
+        // Simple brute force approach: 
+        // For EVERY path, check its computed style and override if needed
+        allPaths.forEach((path, index) => {
+          const currentStroke = window.getComputedStyle(path).stroke;
+          console.log(`Path ${index} computed stroke:`, currentStroke);
+          
+          // Check if this path is gray/purple and needs fixing
+          if (currentStroke.includes('147, 51, 234') || // purple rgb
+              currentStroke.includes('#9333ea') || 
+              currentStroke === 'rgb(147, 51, 234)') {
             
-            const foreign = node.querySelector('foreignObject');
-            let color = null;
+            // Find the closest node to the END of this path
+            const d = path.getAttribute('d');
+            if (d) {
+              // Extract all numbers from the path
+              const numbers = d.match(/[\d.-]+/g);
+              if (numbers && numbers.length >= 2) {
+                // Last two numbers should be the end coordinates
+                const endX = parseFloat(numbers[numbers.length - 2]);
+                const endY = parseFloat(numbers[numbers.length - 1]);
+                
+                console.log(`Path ${index} ends at:`, endX, endY);
+                
+                // Find what node is at this position
+                const nodes = svg.querySelectorAll('g.markmap-node');
+                nodes.forEach(node => {
+                  const transform = node.getAttribute('transform');
+                  if (transform) {
+                    const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
+                    if (match) {
+                      const nodeX = parseFloat(match[1]);
+                      const nodeY = parseFloat(match[2]);
+                      const dist = Math.sqrt((endX - nodeX) ** 2 + (endY - nodeY) ** 2);
+                      
+                      if (dist < 5) {
+                        const foreign = node.querySelector('foreignObject');
+                        if (foreign) {
+                          const has1 = !!foreign.querySelector('.user1-node');
+                          const has2 = !!foreign.querySelector('.user2-node');
+                          
+                          if (has1 && !has2) {
+                            console.log(`Coloring path ${index} red (user1)`);
+                            path.setAttribute('stroke', '#dc2626');
+                            path.style.stroke = '#dc2626';
+                            path.style.cssText = 'stroke: #dc2626 !important;';
+                          } else if (has2 && !has1) {
+                            console.log(`Coloring path ${index} blue (user2)`);
+                            path.setAttribute('stroke', '#2563eb');
+                            path.style.stroke = '#2563eb';
+                            path.style.cssText = 'stroke: #2563eb !important;';
+                          }
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          }
+        });
+        
+        // Also color circles
+        const circles = svg.querySelectorAll('circle');
+        circles.forEach(circle => {
+          const parentNode = circle.closest('g.markmap-node');
+          if (parentNode) {
+            const foreign = parentNode.querySelector('foreignObject');
             if (foreign) {
               const has1 = !!foreign.querySelector('.user1-node');
               const has2 = !!foreign.querySelector('.user2-node');
               const hasShared = !!foreign.querySelector('.shared-node');
               
-              if (hasShared || (has1 && has2)) color = '#9333ea';
-              else if (has1) color = '#dc2626';
-              else if (has2) color = '#2563eb';
-            }
-            
-            nodeMap.set(`${x},${y}`, { node, color, x, y });
-            
-            // Color the circle
-            const circle = node.querySelector('circle');
-            if (circle && color) {
-              circle.style.stroke = color;
-              circle.style.fill = color;
-            }
-          }
-        }
-      });
-      
-      // Now color each path based on where it ENDS
-      const paths = svg.querySelectorAll('path');
-      paths.forEach(path => {
-        const d = path.getAttribute('d');
-        if (d) {
-          // Extract the END point of the path
-          // Paths typically end with coordinates like "L 200,150" or just "200,150"
-          const coordMatches = d.match(/([\d.-]+)[,\s]+([\d.-]+)(?!.*[\d.-]+[,\s]+[\d.-]+)/);
-          if (coordMatches) {
-            const endX = parseFloat(coordMatches[1]);
-            const endY = parseFloat(coordMatches[2]);
-            
-            // Find the closest node to this endpoint
-            let closestNode = null;
-            let closestColor = null;
-            let minDist = 15; // threshold distance
-            
-            nodeMap.forEach(({ node, color, x, y }) => {
-              const dist = Math.sqrt((endX - x) ** 2 + (endY - y) ** 2);
-              if (dist < minDist) {
-                minDist = dist;
-                closestNode = node;
-                closestColor = color;
+              if (hasShared || (has1 && has2)) {
+                circle.style.stroke = '#9333ea';
+                circle.style.fill = '#9333ea';
+              } else if (has1) {
+                circle.style.stroke = '#dc2626';
+                circle.style.fill = '#dc2626';
+              } else if (has2) {
+                circle.style.stroke = '#2563eb';
+                circle.style.fill = '#2563eb';
               }
-            });
-            
-            // Apply the color of the destination node
-            if (closestColor) {
-              path.style.cssText = `stroke: ${closestColor} !important;`;
             }
           }
-        }
+        });
       });
-    }, 300);
+    }, 500); // Wait longer to ensure Markmap has finished rendering
     
+    // Dark mode handling
     try {
-      // Handle dark mode text visibility
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
@@ -474,7 +504,7 @@ class TreeManager {
         }, 0);
       }
     } catch (_) {}
-  
+
     // Remove any existing statistics elements to prevent duplicates
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
