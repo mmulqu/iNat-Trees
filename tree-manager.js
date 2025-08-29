@@ -384,108 +384,90 @@ class TreeManager {
       duration: 500
     }, root);
     
-    // Wait longer and use requestAnimationFrame to ensure rendering is complete
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        console.log('Starting path coloring for tree:', tree.id);
-        
-        // Get all paths and log their structure
-        const allPaths = svg.querySelectorAll('path');
-        console.log('Total paths found:', allPaths.length);
-        
-        if (allPaths.length > 0) {
-          console.log('First path d attribute:', allPaths[0].getAttribute('d'));
-          console.log('First path stroke:', allPaths[0].getAttribute('stroke'));
-          console.log('First path style:', allPaths[0].getAttribute('style'));
-        }
-        
-        // Simple brute force approach: 
-        // For EVERY path, check its computed style and override if needed
-        allPaths.forEach((path, index) => {
-          const currentStroke = window.getComputedStyle(path).stroke;
-          console.log(`Path ${index} computed stroke:`, currentStroke);
-          
-          // Check if this path is gray/purple and needs fixing
-          if (currentStroke.includes('147, 51, 234') || // purple rgb
-              currentStroke.includes('#9333ea') || 
-              currentStroke === 'rgb(147, 51, 234)') {
-            
-            // Find the closest node to the END of this path
-            const d = path.getAttribute('d');
-            if (d) {
-              // Extract all numbers from the path
-              const numbers = d.match(/[\d.-]+/g);
-              if (numbers && numbers.length >= 2) {
-                // Last two numbers should be the end coordinates
-                const endX = parseFloat(numbers[numbers.length - 2]);
-                const endY = parseFloat(numbers[numbers.length - 1]);
-                
-                console.log(`Path ${index} ends at:`, endX, endY);
-                
-                // Find what node is at this position
-                const nodes = svg.querySelectorAll('g.markmap-node');
-                nodes.forEach(node => {
-                  const transform = node.getAttribute('transform');
-                  if (transform) {
-                    const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
-                    if (match) {
-                      const nodeX = parseFloat(match[1]);
-                      const nodeY = parseFloat(match[2]);
-                      const dist = Math.sqrt((endX - nodeX) ** 2 + (endY - nodeY) ** 2);
-                      
-                      if (dist < 5) {
-                        const foreign = node.querySelector('foreignObject');
-                        if (foreign) {
-                          const has1 = !!foreign.querySelector('.user1-node');
-                          const has2 = !!foreign.querySelector('.user2-node');
-                          
-                          if (has1 && !has2) {
-                            console.log(`Coloring path ${index} red (user1)`);
-                            path.setAttribute('stroke', '#dc2626');
-                            path.style.stroke = '#dc2626';
-                            path.style.cssText = 'stroke: #dc2626 !important;';
-                          } else if (has2 && !has1) {
-                            console.log(`Coloring path ${index} blue (user2)`);
-                            path.setAttribute('stroke', '#2563eb');
-                            path.style.stroke = '#2563eb';
-                            path.style.cssText = 'stroke: #2563eb !important;';
-                          }
-                        }
-                      }
-                    }
-                  }
-                });
-              }
-            }
-          }
-        });
-        
-        // Also color circles
-        const circles = svg.querySelectorAll('circle');
-        circles.forEach(circle => {
-          const parentNode = circle.closest('g.markmap-node');
-          if (parentNode) {
-            const foreign = parentNode.querySelector('foreignObject');
-            if (foreign) {
-              const has1 = !!foreign.querySelector('.user1-node');
-              const has2 = !!foreign.querySelector('.user2-node');
-              const hasShared = !!foreign.querySelector('.shared-node');
-              
-              if (hasShared || (has1 && has2)) {
-                circle.style.stroke = '#9333ea';
-                circle.style.fill = '#9333ea';
-              } else if (has1) {
-                circle.style.stroke = '#dc2626';
-                circle.style.fill = '#dc2626';
-              } else if (has2) {
-                circle.style.stroke = '#2563eb';
-                circle.style.fill = '#2563eb';
-              }
-            }
-          }
-        });
+    // after: const mm = Markmap.create(...)
+    
+    const colorForNodeGroup = (g) => {
+      const foreign = g.querySelector('foreignObject');
+      if (!foreign) return null;
+      const has1 = !!foreign.querySelector('.user1-node');
+      const has2 = !!foreign.querySelector('.user2-node');
+      const hasShared = !!foreign.querySelector('.shared-node');
+      if (hasShared || (has1 && has2)) return '#9333ea'; // purple
+      if (has1) return '#dc2626'; // red
+      if (has2) return '#2563eb'; // blue
+      return null;
+    };
+    
+    const parseTranslate = (g) => {
+      const tr = g.getAttribute('transform');
+      if (!tr) return null;
+      const m = tr.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
+      if (!m) return null;
+      return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+    };
+    
+    const buildNodeIndex = (svgEl) => {
+      const arr = [];
+      svgEl.querySelectorAll('g.markmap-node').forEach(g => {
+        const pos = parseTranslate(g);
+        if (!pos) return;
+        const color = colorForNodeGroup(g);
+        arr.push({ g, x: pos.x, y: pos.y, color });
+        // keep circles in sync
+        const c = g.querySelector('circle');
+        if (c && color) { c.style.stroke = color; c.style.fill = color; }
       });
-    }, 500); // Wait longer to ensure Markmap has finished rendering
+      return arr;
+    };
+    
+    const colorLinksByTarget = (svgEl) => {
+      const nodes = buildNodeIndex(svgEl);
+      const paths = svgEl.querySelectorAll('path.markmap-link, g.markmap-links path');
+      paths.forEach(path => {
+        let end;
+        try {
+          const L = path.getTotalLength();
+          end = path.getPointAtLength(L);
+        } catch { end = null; }
+        if (!end) return;
+    
+        // find nearest node to the path endpoint
+        let best = null, bestDist = 12; // px threshold
+        for (const n of nodes) {
+          const dx = end.x - n.x, dy = end.y - n.y;
+          const d = Math.hypot(dx, dy);
+          if (d < bestDist) { best = n; bestDist = d; }
+        }
+        if (best && best.color) {
+          // force override any theme/globalCSS
+          path.style.cssText = `stroke:${best.color} !important;`;
+        }
+      });
+    };
+    
+    // ensure CSS can't lower opacity
+    const styleId = `${tree.id}-link-styles`;
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement('style');
+      st.id = styleId;
+      st.textContent = `
+        #${tree.id}-svg .markmap-link { stroke-opacity: 1 !important; }
+      `;
+      document.head.appendChild(st);
+    }
+    
+    // run after initial render + transitions
+    const recolor = () => colorLinksByTarget(svg);
+    setTimeout(() => requestAnimationFrame(recolor), 400);
+    
+    // re-apply on DOM changes (fold/unfold, animations, re-layout)
+    if (svg._linkColorObs) svg._linkColorObs.disconnect();
+    svg._linkColorObs = new MutationObserver(() => {
+      // throttle slightly
+      clearTimeout(svg._linkColorTick);
+      svg._linkColorTick = setTimeout(recolor, 50);
+    });
+    svg._linkColorObs.observe(svg, { childList: true, subtree: true });
     
     // Dark mode handling
     try {
