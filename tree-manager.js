@@ -368,99 +368,128 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
     
-    // Debug: log the root structure
-    console.log('Root structure:', root);
-    
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       color: (node) => {
-        // Debug: log what we're checking
-        console.log('Node properties:', {
-          v: node.v,
-          content: node.content,
-          payload: node.payload,
-          children: node.children?.length
-        });
-        
-        // Try multiple properties where the content might be
-        const searchIn = [
-          node.v,
-          node.content, 
-          node.payload?.content,
-          JSON.stringify(node)
-        ];
-        
+        const searchIn = [node.v, node.content, node.payload?.content, JSON.stringify(node)];
         for (const str of searchIn) {
           if (str && typeof str === 'string') {
-            if (str.includes('user1-node')) {
-              console.log('Found user1-node in:', str.substring(0, 100));
-              return '#dc2626';
-            }
-            if (str.includes('user2-node')) {
-              console.log('Found user2-node in:', str.substring(0, 100));
-              return '#2563eb';
-            }
-            if (str.includes('shared-node')) {
-              console.log('Found shared-node in:', str.substring(0, 100));
-              return '#9333ea';
-            }
+            if (str.includes('user1-node')) return '#dc2626';
+            if (str.includes('user2-node')) return '#2563eb';
+            if (str.includes('shared-node')) return '#9333ea';
           }
         }
-        
         return null;
       },
       duration: 500
     }, root);
     
-    // Color ALL paths (including connector arcs)
+    // Color ALL paths based on their associated nodes
     setTimeout(() => {
-      const allPaths = svg.querySelectorAll('path');
-      allPaths.forEach(path => {
-        // Find the nearest g.markmap-node that this path leads to
-        const nextNode = path.nextElementSibling;
-        if (nextNode && nextNode.classList.contains('markmap-node')) {
-          const foreign = nextNode.querySelector('foreignObject');
-          if (foreign) {
-            const has1 = !!foreign.querySelector('.user1-node');
-            const has2 = !!foreign.querySelector('.user2-node');
-            const hasShared = !!foreign.querySelector('.shared-node');
+      // Build a map of which color each node should be
+      const nodeColors = new Map();
+      const nodes = svg.querySelectorAll('g.markmap-node');
+      
+      nodes.forEach(node => {
+        const foreign = node.querySelector('foreignObject');
+        if (foreign) {
+          const has1 = !!foreign.querySelector('.user1-node');
+          const has2 = !!foreign.querySelector('.user2-node');
+          const hasShared = !!foreign.querySelector('.shared-node');
+          
+          let color = null;
+          if (hasShared || (has1 && has2)) color = '#9333ea';
+          else if (has1) color = '#dc2626';
+          else if (has2) color = '#2563eb';
+          
+          if (color) {
+            nodeColors.set(node, color);
             
-            if (hasShared || (has1 && has2)) {
-              path.setAttribute('stroke', '#9333ea');
-            } else if (has1) {
-              path.setAttribute('stroke', '#dc2626');
-            } else if (has2) {
-              path.setAttribute('stroke', '#2563eb');
+            // Color any circles in this node
+            const circle = node.querySelector('circle');
+            if (circle) {
+              circle.setAttribute('stroke', color);
+              circle.setAttribute('fill', color);
             }
           }
         }
       });
       
-      // Also check paths that might be before their nodes
-      const nodes = svg.querySelectorAll('g.markmap-node');
-      nodes.forEach(node => {
-        const foreign = node.querySelector('foreignObject');
-        if (!foreign) return;
-        
-        const has1 = !!foreign.querySelector('.user1-node');
-        const has2 = !!foreign.querySelector('.user2-node');
-        const hasShared = !!foreign.querySelector('.shared-node');
-        
-        let color = null;
-        if (hasShared || (has1 && has2)) color = '#9333ea';
-        else if (has1) color = '#dc2626';
-        else if (has2) color = '#2563eb';
-        
-        if (color) {
-          // Find all paths in proximity to this node
-          let sibling = node.previousElementSibling;
-          while (sibling && sibling.tagName === 'path') {
-            sibling.setAttribute('stroke', color);
-            sibling = sibling.previousElementSibling;
+      // Now color ALL path elements
+      const allPaths = svg.querySelectorAll('path');
+      allPaths.forEach(path => {
+        // Check if this path is a markmap-link
+        if (path.classList.contains('markmap-link') || !path.classList.length) {
+          // Find the closest following node
+          let nextElement = path.nextElementSibling;
+          while (nextElement) {
+            if (nextElement.classList.contains('markmap-node')) {
+              const color = nodeColors.get(nextElement);
+              if (color) {
+                path.setAttribute('stroke', color);
+              }
+              break;
+            }
+            nextElement = nextElement.nextElementSibling;
+          }
+          
+          // If no next sibling found, check if path is inside a group
+          if (!nextElement) {
+            const parentGroup = path.parentElement;
+            if (parentGroup && parentGroup.tagName === 'g') {
+              // Look for node siblings of the parent group
+              let sibling = parentGroup.nextElementSibling;
+              while (sibling) {
+                if (sibling.classList.contains('markmap-node')) {
+                  const color = nodeColors.get(sibling);
+                  if (color) {
+                    path.setAttribute('stroke', color);
+                  }
+                  break;
+                }
+                sibling = sibling.nextElementSibling;
+              }
+            }
           }
         }
       });
-    }, 150);
+      
+      // One more pass: color any remaining gray paths based on proximity
+      const grayPaths = svg.querySelectorAll('path[stroke="#c0c0c0"], path:not([stroke])');
+      grayPaths.forEach(path => {
+        // Get the path's bounding box
+        const bbox = path.getBBox();
+        const pathCenterX = bbox.x + bbox.width / 2;
+        const pathCenterY = bbox.y + bbox.height / 2;
+        
+        // Find the closest colored node
+        let closestNode = null;
+        let closestDistance = Infinity;
+        
+        nodeColors.forEach((color, node) => {
+          const nodeBBox = node.getBBox();
+          const nodeCenterX = nodeBBox.x + nodeBBox.width / 2;
+          const nodeCenterY = nodeBBox.y + nodeBBox.height / 2;
+          
+          const distance = Math.sqrt(
+            Math.pow(pathCenterX - nodeCenterX, 2) + 
+            Math.pow(pathCenterY - nodeCenterY, 2)
+          );
+        
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestNode = node;
+          }
+        });
+        
+        if (closestNode && closestDistance < 200) { // 200px proximity threshold
+          const color = nodeColors.get(closestNode);
+          if (color) {
+            path.setAttribute('stroke', color);
+          }
+        }
+      });
+    }, 200); // Slightly longer delay to ensure rendering is complete
     
     try {
       // Handle dark mode text visibility
