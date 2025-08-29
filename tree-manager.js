@@ -358,174 +358,105 @@ class TreeManager {
   }
 
 
-// Replace the whole renderComparisonTree method with this:
-renderComparisonTree(tree) {
-  const svg = document.getElementById(`${tree.id}-svg`);
-  if (!svg) return;
-  svg.innerHTML = '';
-
-  const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
-  const { Transformer, Markmap } = window.markmap;
-  const transformer = new Transformer();
-  const { root } = transformer.transform(processedMarkdown);
-
-  // Inject strong, per-tree CSS so link strokes can't be dimmed/overridden later
-  const ensureLinkCSS = () => {
-    const styleId = `${tree.id}-link-css`;
-    if (document.getElementById(styleId)) return;
-    const st = document.createElement('style');
-    st.id = styleId;
-    st.textContent = `
-      /* Keep arcs fully visible */
-      #${tree.id}-svg .markmap-link { stroke-opacity: 1 !important; fill: none; }
-      /* Attribute-based colors for links (so we can reapply after animations) */
-      #${tree.id}-svg .markmap-link[data-mm-color="red"]    { stroke: #dc2626 !important; }
-      #${tree.id}-svg .markmap-link[data-mm-color="blue"]   { stroke: #2563eb !important; }
-      #${tree.id}-svg .markmap-link[data-mm-color="purple"] { stroke: #9333ea !important; }
-    `;
-    document.head.appendChild(st);
-  };
-  ensureLinkCSS();
-
-  // Create markmap with a node color function (labels, circles, underlines)
-  const mm = Markmap.create(svg, {
-    htmlLabels: true,
-    color: (node) => {
-      const searchIn = [node.v, node.content, node.payload?.content, JSON.stringify(node)];
-      for (const s of searchIn) {
-        if (s && typeof s === 'string') {
-          if (s.includes('user1-node')) return '#dc2626'; // red
-          if (s.includes('user2-node')) return '#2563eb'; // blue
-          if (s.includes('shared-node')) return '#9333ea'; // purple
-        }
-      }
+  renderComparisonTree(tree) {
+    const svg = document.getElementById(`${tree.id}-svg`);
+    if (!svg) return;
+    svg.innerHTML = '';
+  
+    const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
+    const { Transformer, Markmap } = window.markmap;
+    const transformer = new Transformer();
+    const { root } = transformer.transform(processedMarkdown);
+  
+    const COLOR_RED = '#dc2626';
+    const COLOR_BLUE = '#2563eb';
+    const COLOR_PURPLE = '#9333ea';
+  
+    // 1) Helper that maps a node's HTML content -> color
+    const colorFromHTML = (html) => {
+      if (!html) return null;
+      if (html.includes('shared-node') || (html.includes('user1-node') && html.includes('user2-node')))
+        return COLOR_PURPLE;
+      if (html.includes('user1-node')) return COLOR_RED;
+      if (html.includes('user2-node')) return COLOR_BLUE;
       return null;
-    },
-    duration: 600,
-    // small style hook to prevent theme lowering link opacity
-    style: (id) => `#${id} .markmap-link{stroke-opacity:1;}`
-  }, root);
-
-  // --- helpers --------------------------------------------------------------
-  const colorHex = (tag) =>
-    tag === 'red' ? '#dc2626' : tag === 'blue' ? '#2563eb' : tag === 'purple' ? '#9333ea' : null;
-
-  const classifyNode = (g) => {
-    const foreign = g.querySelector('foreignObject');
-    if (!foreign) return null;
-    const has1 = !!foreign.querySelector('.user1-node');
-    const has2 = !!foreign.querySelector('.user2-node');
-    const hasShared = !!foreign.querySelector('.shared-node');
-    if (hasShared || (has1 && has2)) return 'purple';
-    if (has1) return 'red';
-    if (has2) return 'blue';
-    return null;
-  };
-
-  const parseTranslate = (g) => {
-    const tr = g.getAttribute('transform');
-    const m = tr && tr.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
-    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
-  };
-
-  // Build an index of nodes with positions & colors; also color the circles
-  const indexNodes = () => {
-    const list = [];
-    svg.querySelectorAll('g.markmap-node').forEach((g) => {
-      const pos = parseTranslate(g);
-      if (!pos) return;
-      const tag = classifyNode(g);
-      list.push({ g, x: pos.x, y: pos.y, tag });
-      const c = g.querySelector('circle');
-      const hex = colorHex(tag);
-      if (c && hex) { c.style.stroke = hex; c.style.fill = hex; }
-    });
-    return list;
-  };
-
-  // Color every curve (arc) by the color of its DESTINATION node
-  const assignLinkColors = () => {
-    const nodes = indexNodes();
-    const links = svg.querySelectorAll('g.markmap-links path, path.markmap-link, path');
-
-    links.forEach((path) => {
-      // ignore non-connector shapes (if any)
-      if (!path.classList.contains('markmap-link') && path.parentElement?.classList?.contains('markmap-nodes')) return;
-
-      // find the endpoint of the curve
-      let end;
-      try {
-        const L = path.getTotalLength();
-        end = path.getPointAtLength(L);
-      } catch {
-        end = null;
-      }
-      if (!end) return;
-
-      // nearest node to path end = destination node
-      let best = null, bestD = 14; // pixel threshold
-      for (const n of nodes) {
-        const d = Math.hypot(end.x - n.x, end.y - n.y);
-        if (d < bestD) { best = n; bestD = d; }
-      }
-      if (!best || !best.tag) return;
-
-      // tag the path and set inline stroke as fallback
-      const tag = best.tag;
-      const hex = colorHex(tag);
-      if (!hex) return;
-
-      if (path.getAttribute('data-mm-color') !== tag) {
-        path.setAttribute('data-mm-color', tag);
-      }
-      // inline stroke helps during transition frames; CSS (above) wins later
-      path.style.stroke = hex;
-    });
-  };
-
-  // Initial pass after layout/transition
-  const kick = () => assignLinkColors();
-  setTimeout(() => requestAnimationFrame(kick), 800);
-
-  // Re-apply colors when animations or folding change the DOM
-  if (svg._mmObserver) svg._mmObserver.disconnect();
-  svg._mmObserver = new MutationObserver(() => {
-    clearTimeout(svg._mmTick);
-    svg._mmTick = setTimeout(assignLinkColors, 60);
-  });
-  svg._mmObserver.observe(svg, { subtree: true, childList: true, attributes: true });
-
-  // --- Dark mode text fix (unchanged) --------------------------------------
-  try {
-    const isDark = document.body.classList.contains('dark-theme');
-    if (isDark) {
-      setTimeout(() => {
-        const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-        texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-        const foreign = svg.querySelectorAll('.markmap-foreign *');
-        foreign.forEach(el => { el.style.color = '#f8fafc'; });
-      }, 0);
+    };
+  
+    // 2) Create markmap with our normal per-node color function (for text/underlines)
+    const mm = Markmap.create(svg, {
+      htmlLabels: true,
+      color: (node) => colorFromHTML(node?.content) || null,
+      duration: 500
+    }, root);
+  
+    // 3) Ensure link strokes are fully opaque and overridable
+    const styleId = `${tree.id}-link-styles`;
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement('style');
+      st.id = styleId;
+      st.textContent = `
+        #${tree.id}-svg .markmap-link { stroke-opacity: 1 !important; }
+      `;
+      document.head.appendChild(st);
     }
-  } catch (_) {}
-
-  // Clean & add comparison dashboard as before
-  const tabContent = document.getElementById(`${tree.id}-content`);
-  if (tabContent) {
-    const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
-    existingStats.forEach(el => el.remove());
-  }
-  if (tree.stats && window.taxonomyStats) {
+  
+    // 4) Deterministically color: links by TARGET node, circles by NODE
+    const recolorEverything = () => {
+      // Circles: each g.markmap-node has bound INode data (via D3).
+      svg.querySelectorAll('g.markmap-node').forEach(g => {
+        const d = g.__data__; // INode (markmap-view docs)
+        const color = colorFromHTML(d?.content);
+        const c = g.querySelector('circle');
+        if (c && color) {
+          c.style.cssText = `stroke:${color} !important; fill:${color} !important;`;
+        }
+      });
+  
+      // Links: each path.markmap-link has bound { source, target } (d3-hierarchy links)
+      svg.querySelectorAll('path.markmap-link').forEach(path => {
+        const ld = path.__data__; // HierarchyPointLink with { source, target }
+        const html = ld?.target?.data?.content || ld?.target?.data?.payload?.content || '';
+        const color = colorFromHTML(html);
+        if (color) path.style.cssText = `stroke:${color} !important;`;
+      });
+    };
+  
+    // 5) First pass, then re-run after transitions/layout changes
+    const kick = () => requestAnimationFrame(recolorEverything);
+    setTimeout(kick, 350);
+  
+    // Re-apply on DOM mutations (toggle, zoom relayout, etc.)
+    if (svg._mmObserver) svg._mmObserver.disconnect();
+    svg._mmObserver = new MutationObserver(() => {
+      clearTimeout(svg._mmTick);
+      svg._mmTick = setTimeout(recolorEverything, 50);
+    });
+    svg._mmObserver.observe(svg, { childList: true, subtree: true });
+  
+    // 6) Dark mode text fix (unchanged)
     try {
-      const comparisonDashboard = window.taxonomyStats.createComparisonDashboard(
-        tree.stats, tree.username1, tree.username2
-      );
-      if (comparisonDashboard && tabContent) tabContent.appendChild(comparisonDashboard);
-    } catch (error) {
-      console.error('Error creating comparison dashboard:', error);
+      const isDark = document.body.classList.contains('dark-theme');
+      if (isDark) {
+        setTimeout(() => {
+          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
+          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          const foreign = svg.querySelectorAll('.markmap-foreign *');
+          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+        }, 0);
+      }
+    } catch (_) {}
+  
+    // clean comparison stats area, then (optionally) append dashboard
+    const tabContent = document.getElementById(`${tree.id}-content`);
+    if (tabContent) tabContent.querySelectorAll('.comparison-stats, .battle-summary').forEach(el => el.remove());
+    if (tree.stats && window.taxonomyStats && tabContent) {
+      try {
+        const comparisonDashboard = window.taxonomyStats.createComparisonDashboard(tree.stats, tree.username1, tree.username2);
+        if (comparisonDashboard) tabContent.appendChild(comparisonDashboard);
+      } catch (e) { console.error('Error creating comparison dashboard:', e); }
     }
   }
-}
-
+  
 
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates
