@@ -361,7 +361,6 @@ class TreeManager {
   renderComparisonTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
-    // Clear the SVG container before rendering
     svg.innerHTML = '';
     
     const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
@@ -369,15 +368,46 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
     
+    // Debug: log the root structure
+    console.log('Root structure:', root);
+    
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       color: (node) => {
-        // node.v contains the HTML content string
-        const content = node.v || '';
-        if (content.includes('user1-node')) return '#dc2626';
-        if (content.includes('user2-node')) return '#2563eb';
-        if (content.includes('shared-node')) return '#9333ea';
-        return null; // use default color
+        // Debug: log what we're checking
+        console.log('Node properties:', {
+          v: node.v,
+          content: node.content,
+          payload: node.payload,
+          children: node.children?.length
+        });
+        
+        // Try multiple properties where the content might be
+        const searchIn = [
+          node.v,
+          node.content, 
+          node.payload?.content,
+          JSON.stringify(node)
+        ];
+        
+        for (const str of searchIn) {
+          if (str && typeof str === 'string') {
+            if (str.includes('user1-node')) {
+              console.log('Found user1-node in:', str.substring(0, 100));
+              return '#dc2626';
+            }
+            if (str.includes('user2-node')) {
+              console.log('Found user2-node in:', str.substring(0, 100));
+              return '#2563eb';
+            }
+            if (str.includes('shared-node')) {
+              console.log('Found shared-node in:', str.substring(0, 100));
+              return '#9333ea';
+            }
+          }
+        }
+        
+        return null;
       },
       duration: 500
     }, root);
