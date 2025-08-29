@@ -368,20 +368,6 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
     
-    // First, inject CSS rules for this specific tree
-    let styleEl = document.getElementById(`${tree.id}-styles`);
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = `${tree.id}-styles`;
-      document.head.appendChild(styleEl);
-    }
-    styleEl.innerHTML = `
-      #${tree.id}-svg .markmap-link { stroke-opacity: 1 !important; }
-      #${tree.id}-svg .user1-path { stroke: #dc2626 !important; }
-      #${tree.id}-svg .user2-path { stroke: #2563eb !important; }
-      #${tree.id}-svg .shared-path { stroke: #9333ea !important; }
-    `;
-    
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       color: (node) => {
@@ -398,38 +384,37 @@ class TreeManager {
       duration: 500
     }, root);
     
-    // Force color all paths after a delay
+    // Color paths based on their DESTINATION node
     setTimeout(() => {
+      // First, build a map of node positions and colors
+      const nodeMap = new Map();
       const nodes = svg.querySelectorAll('g.markmap-node');
-      const nodeColorMap = new Map();
       
-      // Map each node to its color
-      nodes.forEach((node, index) => {
-        const foreign = node.querySelector('foreignObject');
-        if (foreign) {
-          const has1 = !!foreign.querySelector('.user1-node');
-          const has2 = !!foreign.querySelector('.user2-node');
-          const hasShared = !!foreign.querySelector('.shared-node');
-          
-          let colorClass = '';
-          let color = '';
-          if (hasShared || (has1 && has2)) {
-            colorClass = 'shared-path';
-            color = '#9333ea';
-          } else if (has1) {
-            colorClass = 'user1-path';
-            color = '#dc2626';
-          } else if (has2) {
-            colorClass = 'user2-path';
-            color = '#2563eb';
-          }
-          
-          if (color) {
-            nodeColorMap.set(index, { color, colorClass });
+      nodes.forEach(node => {
+        const transform = node.getAttribute('transform');
+        if (transform) {
+          const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
+          if (match) {
+            const x = parseFloat(match[1]);
+            const y = parseFloat(match[2]);
             
-            // Color circles
+            const foreign = node.querySelector('foreignObject');
+            let color = null;
+            if (foreign) {
+              const has1 = !!foreign.querySelector('.user1-node');
+              const has2 = !!foreign.querySelector('.user2-node');
+              const hasShared = !!foreign.querySelector('.shared-node');
+              
+              if (hasShared || (has1 && has2)) color = '#9333ea';
+              else if (has1) color = '#dc2626';
+              else if (has2) color = '#2563eb';
+            }
+            
+            nodeMap.set(`${x},${y}`, { node, color, x, y });
+            
+            // Color the circle
             const circle = node.querySelector('circle');
-            if (circle) {
+            if (circle && color) {
               circle.style.stroke = color;
               circle.style.fill = color;
             }
@@ -437,70 +422,35 @@ class TreeManager {
         }
       });
       
-      // Color ALL paths using both class and inline style
-      const allPaths = svg.querySelectorAll('path');
-      allPaths.forEach((path, pathIndex) => {
-        // Find which node this path leads to by checking position
-        let targetNodeIndex = -1;
-        let minDistance = Infinity;
-        
-        // Get path endpoint
+      // Now color each path based on where it ENDS
+      const paths = svg.querySelectorAll('path');
+      paths.forEach(path => {
         const d = path.getAttribute('d');
         if (d) {
-          const matches = d.match(/[\d.-]+,[\d.-]+(?=\s*$)/);
-          if (matches) {
-            const [endX, endY] = matches[0].split(',').map(parseFloat);
+          // Extract the END point of the path
+          // Paths typically end with coordinates like "L 200,150" or just "200,150"
+          const coordMatches = d.match(/([\d.-]+)[,\s]+([\d.-]+)(?!.*[\d.-]+[,\s]+[\d.-]+)/);
+          if (coordMatches) {
+            const endX = parseFloat(coordMatches[1]);
+            const endY = parseFloat(coordMatches[2]);
             
-            // Find closest node
-            nodes.forEach((node, index) => {
-              const transform = node.getAttribute('transform');
-              if (transform) {
-                const transMatch = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
-                if (transMatch) {
-                  const nodeX = parseFloat(transMatch[1]);
-                  const nodeY = parseFloat(transMatch[2]);
-                  const dist = Math.sqrt((endX - nodeX) ** 2 + (endY - nodeY) ** 2);
-                  if (dist < minDistance) {
-                    minDistance = dist;
-                    targetNodeIndex = index;
-                  }
-                }
+            // Find the closest node to this endpoint
+            let closestNode = null;
+            let closestColor = null;
+            let minDist = 15; // threshold distance
+            
+            nodeMap.forEach(({ node, color, x, y }) => {
+              const dist = Math.sqrt((endX - x) ** 2 + (endY - y) ** 2);
+              if (dist < minDist) {
+                minDist = dist;
+                closestNode = node;
+                closestColor = color;
               }
             });
-          }
-        }
-        
-        // Apply color if we found a match
-        if (targetNodeIndex >= 0 && minDistance < 10) {
-          const colorInfo = nodeColorMap.get(targetNodeIndex);
-          if (colorInfo) {
-            path.classList.add(colorInfo.colorClass);
-            path.style.cssText = `stroke: ${colorInfo.color} !important;`;
-          }
-        }
-      });
-      
-      // Final fallback: color any paths that are still gray by checking their siblings
-      const grayPaths = svg.querySelectorAll('path:not([class*="-path"])');
-      grayPaths.forEach(path => {
-        let element = path.nextElementSibling;
-        while (element && !element.classList.contains('markmap-node')) {
-          element = element.nextElementSibling;
-        }
-        
-        if (element) {
-          const foreign = element.querySelector('foreignObject');
-          if (foreign) {
-            const has1 = !!foreign.querySelector('.user1-node');
-            const has2 = !!foreign.querySelector('.user2-node');
-            const hasShared = !!foreign.querySelector('.shared-node');
             
-            if (hasShared || (has1 && has2)) {
-              path.style.cssText = 'stroke: #9333ea !important;';
-            } else if (has1) {
-              path.style.cssText = 'stroke: #dc2626 !important;';
-            } else if (has2) {
-              path.style.cssText = 'stroke: #2563eb !important;';
+            // Apply the color of the destination node
+            if (closestColor) {
+              path.style.cssText = `stroke: ${closestColor} !important;`;
             }
           }
         }
