@@ -357,70 +357,56 @@ class TreeManager {
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
-  setupComparisonTreeRendering(svg) {
-    // Paint incoming edges based on which colored span is present in the label
-    const paint = () => {
-      const nodes = svg.querySelectorAll('g.markmap-node');
-      nodes.forEach(node => {
-        const has1 = !!node.querySelector('.user1-node');
-        const has2 = !!node.querySelector('.user2-node');
-        const hasS = !!node.querySelector('.shared-node');
-
-        // Find the incoming edge for this node
-        let edge = node.previousElementSibling;
-        if (!edge || String(edge.tagName).toLowerCase() !== 'path') {
-          // Fallback: some markmap versions nest the path inside
-          edge = node.querySelector('path');
-        }
-        if (!edge) return;
-
-        edge.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (hasS || (has1 && has2)) edge.classList.add('shared-edge');
-        else if (has1) edge.classList.add('user1-edge');
-        else if (has2) edge.classList.add('user2-edge');
-      });
-    };
-
-    // Initial pass, then keep repainting on expand/collapse
-    setTimeout(paint, 0);
-    const mo = new MutationObserver(paint);
-    mo.observe(svg, { subtree: true, childList: true, attributes: false });
-  }
 
   renderComparisonTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
     // Clear the SVG container before rendering
     svg.innerHTML = '';
+    
     const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
+    
     const mm = Markmap.create(svg, {
       htmlLabels: true,
-      nodeClick: (_, node) => {
-        console.log("Clicked node:", node);
-      }
+      color: (node) => {
+        // node.v contains the HTML content string
+        const content = node.v || '';
+        if (content.includes('user1-node')) return '#dc2626';
+        if (content.includes('user2-node')) return '#2563eb';
+        if (content.includes('shared-node')) return '#9333ea';
+        return null; // use default color
+      },
+      duration: 500
     }, root);
+    
     try {
-      if (document.body.classList.contains('dark-theme')) {
+      // Handle dark mode text visibility
+      const isDark = document.body.classList.contains('dark-theme');
+      if (isDark) {
         setTimeout(() => {
           const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          texts.forEach(t => { 
+            t.setAttribute('fill', '#f8fafc'); 
+            t.style.opacity = '0.96'; 
+          });
           const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+          foreign.forEach(el => { 
+            el.style.color = '#f8fafc'; 
+          });
         }, 0);
       }
     } catch (_) {}
-    this.setupComparisonTreeRendering(svg);
-
+  
     // Remove any existing statistics elements to prevent duplicates
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
       existingStats.forEach(el => el.remove());
     }
-
+  
     // Add comparison statistics dashboard
     if (tree.stats && window.taxonomyStats) {
       try {
@@ -430,9 +416,6 @@ class TreeManager {
         if (comparisonDashboard && tabContent) {
           tabContent.appendChild(comparisonDashboard);
         }
-
-        // We're replacing the original battle summary with our new stats dashboard
-        // Don't call this.createBattleSummary(tree) anymore
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
       }

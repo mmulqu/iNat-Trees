@@ -314,3 +314,37 @@ html {
 .battle-loading {
   animation: pulsate 1.5s infinite ease-in-out;
 }
+
+/* Comparison tree text colors for HTML labels */
+.user1-node {
+  color: #dc2626 !important; /* red-600 */
+  font-weight: 600;
+}
+
+.user2-node {
+  color: #2563eb !important; /* blue-600 */
+  font-weight: 600;
+}
+
+.shared-node {
+  color: #9333ea !important; /* purple-600 */
+  font-weight: 600;
+}
+
+/* Dark mode text colors - brighter for visibility */
+.dark-theme .user1-node {
+  color: #f87171 !important; /* red-400 */
+}
+
+.dark-theme .user2-node {
+  color: #60a5fa !important; /* blue-400 */
+}
+
+.dark-theme .shared-node {
+  color: #c084fc !important; /* purple-400 */
+}
+
+/* Ensure markmap foreign objects work in dark mode */
+.dark-theme .markmap-foreign {
+  color: inherit;
+}

@@ -1,4 +1,3 @@
-// theme-toggle.js
 (function() {
   const root = document.body;
   const btn = document.getElementById('themeToggle');
@@ -9,16 +8,25 @@
     if (theme === 'dark') {
       root.classList.add('dark-theme');
       if (icon) icon.className = 'bi bi-sun';
-      // force re-render of visible markmaps to pick up text color
-      try {
-        document.querySelectorAll('.markmap-container svg').forEach(svg => {
-          // trigger a reflow then leave; styles are CSS-driven
-          void svg.offsetWidth;
-        });
-      } catch(_) {}
     } else {
       root.classList.remove('dark-theme');
       if (icon) icon.className = 'bi bi-moon';
+    }
+    
+    // Re-render visible comparison trees after theme change
+    if (window.treeManager) {
+      setTimeout(() => {
+        window.treeManager.trees.forEach(tree => {
+          if (tree.isComparison) {
+            const svg = document.getElementById(`${tree.id}-svg`);
+            const tabContent = document.getElementById(`${tree.id}-content`);
+            // Check if this tree is currently visible
+            if (svg && tabContent && tabContent.classList.contains('active')) {
+              window.treeManager.renderComparisonTree(tree);
+            }
+          }
+        });
+      }, 100);
     }
   }
 
