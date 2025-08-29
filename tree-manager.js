@@ -368,110 +368,140 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    const COLOR = {
-      red:    '#dc2626',
-      blue:   '#2563eb',
-      purple: '#9333ea'
-    };
-  
-    // 1) Markmap render (labels + underline colors still come from this)
+    // Create markmap with node coloring
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       color: (node) => {
-        const s = typeof node?.content === 'string' ? node.content : '';
-        if (s.includes('shared-node') || (s.includes('user1-node') && s.includes('user2-node'))) return COLOR.purple;
-        if (s.includes('user1-node')) return COLOR.red;
-        if (s.includes('user2-node')) return COLOR.blue;
+        const searchIn = [node.v, node.content, node.payload?.content, JSON.stringify(node)];
+        for (const s of searchIn) {
+          if (s && typeof s === 'string') {
+            if (s.includes('user1-node')) return '#dc2626';
+            if (s.includes('user2-node')) return '#2563eb';
+            if (s.includes('shared-node')) return '#9333ea';
+          }
+        }
         return null;
       },
-      duration: 600
+      duration: 500
     }, root);
   
-    // 2) Small CSS guard so links can't get dimmed
-    const styleId = `${tree.id}-mm-link-guard`;
-    if (!document.getElementById(styleId)) {
-      const st = document.createElement('style');
-      st.id = styleId;
-      st.textContent = `
-        #${tree.id}-svg .markmap-link { stroke-opacity: 1 !important; }
-      `;
-      document.head.appendChild(st);
-    }
-  
-    // --- helpers --------------------------------------------------------------
-    const classOfNodeGroup = (g) => {
-      const foreign = g.querySelector('foreignObject');
+    // Helper to determine node color
+    const getNodeColor = (gNode) => {
+      const foreign = gNode.querySelector('foreignObject');
       if (!foreign) return null;
+      
       const has1 = !!foreign.querySelector('.user1-node');
       const has2 = !!foreign.querySelector('.user2-node');
       const hasShared = !!foreign.querySelector('.shared-node');
-      if (hasShared || (has1 && has2)) return 'purple';
-      if (has1) return 'red';
-      if (has2) return 'blue';
+      
+      if (hasShared || (has1 && has2)) return '#9333ea';
+      if (has1) return '#dc2626';
+      if (has2) return '#2563eb';
       return null;
     };
   
-    const buildNodeIndex = () => {
-      // key by rounded coordinates from D3-bound data (not by SVG transform)
-      const idx = new Map();
-      svg.querySelectorAll('g.markmap-node').forEach((g) => {
-        const d = g.__data__;                      // HierarchyPointNode
-        if (!d) return;
-        const key = `${Math.round(d.x*1000)}|${Math.round(d.y*1000)}`;
-        const cls = classOfNodeGroup(g);
-        idx.set(key, { g, cls });
-        // keep node circles in sync
-        const c = g.querySelector('circle');
-        if (c && cls) {
-          c.style.cssText = `stroke:${COLOR[cls]} !important; fill:${COLOR[cls]} !important;`;
+    // Color paths and circles after rendering
+    const colorElements = () => {
+      // First, color all circles based on their node
+      const nodes = svg.querySelectorAll('g.markmap-node');
+      nodes.forEach(node => {
+        const color = getNodeColor(node);
+        if (color) {
+          const circle = node.querySelector('circle');
+          if (circle) {
+            circle.style.stroke = color;
+            circle.style.fill = color;
+          }
         }
       });
-      return idx;
-    };
   
-    const colorLinksByTargetNode = () => {
-      const nodeIndex = buildNodeIndex();
-      const links = svg.querySelectorAll('path.markmap-link');
-  
-      links.forEach((path) => {
-        const d = path.__data__;                  // { source: HierarchyPointNode, target: HierarchyPointNode }
-        if (!d?.target) return;
-        const key = `${Math.round(d.target.x*1000)}|${Math.round(d.target.y*1000)}`;
-        const hit = nodeIndex.get(key);
-        if (!hit?.cls) return;
-  
-        // deterministic: color by the DESTINATION node class
-        const stroke = COLOR[hit.cls];
-        path.style.cssText = `stroke:${stroke} !important;`;
+      // Now handle paths - Markmap paths go FROM parent TO child
+      // So we need to color each path based on its CHILD node
+      const paths = svg.querySelectorAll('path');
+      
+      paths.forEach(path => {
+        // Skip if not a connector path
+        const d = path.getAttribute('d');
+        if (!d) return;
+        
+        // Markmap paths use cubic bezier curves
+        // Format: M startX,startY C control1X,control1Y control2X,control2Y endX,endY
+        // We want the END point (child node position)
+        
+        // Extract all numbers from the path
+        const numbers = d.match(/[\d.-]+/g);
+        if (!numbers || numbers.length < 6) return;
+        
+        // For a cubic bezier, the last two numbers are the end point
+        const endX = parseFloat(numbers[numbers.length - 2]);
+        const endY = parseFloat(numbers[numbers.length - 1]);
+        
+        // Find which node is at this end position
+        let targetColor = null;
+        let minDistance = Infinity;
+        
+        nodes.forEach(node => {
+          const transform = node.getAttribute('transform');
+          if (!transform) return;
+          
+          const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
+          if (!match) return;
+          
+          const nodeX = parseFloat(match[1]);
+          const nodeY = parseFloat(match[2]);
+          
+          // Calculate distance from path end to node position
+          const dist = Math.sqrt((endX - nodeX) ** 2 + (endY - nodeY) ** 2);
+          
+          // If this is the closest node so far (within threshold)
+          if (dist < minDistance && dist < 5) {
+            minDistance = dist;
+            targetColor = getNodeColor(node);
+          }
+        });
+        
+        // Apply the color if we found a match
+        if (targetColor) {
+          path.style.stroke = targetColor;
+          path.setAttribute('stroke', targetColor);
+          // Use cssText to ensure it overrides any other styles
+          const currentStyle = path.style.cssText;
+          path.style.cssText = `${currentStyle}; stroke: ${targetColor} !important;`;
+        }
       });
     };
   
-    // run after initial layout / transition
-    const kick = () => requestAnimationFrame(colorLinksByTargetNode);
-    setTimeout(kick, 700);
+    // Run coloring after Markmap finishes rendering
+    setTimeout(() => {
+      requestAnimationFrame(colorElements);
+    }, 600);
   
-    // keep colors correct on fold/unfold/relayout
-    if (svg._mmLinkObs) svg._mmLinkObs.disconnect();
-    svg._mmLinkObs = new MutationObserver(() => {
-      clearTimeout(svg._mmLinkTick);
-      svg._mmLinkTick = setTimeout(colorLinksByTargetNode, 60);
+    // Re-apply colors when the tree is expanded/collapsed
+    svg.addEventListener('click', () => {
+      setTimeout(() => {
+        requestAnimationFrame(colorElements);
+      }, 600);
     });
-    svg._mmLinkObs.observe(svg, { childList: true, subtree: true, attributes: true });
   
-    // --- dark mode text (unchanged) ------------------------------------------
+    // Dark mode handling
     try {
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
           const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          texts.forEach(t => { 
+            t.setAttribute('fill', '#f8fafc'); 
+            t.style.opacity = '0.96'; 
+          });
           const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+          foreign.forEach(el => { 
+            el.style.color = '#f8fafc'; 
+          });
         }, 0);
       }
-    } catch {}
+    } catch (_) {}
   
-    // --- stats dashboard (as you had) ----------------------------------------
+    // Stats dashboard code (unchanged)
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
@@ -482,13 +512,14 @@ class TreeManager {
         const comparisonDashboard = window.taxonomyStats.createComparisonDashboard(
           tree.stats, tree.username1, tree.username2
         );
-        if (comparisonDashboard && tabContent) tabContent.appendChild(comparisonDashboard);
+        if (comparisonDashboard && tabContent) {
+          tabContent.appendChild(comparisonDashboard);
+        }
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
       }
     }
   }
-  
 
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates
