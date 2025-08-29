@@ -412,6 +412,56 @@ class TreeManager {
       duration: 500
     }, root);
     
+    // Color ALL paths (including connector arcs)
+    setTimeout(() => {
+      const allPaths = svg.querySelectorAll('path');
+      allPaths.forEach(path => {
+        // Find the nearest g.markmap-node that this path leads to
+        const nextNode = path.nextElementSibling;
+        if (nextNode && nextNode.classList.contains('markmap-node')) {
+          const foreign = nextNode.querySelector('foreignObject');
+          if (foreign) {
+            const has1 = !!foreign.querySelector('.user1-node');
+            const has2 = !!foreign.querySelector('.user2-node');
+            const hasShared = !!foreign.querySelector('.shared-node');
+            
+            if (hasShared || (has1 && has2)) {
+              path.setAttribute('stroke', '#9333ea');
+            } else if (has1) {
+              path.setAttribute('stroke', '#dc2626');
+            } else if (has2) {
+              path.setAttribute('stroke', '#2563eb');
+            }
+          }
+        }
+      });
+      
+      // Also check paths that might be before their nodes
+      const nodes = svg.querySelectorAll('g.markmap-node');
+      nodes.forEach(node => {
+        const foreign = node.querySelector('foreignObject');
+        if (!foreign) return;
+        
+        const has1 = !!foreign.querySelector('.user1-node');
+        const has2 = !!foreign.querySelector('.user2-node');
+        const hasShared = !!foreign.querySelector('.shared-node');
+        
+        let color = null;
+        if (hasShared || (has1 && has2)) color = '#9333ea';
+        else if (has1) color = '#dc2626';
+        else if (has2) color = '#2563eb';
+        
+        if (color) {
+          // Find all paths in proximity to this node
+          let sibling = node.previousElementSibling;
+          while (sibling && sibling.tagName === 'path') {
+            sibling.setAttribute('stroke', color);
+            sibling = sibling.previousElementSibling;
+          }
+        }
+      });
+    }, 150);
+    
     try {
       // Handle dark mode text visibility
       const isDark = document.body.classList.contains('dark-theme');
