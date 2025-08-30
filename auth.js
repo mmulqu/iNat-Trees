@@ -3,7 +3,8 @@
 
 const INAT_CLIENT_ID = "dpyhxR4OGTnRy-6y6Rb1ThswfZxpKC1cZue9IMR1oyo";
 const ORIGIN = window.location.origin;
-const REDIRECT_URI = `${ORIGIN}/auth/callback`;
+const BASE = location.pathname.startsWith('/iNat-Trees') ? '/iNat-Trees' : '';
+const REDIRECT_URI = `${ORIGIN}${BASE}/auth/callback.html`;   
 
 const AUTHZ_URL = "https://www.inaturalist.org/oauth/authorize";
 const TOKEN_URL = "https://www.inaturalist.org/oauth/token";
