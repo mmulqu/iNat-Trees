@@ -1,16 +1,56 @@
-<!-- /callback.html -->
+<!-- /auth/callback.html -->
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Signing in…</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <p>Completing sign-in…</p>
-    <script type="module">
-      import { handleCallback } from '/auth.js';
-      handleCallback();
-    </script>
-  </body>
-</html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Completing sign-in…</title>
+<style>
+  body { font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial; margin:0; display:grid; place-items:center; min-height:100svh; background:#0b1512; color:#e6e6e6; }
+  .card { max-width: 680px; padding: 20px 22px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.15); }
+  .muted { opacity:.8 }
+  pre { white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,.35); padding: 10px; border-radius: 8px; }
+  a { color:#8ee8c7 }
+</style>
+
+<div class="card">
+  <h2 style="margin:.2rem 0 0.4rem;">Completing sign-in…</h2>
+  <div id="status" class="muted">Exchanging code for tokens…</div>
+  <pre id="log" style="display:none;margin-top:10px"></pre>
+  <div id="actions" style="margin-top:10px; display:none">
+    <a id="home" href="../">Back to app</a> ·
+    <a id="landing" href="../landing.html">Landing</a>
+  </div>
+</div>
+
+<script type="module">
+  const logEl = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  const actionsEl = document.getElementById('actions');
+
+  function showError(msg, detail) {
+    statusEl.textContent = msg;
+    if (detail) {
+      logEl.style.display = 'block';
+      logEl.textContent = detail;
+    }
+    actionsEl.style.display = 'block';
+  }
+
+  // Basic sanity: do we even have a ?code=
+  const qs = new URLSearchParams(location.search);
+  if (!qs.get('code')) {
+    showError('No authorization code in URL.',
+      'This page must be opened by the iNaturalist redirect. Start login from the app (Connect my iNaturalist account).');
+  } else {
+    // Try to run the callback exchange
+    try {
+      // IMPORTANT: this path is from /auth/callback.html to /auth.js at the repo root
+      const { handleCallback } = await import('../auth.js');
+      console.debug('Callback page: calling handleCallback()…');
+      await handleCallback();
+      // If handleCallback redirects, we usually never reach here.
+      statusEl.textContent = 'Redirecting back to the app…';
+    } catch (e) {
+      showError('Sign-in failed while handling the callback.', (e && (e.stack || e.message)) || String(e));
+    }
+  }
+</script>
