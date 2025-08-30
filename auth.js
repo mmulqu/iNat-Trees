@@ -3,8 +3,10 @@
 
 const INAT_CLIENT_ID = "dpyhxR4OGTnRy-6y6Rb1ThswfZxpKC1cZue9IMR1oyo";
 const ORIGIN = window.location.origin;
-const BASE = location.pathname.startsWith('/iNat-Trees') ? '/iNat-Trees' : '';
-const REDIRECT_URI = `${ORIGIN}${BASE}/auth/callback.html`;   
+// On GitHub Pages, the project is served under /iNat-Trees; in local dev it may be at /
+const BASE = location.pathname.startsWith("/iNat-Trees") ? "/iNat-Trees" : "";
+// MUST exactly match the Redirect URI registered in your iNaturalist app settings
+const REDIRECT_URI = `${ORIGIN}${BASE}/auth/callback.html`;
 
 const AUTHZ_URL = "https://www.inaturalist.org/oauth/authorize";
 const TOKEN_URL = "https://www.inaturalist.org/oauth/token";
@@ -14,14 +16,17 @@ const API_ME_URL = "https://api.inaturalist.org/v1/users/me";        // CORS OK
 // ===== Helpers
 function b64url(bytes) {
   return btoa(String.fromCharCode(...new Uint8Array(bytes)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,"");
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 async function sha256(s) {
   return crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
 }
-function randHex(len=32) {
+function randHex(len = 32) {
   return Array.from(crypto.getRandomValues(new Uint8Array(len)))
-    .map(b => b.toString(16).padStart(2,"0")).join("");
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // ===== Public API used elsewhere
@@ -71,11 +76,11 @@ export async function startLogin() {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: INAT_CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: REDIRECT_URI, // must match app settings exactly
     scope: "write",
     state,
     code_challenge: challenge,
-    code_challenge_method: "S256"
+    code_challenge_method: "S256",
   });
   window.location = `${AUTHZ_URL}?${params.toString()}`;
 }
@@ -97,7 +102,7 @@ export async function handleCallback() {
   if (!expected || state !== expected) {
     console.error("PKCE state mismatch");
     // still push user back to home to retry
-    location.replace(ORIGIN + "/");
+    location.replace(`${ORIGIN}${BASE}/`);
     return;
   }
 
@@ -106,39 +111,52 @@ export async function handleCallback() {
     grant_type: "authorization_code",
     code,
     client_id: INAT_CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    code_verifier: verifier
+    redirect_uri: REDIRECT_URI, // exact match with registration
+    code_verifier: verifier,
   });
 
-  const tokRes = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
-  const tok = await tokRes.json().catch(() => ({}));
+  let tok;
+  try {
+    const tokRes = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    tok = await tokRes.json().catch(() => ({}));
+  } catch (e) {
+    tok = {};
+  }
+
   if (!tok?.access_token) {
     console.error("Token endpoint did not return access_token", tok);
-    location.replace(ORIGIN + "/");
+    location.replace(`${ORIGIN}${BASE}/`);
     return;
   }
 
   // 2) Exchange access_token → API JWT (CORS OK)
   const jwtRes = await fetch(API_TOKEN_URL, {
-    headers: { Authorization: `Bearer ${tok.access_token}`, Accept: 'application/json' }
+    headers: { Authorization: `Bearer ${tok.access_token}`, Accept: "application/json" },
   });
+
   let jwtText = await jwtRes.text();
-  try { jwtText = JSON.parse(jwtText).api_token || jwtText; } catch {}
-  const jwt = String(jwtText).replace(/["']/g,"").trim();
+  try {
+    jwtText = JSON.parse(jwtText).api_token || jwtText;
+  } catch {}
+  const jwt = String(jwtText).replace(/["']/g, "").trim();
 
   if (!jwt || jwt.split(".").length !== 3) {
     console.error("Failed to obtain JWT from users/api_token");
-    location.replace(ORIGIN + "/");
+    location.replace(`${ORIGIN}${BASE}/`);
     return;
   }
 
   // 3) Save JWT (final key) and username, then go home
   localStorage.setItem("inat_token", jwt);
-  try { await fetchCurrentUser(); } catch {}
-  history.replaceState({}, "", REDIRECT_URI); // clean URL
-  location.replace(ORIGIN + "/");
+  try {
+    await fetchCurrentUser();
+  } catch {}
+
+  // Clean the URL and go to the app root under the repo path
+  history.replaceState({}, "", `${BASE}/`);
+  location.replace(`${ORIGIN}${BASE}/`);
 }
