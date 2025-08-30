@@ -2,10 +2,8 @@
 // One-time PKCE login → store iNat API JWT; reuse for all app calls.
 
 const INAT_CLIENT_ID = "dpyhxR4OGTnRy-6y6Rb1ThswfZxpKC1cZue9IMR1oyo";
-const ORIGIN = window.location.origin;
-// On GitHub Pages, the project is served under /iNat-Trees; in local dev it may be at /
+const ORIGIN = location.origin;
 const BASE = location.pathname.startsWith("/iNat-Trees") ? "/iNat-Trees" : "";
-// MUST exactly match the Redirect URI registered in your iNaturalist app settings
 const REDIRECT_URI = `${ORIGIN}${BASE}/auth/callback.html`;
 
 const AUTHZ_URL = "https://www.inaturalist.org/oauth/authorize";
