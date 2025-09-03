@@ -12,29 +12,39 @@
     .mm-minimap {
       position: absolute; right: 12px; bottom: 12px;
       width: 180px; height: 120px;
-      border-radius: 8px;
-      background: rgba(255,255,255,.8);
+      border-radius: 10px;
+      background: rgba(255,255,255,.82);
       border: 1px solid rgba(0,0,0,.15);
-      box-shadow: 0 6px 18px rgba(0,0,0,.2);
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
       z-index: 5;
-      pointer-events: none; /* visual only; let main SVG handle input */
+      pointer-events: none;   /* visual-only; main SVG handles input */
     }
     body.dark-theme .mm-minimap {
-      background: rgba(0,0,0,.55);
+      background: rgba(0,0,0,.52);
       border-color: rgba(255,255,255,.22);
     }
-    .mm-minimap.hidden { display:none; }
+    .mm-minimap.hidden { display: none; }
+    /* Draw links in the mini map; classes are copied from main links */
     .mm-minimap .mm-mini-links path {
       vector-effect: non-scaling-stroke;
-      stroke-width: .8;
-      stroke: #6b7280;
-      stroke-opacity: .6;
+      stroke-width: .9;
+      stroke: #6b7280;    /* default grey if no class is present */
+      stroke-opacity: .65;
       fill: none;
     }
     body.dark-theme .mm-minimap .mm-mini-links path {
       stroke: #a8b1b8;
-      stroke-opacity: .7;
+      stroke-opacity: .75;
     }
+    /* Color the mini-map edges to match PVP */
+    .mm-minimap .user1-edge { stroke: #dc2626 !important; stroke-opacity: .95; }
+    .mm-minimap .user2-edge { stroke: #2563eb !important; stroke-opacity: .95; }
+    .mm-minimap .shared-edge { stroke: #9333ea !important; stroke-opacity: .95; }
+
+    /* Hide any text that might leak into the mini-map at tiny scale */
+    .mm-minimap text, .mm-minimap foreignObject { display: none !important; }
+
+    /* Live viewport box */
     .mm-minimap .mm-mini-viewport {
       fill: none;
       stroke: #111827;
@@ -54,7 +64,6 @@
     }
     .mm-scroll-gutter.left  { left: 0; }
     .mm-scroll-gutter.right { right: 0; }
-    /* subtle hint on hover (optional) */
     .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(0,0,0,.06), transparent); }
     .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(0,0,0,.06), transparent); }
     body.dark-theme .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(255,255,255,.06), transparent); }
@@ -229,19 +238,15 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
 
-    // Better defaults + persisted expand level
-    const expandLevel = Number(localStorage.getItem('mm_expand_level') ?? 2);
     const mm = Markmap.create(svg, {
       htmlLabels: true,
+      duration: 500,
       autoFit: true,
       fitRatio: 0.98,
+      initialExpandLevel: -1,   // ← expand all immediately
       pan: true,
       zoom: true,
-      scrollForPan: true,
-      initialExpandLevel: expandLevel,
-      spacingHorizontal: 60,
-      spacingVertical: 14,
-      nodeMinHeight: 10
+      scrollForPan: true
     }, root);
 
     // Keep a handle + keep fitting
@@ -461,30 +466,25 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    // Better defaults + persisted expand level
-    const expandLevel = Number(localStorage.getItem('mm_expand_level') ?? 2);
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       duration: 500,
       autoFit: true,
       fitRatio: 0.98,
+      initialExpandLevel: -1,   // show full tree now
       pan: true,
       zoom: true,
       scrollForPan: true,
-      initialExpandLevel: expandLevel,
-      spacingHorizontal: 60,
-      spacingVertical: 14,
-      nodeMinHeight: 10,
       color: (node) => {
-        const haystacks = [node.v, node.content, node.payload?.content];
-        for (const s of haystacks) {
+        const hay = [node.v, node.content, node.payload?.content];
+        for (const s of hay) {
           if (s && typeof s === 'string') {
-            if (s.includes('user1-node')) return '#dc2626';   // red
-            if (s.includes('user2-node')) return '#2563eb';   // blue
-            if (s.includes('shared-node')) return '#9333ea';  // purple
+            if (s.includes('user1-node')) return '#dc2626';
+            if (s.includes('user2-node')) return '#2563eb';
+            if (s.includes('shared-node')) return '#9333ea';
           }
         }
-        return undefined; // let default palette handle others
+        return undefined;
       }
     }, root);
 
@@ -586,6 +586,12 @@ class TreeManager {
         linkEl.style.stroke = nodeColor;
         linkEl.style.strokeOpacity = '1';
         linkEl.style.fill = 'none';
+
+        // Normalize color → edge class for mini-map
+        linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+        if (nodeColor === '#dc2626') linkEl.classList.add('user1-edge');
+        else if (nodeColor === '#2563eb') linkEl.classList.add('user2-edge');
+        else if (nodeColor === '#9333ea') linkEl.classList.add('shared-edge');
       });
     };
   
@@ -887,53 +893,43 @@ class TreeManager {
       });
   }
 
-  // Create left/right transparent overlays so the page can always scroll
+  // Always keep page-scrollable gutters around the map
   _ensureScrollGutters(host) {
     if (!host) return;
     if (!host.querySelector('.mm-scroll-gutter.left')) {
-      const left = document.createElement('div');
-      left.className = 'mm-scroll-gutter left';
-      host.appendChild(left);
+      host.appendChild(Object.assign(document.createElement('div'), { className: 'mm-scroll-gutter left' }));
     }
     if (!host.querySelector('.mm-scroll-gutter.right')) {
-      const right = document.createElement('div');
-      right.className = 'mm-scroll-gutter right';
-      host.appendChild(right);
+      host.appendChild(Object.assign(document.createElement('div'), { className: 'mm-scroll-gutter right' }));
     }
-    // No handlers needed: default wheel/scroll bubbles to the page here.
   }
 
-  // Build/maintain the mini-map and live viewport rectangle
+  // Mini-map with live viewport; mirrors link colors (user1/user2/shared)
   _ensureMiniMap(treeId, svg) {
     const host = svg.closest('.markmap-container');
     if (!host) return;
 
-    // Create mini SVG once
-    let mini = host.querySelector('.mm-minimap');
     const NS = 'http://www.w3.org/2000/svg';
+    let mini = host.querySelector('.mm-minimap');
     if (!mini) {
       mini = document.createElementNS(NS, 'svg');
       mini.classList.add('mm-minimap');
       mini.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-
       const linksLayer = document.createElementNS(NS, 'g');
       linksLayer.classList.add('mm-mini-links');
       mini.appendChild(linksLayer);
-
       const vp = document.createElementNS(NS, 'rect');
       vp.classList.add('mm-mini-viewport');
       mini.appendChild(vp);
-
       host.appendChild(mini);
     }
 
     const linksLayer = mini.querySelector('.mm-mini-links');
     const vpRect     = mini.querySelector('.mm-mini-viewport');
 
-    // Utility: union bbox of all nodes + links (content bounds in content coords)
     const getContentBBox = () => {
       const els = svg.querySelectorAll('path.markmap-link, g.markmap-node');
-      let x1 =  Infinity, y1 =  Infinity, x2 = -Infinity, y2 = -Infinity;
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
       els.forEach(el => {
         try {
           const b = el.getBBox();
@@ -941,36 +937,38 @@ class TreeManager {
           y1 = Math.min(y1, b.y);
           x2 = Math.max(x2, b.x + b.width);
           y2 = Math.max(y2, b.y + b.height);
-        } catch (_) {}
+        } catch(_) {}
       });
-      if (!isFinite(x1)) return { x:0, y:0, width:100, height:100 };
-      return { x:x1, y:y1, width:(x2 - x1), height:(y2 - y1) };
+      if (!isFinite(x1)) return { x: 0, y: 0, width: 100, height: 100 };
+      return { x: x1, y: y1, width: (x2 - x1), height: (y2 - y1) };
     };
 
-    // Copy (lightweight) the tree links into the mini-map
+    // Rebuild mini links; copy d + color classes so they match the main map
     const rebuildMiniLinks = () => {
       linksLayer.innerHTML = '';
-      const paths = svg.querySelectorAll('path.markmap-link');
-      paths.forEach(p => {
+      svg.querySelectorAll('path.markmap-link').forEach(p => {
         const miniPath = document.createElementNS(NS, 'path');
         miniPath.setAttribute('d', p.getAttribute('d') || '');
+        // Carry over color classes (user1-edge / user2-edge / shared-edge)
+        const cls = p.getAttribute('class') || '';
+        const keep = cls.split(/\s+/).filter(c =>
+          c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
+        );
+        if (keep.length) miniPath.setAttribute('class', keep.join(' '));
         linksLayer.appendChild(miniPath);
       });
     };
 
-    // Update mini viewport rectangle to reflect the visible area
     const updateViewport = () => {
       const bbox = getContentBBox();
       mini.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
 
-      // Find the group with the transform (parent of nodes/links)
       const contentG = svg.querySelector('g') || svg;
       const ctm = contentG.getCTM && contentG.getCTM();
       if (!ctm) return;
 
       const inv = ctm.inverse();
       const pt = svg.createSVGPoint();
-
       pt.x = 0; pt.y = 0;
       const tl = pt.matrixTransform(inv);
       pt.x = svg.clientWidth; pt.y = svg.clientHeight;
@@ -987,32 +985,29 @@ class TreeManager {
       vpRect.setAttribute('height', vh);
     };
 
-    // Initial build & position
+    // Build now
     rebuildMiniLinks();
     updateViewport();
 
-    // Rebuild paths when DOM changes (expand/collapse)
+    // Watch DOM changes (expand/collapse) to re-sync paths and viewport
     if (!host._miniObserver) {
       const mo = new MutationObserver(() => {
         clearTimeout(host._miniDeb);
         host._miniDeb = setTimeout(() => { rebuildMiniLinks(); updateViewport(); }, 120);
       });
-      mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d','transform'] });
+      mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d','transform','class'] });
       host._miniObserver = mo;
     }
-
-    // Keep viewport rectangle in sync on resize and zoom/pan
+    // Recompute viewport on size/interaction
     if (!host._miniResize) {
-      const ro = new ResizeObserver(() => updateViewport());
+      const ro = new ResizeObserver(updateViewport);
       ro.observe(svg);
       host._miniResize = ro;
     }
     try {
-      // If d3 is present, piggyback on the zoom event
       if (window.d3 && window.d3.select) {
-        window.d3.select(svg).on('zoom.mmMini', () => { requestAnimationFrame(updateViewport); });
+        window.d3.select(svg).on('zoom.mmMini', () => requestAnimationFrame(updateViewport));
       } else {
-        // Fallback: listen to common interactions
         ['wheel','pointermove','pointerup','transitionend'].forEach(ev =>
           svg.addEventListener(ev, () => requestAnimationFrame(updateViewport), { passive: true })
         );
