@@ -515,6 +515,7 @@ class TreeManager {
         );
         if (comparisonDashboard && tabContent) {
           tabContent.appendChild(comparisonDashboard);
+          this.applyComparisonStatsColors(tree);   // <— NEW
           this.createBattleSummary(tree);
         }
         
@@ -640,7 +641,79 @@ class TreeManager {
       tabContent.appendChild(statsContainer);
       applyColors(statsContainer);
     }
-  }  
+  }
+
+  // Force user colors in the comparison dashboard (works in dark & light)
+  applyComparisonStatsColors(tree) {
+    const tabContent = document.getElementById(`${tree.id}-content`);
+    const root = tabContent?.querySelector('.comparison-stats');
+    if (!root) return;
+
+    // Same palette you use for nodes/links
+    const COLOR_USER1  = '#dc2626'; // red
+    const COLOR_USER2  = '#2563eb'; // blue
+    const COLOR_SHARED = '#9333ea'; // purple
+
+    // Find the panel that contains "<username>'s Observations"
+    const findPanelByHeading = (username) => {
+      const needle = `${username}'s Observations`;
+      let headingEl = null;
+
+      // Find the element that contains the heading text
+      root.querySelectorAll('*').forEach(el => {
+        if (!headingEl && el.firstElementChild && el.textContent && el.textContent.includes(needle)) {
+          headingEl = el;
+        }
+      });
+      if (!headingEl) return null;
+
+      // Walk up until we hit a direct child "panel" under the comparison root
+      let p = headingEl;
+      while (p && p.parentElement && p.parentElement !== root) p = p.parentElement;
+      return p || headingEl;
+    };
+
+    const paintPanel = (panel, color) => {
+      if (!panel) return;
+
+      // Accent borders so the column is clearly tied to the user color
+      panel.style.setProperty('border-left',  `4px solid ${color}`, 'important');
+      panel.style.setProperty('border-radius', '10px');
+      panel.style.setProperty('padding-left', '8px');
+
+      // Color the big numbers (and any other numeric KPIs)
+      // We apply with !important to override dark-theme palette.
+      const maybeNumbers = panel.querySelectorAll(
+        '.stat-value, .value, .count, .metric-value, .big-number, .kpi-value, .summary-number, .card .display-4, .card h1, .card h2, .card .h1, .card .h2, *'
+      );
+      maybeNumbers.forEach(el => {
+        const txt = (el.textContent || '').trim();
+        if (/^\d{1,4}$/.test(txt)) {
+          el.style.setProperty('color', color, 'important');
+        }
+      });
+
+      // Also tint any progress/underline accents if present
+      panel.querySelectorAll('.progress-bar, .bar, .underline, .accent').forEach(el => {
+        el.style.setProperty('background', color, 'important');
+        el.style.setProperty('border-color', color, 'important');
+      });
+    };
+
+    const panel1 = findPanelByHeading(tree.username1);
+    const panel2 = findPanelByHeading(tree.username2);
+
+    paintPanel(panel1, COLOR_USER1);
+    paintPanel(panel2, COLOR_USER2);
+
+    // If there are any "Shared" labels/values in the dashboard, tint them purple
+    root.querySelectorAll('*').forEach(el => {
+      const t = (el.textContent || '').trim();
+      if (/^shared$/i.test(t)) {
+        el.style.setProperty('color', COLOR_SHARED, 'important');
+      }
+    });
+  }
 }
 
 // Initialize as a global variable
