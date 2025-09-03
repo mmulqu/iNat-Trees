@@ -400,32 +400,19 @@ class TreeManager {
       return null;
     };
   
-    // Color paths and circles after rendering
+    // Color elements after rendering
     const colorElements = () => {
-      // Build node data with positions
-      const nodeData = [];
+      // First pass: color all nodes and build a color map
+      const nodeColorMap = new Map();
       const nodes = svg.querySelectorAll('g.markmap-node');
       
-      nodes.forEach(node => {
-        const transform = node.getAttribute('transform');
-        if (!transform) return;
-        
-        const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
-        if (!match) return;
-        
-        const x = parseFloat(match[1]);
-        const y = parseFloat(match[2]);
+      nodes.forEach((node, index) => {
         const color = getNodeColor(node);
-        
-        nodeData.push({ 
-          node, 
-          x, 
-          y, 
-          color
-        });
-        
-        // Color circles
         if (color) {
+          // Store the color for this node
+          nodeColorMap.set(node, color);
+          
+          // Color the circle
           const circle = node.querySelector('circle');
           if (circle) {
             circle.style.stroke = color;
@@ -434,93 +421,63 @@ class TreeManager {
         }
       });
   
-      // Color paths - ONLY look at the endpoint
-      const paths = svg.querySelectorAll('path');
+      // Second pass: color paths
+      // In Markmap's SVG structure, paths appear before their destination nodes
+      const allElements = svg.querySelectorAll('path, g.markmap-node');
+      let lastPath = null;
       
-      paths.forEach(path => {
-        try {
-          // Get the exact endpoint of the path
-          const totalLength = path.getTotalLength();
-          if (totalLength === 0) return;
-          
-          const endpoint = path.getPointAtLength(totalLength);
-          
-          // Find the CLOSEST node to this endpoint
-          let bestNode = null;
-          let minDist = Infinity;
-          
-          nodeData.forEach(nodeInfo => {
-            // Only consider nodes with colors
-            if (!nodeInfo.color) return;
-            
-            // Calculate distance from endpoint to this node
-            const dist = Math.sqrt(
-              Math.pow(endpoint.x - nodeInfo.x, 2) + 
-              Math.pow(endpoint.y - nodeInfo.y, 2)
-            );
-            
-            // Keep track of closest node
-            if (dist < minDist) {
-              minDist = dist;
-              bestNode = nodeInfo;
+      allElements.forEach(element => {
+        if (element.tagName.toLowerCase() === 'path') {
+          // Remember this path - we'll color it when we find its destination node
+          lastPath = element;
+        } else if (element.classList.contains('markmap-node')) {
+          // This is a node - if we have a preceding path, color it with this node's color
+          if (lastPath) {
+            const nodeColor = nodeColorMap.get(element);
+            if (nodeColor) {
+              lastPath.style.stroke = nodeColor;
+              lastPath.setAttribute('stroke', nodeColor);
+              lastPath.style.cssText = `stroke: ${nodeColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
             }
-          });
-          
-          // Apply color of the closest node (if within reasonable distance)
-          // The path ends at the horizontal line under the text, which is close to the node position
-          if (bestNode && minDist < 30 && bestNode.color) {
-            path.setAttribute('stroke', bestNode.color);
-            path.style.stroke = bestNode.color;
-            path.style.strokeOpacity = '1';
-            path.style.cssText = `stroke: ${bestNode.color} !important; stroke-opacity: 1 !important; fill: none !important;`;
+            lastPath = null; // Reset for next path
           }
-        } catch (e) {
-          // Fallback: manually parse the path's d attribute
-          const d = path.getAttribute('d');
-          if (!d) return;
+        }
+      });
+      
+      // Third pass: handle any remaining paths by DOM order
+      const paths = svg.querySelectorAll('path');
+      paths.forEach((path, idx) => {
+        // If path doesn't have a color yet, try to find its following sibling node
+        const currentStroke = path.getAttribute('stroke');
+        if (!currentStroke || currentStroke === 'none' || currentStroke === '') {
+          // Look for the next node element
+          let nextElement = path.nextElementSibling;
+          while (nextElement && !nextElement.classList.contains('markmap-node')) {
+            nextElement = nextElement.nextElementSibling;
+          }
           
-          // For cubic bezier: M x1,y1 C cx1,cy1 cx2,cy2 x2,y2
-          // The last pair of numbers is the endpoint
-          const numbers = d.match(/[\d.-]+/g);
-          if (numbers && numbers.length >= 2) {
-            const endX = parseFloat(numbers[numbers.length - 2]);
-            const endY = parseFloat(numbers[numbers.length - 1]);
-            
-            // Find closest node to this endpoint
-            let bestNode = null;
-            let minDist = Infinity;
-            
-            nodeData.forEach(nodeInfo => {
-              if (!nodeInfo.color) return;
-              const dist = Math.sqrt(
-                Math.pow(endX - nodeInfo.x, 2) + 
-                Math.pow(endY - nodeInfo.y, 2)
-              );
-              if (dist < minDist) {
-                minDist = dist;
-                bestNode = nodeInfo;
-              }
-            });
-            
-            if (bestNode && minDist < 30 && bestNode.color) {
-              path.setAttribute('stroke', bestNode.color);
-              path.style.stroke = bestNode.color;
-              path.style.strokeOpacity = '1';
-              path.style.cssText = `stroke: ${bestNode.color} !important; stroke-opacity: 1 !important; fill: none !important;`;
+          if (nextElement && nextElement.classList.contains('markmap-node')) {
+            const nodeColor = nodeColorMap.get(nextElement);
+            if (nodeColor) {
+              path.style.stroke = nodeColor;
+              path.setAttribute('stroke', nodeColor);
+              path.style.cssText = `stroke: ${nodeColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
             }
           }
         }
       });
     };
   
-    // Run after delay to ensure rendering complete
+    // Run after Markmap completes rendering
     setTimeout(() => {
-      colorElements();
+      requestAnimationFrame(colorElements);
     }, 800);
   
     // Re-apply on expand/collapse
     svg.addEventListener('click', () => {
-      setTimeout(colorElements, 700);
+      setTimeout(() => {
+        requestAnimationFrame(colorElements);
+      }, 700);
     });
   
     // Dark mode handling
@@ -561,7 +518,6 @@ class TreeManager {
     }
   }
 
-  
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates
     const tabContent = document.getElementById(`${tree.id}-content`);
