@@ -402,10 +402,26 @@ class TreeManager {
   
     // Color paths and circles after rendering
     const colorElements = () => {
-      // First, color all circles based on their node
+      console.log('Starting colorElements for tree:', tree.id);
+      
+      // Build node position map
+      const nodeMap = new Map();
       const nodes = svg.querySelectorAll('g.markmap-node');
-      nodes.forEach(node => {
+      
+      nodes.forEach((node, idx) => {
+        const transform = node.getAttribute('transform');
+        if (!transform) return;
+        
+        const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
+        if (!match) return;
+        
+        const x = parseFloat(match[1]);
+        const y = parseFloat(match[2]);
         const color = getNodeColor(node);
+        
+        nodeMap.set(`${x.toFixed(1)},${y.toFixed(1)}`, { node, color, x, y });
+        
+        // Color circles
         if (color) {
           const circle = node.querySelector('circle');
           if (circle) {
@@ -414,73 +430,80 @@ class TreeManager {
           }
         }
       });
-  
-      // Now handle paths - Markmap paths go FROM parent TO child
-      // So we need to color each path based on its CHILD node
-      const paths = svg.querySelectorAll('path');
       
-      paths.forEach(path => {
-        // Skip if not a connector path
+      console.log('Node map built with', nodeMap.size, 'nodes');
+  
+      // Color all paths
+      const paths = svg.querySelectorAll('path');
+      console.log('Found', paths.length, 'paths to color');
+      
+      paths.forEach((path, idx) => {
         const d = path.getAttribute('d');
         if (!d) return;
         
-        // Markmap paths use cubic bezier curves
-        // Format: M startX,startY C control1X,control1Y control2X,control2Y endX,endY
-        // We want the END point (child node position)
-        
-        // Extract all numbers from the path
-        const numbers = d.match(/[\d.-]+/g);
-        if (!numbers || numbers.length < 6) return;
-        
-        // For a cubic bezier, the last two numbers are the end point
-        const endX = parseFloat(numbers[numbers.length - 2]);
-        const endY = parseFloat(numbers[numbers.length - 1]);
-        
-        // Find which node is at this end position
-        let targetColor = null;
-        let minDistance = Infinity;
-        
-        nodes.forEach(node => {
-          const transform = node.getAttribute('transform');
-          if (!transform) return;
+        // Try using SVG's built-in methods to get the end point
+        try {
+          const totalLength = path.getTotalLength();
+          const endPoint = path.getPointAtLength(totalLength);
           
-          const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
-          if (!match) return;
+          // Find closest node to this end point
+          let bestColor = null;
+          let minDist = 20; // Increase threshold
           
-          const nodeX = parseFloat(match[1]);
-          const nodeY = parseFloat(match[2]);
+          nodeMap.forEach(({ color, x, y }) => {
+            const dist = Math.sqrt((endPoint.x - x) ** 2 + (endPoint.y - y) ** 2);
+            if (dist < minDist) {
+              minDist = dist;
+              bestColor = color;
+            }
+          });
           
-          // Calculate distance from path end to node position
-          const dist = Math.sqrt((endX - nodeX) ** 2 + (endY - nodeY) ** 2);
-          
-          // If this is the closest node so far (within threshold)
-          if (dist < minDistance && dist < 5) {
-            minDistance = dist;
-            targetColor = getNodeColor(node);
+          if (bestColor) {
+            console.log(`Path ${idx}: coloring with ${bestColor} (distance: ${minDist.toFixed(2)})`);
+            path.setAttribute('stroke', bestColor);
+            path.style.stroke = bestColor;
+            path.style.strokeOpacity = '1';
+          } else {
+            // Fallback: parse the d attribute manually
+            const matches = [...d.matchAll(/([\d.-]+)[,\s]+([\d.-]+)/g)];
+            if (matches.length > 0) {
+              const lastMatch = matches[matches.length - 1];
+              const endX = parseFloat(lastMatch[1]);
+              const endY = parseFloat(lastMatch[2]);
+              
+              nodeMap.forEach(({ color, x, y }) => {
+                const dist = Math.sqrt((endX - x) ** 2 + (endY - y) ** 2);
+                if (dist < 20 && color) {
+                  path.setAttribute('stroke', color);
+                  path.style.stroke = color;
+                  path.style.strokeOpacity = '1';
+                }
+              });
+            }
           }
-        });
-        
-        // Apply the color if we found a match
-        if (targetColor) {
-          path.style.stroke = targetColor;
-          path.setAttribute('stroke', targetColor);
-          // Use cssText to ensure it overrides any other styles
-          const currentStyle = path.style.cssText;
-          path.style.cssText = `${currentStyle}; stroke: ${targetColor} !important;`;
+        } catch (e) {
+          console.error('Error processing path', idx, e);
         }
       });
     };
   
-    // Run coloring after Markmap finishes rendering
+    // Run after longer delay to ensure rendering complete
     setTimeout(() => {
-      requestAnimationFrame(colorElements);
-    }, 600);
+      colorElements();
+      
+      // Force style update
+      const allPaths = svg.querySelectorAll('path');
+      allPaths.forEach(path => {
+        const stroke = path.getAttribute('stroke');
+        if (stroke && stroke !== 'none') {
+          path.style.cssText = `stroke: ${stroke} !important; stroke-opacity: 1 !important; fill: none !important;`;
+        }
+      });
+    }, 1000);
   
-    // Re-apply colors when the tree is expanded/collapsed
+    // Re-apply on expand/collapse
     svg.addEventListener('click', () => {
-      setTimeout(() => {
-        requestAnimationFrame(colorElements);
-      }, 600);
+      setTimeout(colorElements, 700);
     });
   
     // Dark mode handling
@@ -501,7 +524,7 @@ class TreeManager {
       }
     } catch (_) {}
   
-    // Stats dashboard code (unchanged)
+    // Stats dashboard code
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
