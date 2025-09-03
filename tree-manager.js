@@ -402,13 +402,11 @@ class TreeManager {
   
     // Color paths and circles after rendering
     const colorElements = () => {
-      console.log('Starting colorElements for tree:', tree.id);
-      
-      // Build node position map
-      const nodeMap = new Map();
+      // Build comprehensive node data
+      const nodeData = [];
       const nodes = svg.querySelectorAll('g.markmap-node');
       
-      nodes.forEach((node, idx) => {
+      nodes.forEach(node => {
         const transform = node.getAttribute('transform');
         if (!transform) return;
         
@@ -419,7 +417,18 @@ class TreeManager {
         const y = parseFloat(match[2]);
         const color = getNodeColor(node);
         
-        nodeMap.set(`${x.toFixed(1)},${y.toFixed(1)}`, { node, color, x, y });
+        // Get the text content to identify the node
+        const textElement = node.querySelector('text, foreignObject');
+        const text = textElement ? textElement.textContent : '';
+        
+        nodeData.push({ 
+          node, 
+          x, 
+          y, 
+          color,
+          text: text.trim(),
+          isLeaf: !node.querySelector('circle') // Leaf nodes often don't have circles
+        });
         
         // Color circles
         if (color) {
@@ -430,76 +439,95 @@ class TreeManager {
           }
         }
       });
-      
-      console.log('Node map built with', nodeMap.size, 'nodes');
   
-      // Color all paths
+      // Color paths by checking multiple points along each path
       const paths = svg.querySelectorAll('path');
-      console.log('Found', paths.length, 'paths to color');
       
-      paths.forEach((path, idx) => {
-        const d = path.getAttribute('d');
-        if (!d) return;
-        
-        // Try using SVG's built-in methods to get the end point
+      paths.forEach(path => {
         try {
           const totalLength = path.getTotalLength();
-          const endPoint = path.getPointAtLength(totalLength);
+          if (totalLength === 0) return;
           
-          // Find closest node to this end point
-          let bestColor = null;
-          let minDist = 20; // Increase threshold
+          // Sample points along the path (start, middle, end)
+          const samples = [
+            path.getPointAtLength(totalLength * 0.9), // Near end
+            path.getPointAtLength(totalLength * 0.95), // Very near end
+            path.getPointAtLength(totalLength) // End
+          ];
           
-          nodeMap.forEach(({ color, x, y }) => {
-            const dist = Math.sqrt((endPoint.x - x) ** 2 + (endPoint.y - y) ** 2);
-            if (dist < minDist) {
-              minDist = dist;
-              bestColor = color;
+          // Find which node is closest to the sampled points
+          let bestNode = null;
+          let minAvgDist = Infinity;
+          
+          nodeData.forEach(nodeInfo => {
+            if (!nodeInfo.color) return;
+            
+            // Calculate average distance from samples to this node
+            let totalDist = 0;
+            samples.forEach(point => {
+              totalDist += Math.sqrt(
+                Math.pow(point.x - nodeInfo.x, 2) + 
+                Math.pow(point.y - nodeInfo.y, 2)
+              );
+            });
+            const avgDist = totalDist / samples.length;
+            
+            if (avgDist < minAvgDist) {
+              minAvgDist = avgDist;
+              bestNode = nodeInfo;
             }
           });
           
-          if (bestColor) {
-            console.log(`Path ${idx}: coloring with ${bestColor} (distance: ${minDist.toFixed(2)})`);
-            path.setAttribute('stroke', bestColor);
-            path.style.stroke = bestColor;
+          // Apply color if we found a close node
+          if (bestNode && minAvgDist < 50 && bestNode.color) {
+            path.setAttribute('stroke', bestNode.color);
+            path.style.stroke = bestNode.color;
             path.style.strokeOpacity = '1';
-          } else {
-            // Fallback: parse the d attribute manually
-            const matches = [...d.matchAll(/([\d.-]+)[,\s]+([\d.-]+)/g)];
-            if (matches.length > 0) {
-              const lastMatch = matches[matches.length - 1];
-              const endX = parseFloat(lastMatch[1]);
-              const endY = parseFloat(lastMatch[2]);
-              
-              nodeMap.forEach(({ color, x, y }) => {
-                const dist = Math.sqrt((endX - x) ** 2 + (endY - y) ** 2);
-                if (dist < 20 && color) {
-                  path.setAttribute('stroke', color);
-                  path.style.stroke = color;
-                  path.style.strokeOpacity = '1';
-                }
-              });
-            }
+            path.style.cssText = `stroke: ${bestNode.color} !important; stroke-opacity: 1 !important; fill: none !important;`;
           }
         } catch (e) {
-          console.error('Error processing path', idx, e);
+          // Fallback for paths that don't support getTotalLength
+          const d = path.getAttribute('d');
+          if (!d) return;
+          
+          // Extract coordinates from path
+          const coords = d.match(/([\d.-]+)[,\s]+([\d.-]+)/g);
+          if (coords && coords.length > 0) {
+            // Get the last coordinate (endpoint)
+            const lastCoord = coords[coords.length - 1];
+            const [endX, endY] = lastCoord.split(/[,\s]+/).map(parseFloat);
+            
+            // Find closest node
+            let bestNode = null;
+            let minDist = 50;
+            
+            nodeData.forEach(nodeInfo => {
+              if (!nodeInfo.color) return;
+              const dist = Math.sqrt(
+                Math.pow(endX - nodeInfo.x, 2) + 
+                Math.pow(endY - nodeInfo.y, 2)
+              );
+              if (dist < minDist) {
+                minDist = dist;
+                bestNode = nodeInfo;
+              }
+            });
+            
+            if (bestNode && bestNode.color) {
+              path.setAttribute('stroke', bestNode.color);
+              path.style.stroke = bestNode.color;
+              path.style.strokeOpacity = '1';
+              path.style.cssText = `stroke: ${bestNode.color} !important; stroke-opacity: 1 !important; fill: none !important;`;
+            }
+          }
         }
       });
     };
   
-    // Run after longer delay to ensure rendering complete
+    // Run after delay to ensure rendering complete
     setTimeout(() => {
       colorElements();
-      
-      // Force style update
-      const allPaths = svg.querySelectorAll('path');
-      allPaths.forEach(path => {
-        const stroke = path.getAttribute('stroke');
-        if (stroke && stroke !== 'none') {
-          path.style.cssText = `stroke: ${stroke} !important; stroke-opacity: 1 !important; fill: none !important;`;
-        }
-      });
-    }, 1000);
+    }, 800);
   
     // Re-apply on expand/collapse
     svg.addEventListener('click', () => {
