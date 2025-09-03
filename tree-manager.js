@@ -368,6 +368,9 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
+    // Store the transformed root for reference
+    this.currentTreeRoot = root;
+  
     // Create markmap with node coloring
     const mm = Markmap.create(svg, {
       htmlLabels: true,
@@ -385,7 +388,7 @@ class TreeManager {
       duration: 500
     }, root);
   
-    // Helper to determine node color
+    // Helper to determine node color based on classes
     const getNodeColor = (gNode) => {
       const foreign = gNode.querySelector('foreignObject');
       if (!foreign) return null;
@@ -400,75 +403,111 @@ class TreeManager {
       return null;
     };
   
+    // Build a color rule map from the tree structure
+    const buildColorRules = (treeNode, parentColor = null) => {
+      const rules = new Map();
+      
+      // Determine this node's color from its content
+      let nodeColor = null;
+      const content = treeNode.v || treeNode.content || '';
+      if (content.includes('user1-node')) nodeColor = '#dc2626';
+      else if (content.includes('user2-node')) nodeColor = '#2563eb';
+      else if (content.includes('shared-node')) nodeColor = '#9333ea';
+      
+      // If this node has children, process them
+      if (treeNode.c && Array.isArray(treeNode.c)) {
+        treeNode.c.forEach(child => {
+          // The path TO this child should be colored based on the child's color
+          const childRules = buildColorRules(child, nodeColor);
+          childRules.forEach((color, key) => rules.set(key, color));
+        });
+      }
+      
+      // Store this node's color
+      if (nodeColor && content) {
+        // Extract text content for matching
+        const cleanContent = content.replace(/<[^>]*>/g, '').trim();
+        if (cleanContent) {
+          rules.set(cleanContent, nodeColor);
+        }
+      }
+      
+      return rules;
+    };
+  
     // Color elements after rendering
     const colorElements = () => {
-      // First pass: color all nodes and build a color map
-      const nodeColorMap = new Map();
+      // Build color rules from tree structure
+      const colorRules = buildColorRules(root);
+      
+      // Color all nodes and remember their colors
+      const nodeColors = new Map();
       const nodes = svg.querySelectorAll('g.markmap-node');
       
-      nodes.forEach((node, index) => {
+      nodes.forEach(node => {
         const color = getNodeColor(node);
         if (color) {
-          // Store the color for this node
-          nodeColorMap.set(node, color);
+          nodeColors.set(node, color);
           
-          // Color the circle
+          // Color circle
           const circle = node.querySelector('circle');
           if (circle) {
             circle.style.stroke = color;
             circle.style.fill = color;
           }
+          
+          // Store text content for matching
+          const text = node.textContent?.trim();
+          if (text) {
+            nodeColors.set(text, color);
+          }
         }
       });
   
-      // Second pass: color paths
-      // In Markmap's SVG structure, paths appear before their destination nodes
-      const allElements = svg.querySelectorAll('path, g.markmap-node');
-      let lastPath = null;
+      // Color paths based on their following node
+      const paths = svg.querySelectorAll('path');
+      const nodeArray = Array.from(nodes);
       
-      allElements.forEach(element => {
-        if (element.tagName.toLowerCase() === 'path') {
-          // Remember this path - we'll color it when we find its destination node
-          lastPath = element;
-        } else if (element.classList.contains('markmap-node')) {
-          // This is a node - if we have a preceding path, color it with this node's color
-          if (lastPath) {
-            const nodeColor = nodeColorMap.get(element);
-            if (nodeColor) {
-              lastPath.style.stroke = nodeColor;
-              lastPath.setAttribute('stroke', nodeColor);
-              lastPath.style.cssText = `stroke: ${nodeColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
+      paths.forEach(path => {
+        // Find which node this path leads to
+        // Paths in Markmap typically appear just before their target node in DOM order
+        let targetNode = null;
+        let targetColor = null;
+        
+        // Check immediate next sibling
+        let nextSibling = path.nextElementSibling;
+        if (nextSibling && nextSibling.classList.contains('markmap-node')) {
+          targetNode = nextSibling;
+          targetColor = nodeColors.get(targetNode);
+        }
+        
+        // If not found, look through all nodes and find the one that follows this path
+        if (!targetColor) {
+          const pathIndex = Array.from(svg.children).indexOf(path);
+          for (let i = 0; i < nodeArray.length; i++) {
+            const nodeIndex = Array.from(svg.children).indexOf(nodeArray[i]);
+            if (nodeIndex > pathIndex) {
+              // This is the first node after the path
+              targetNode = nodeArray[i];
+              targetColor = nodeColors.get(targetNode);
+              break;
             }
-            lastPath = null; // Reset for next path
           }
         }
-      });
-      
-      // Third pass: handle any remaining paths by DOM order
-      const paths = svg.querySelectorAll('path');
-      paths.forEach((path, idx) => {
-        // If path doesn't have a color yet, try to find its following sibling node
-        const currentStroke = path.getAttribute('stroke');
-        if (!currentStroke || currentStroke === 'none' || currentStroke === '') {
-          // Look for the next node element
-          let nextElement = path.nextElementSibling;
-          while (nextElement && !nextElement.classList.contains('markmap-node')) {
-            nextElement = nextElement.nextElementSibling;
-          }
-          
-          if (nextElement && nextElement.classList.contains('markmap-node')) {
-            const nodeColor = nodeColorMap.get(nextElement);
-            if (nodeColor) {
-              path.style.stroke = nodeColor;
-              path.setAttribute('stroke', nodeColor);
-              path.style.cssText = `stroke: ${nodeColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
-            }
-          }
+        
+        // Apply the color
+        if (targetColor) {
+          path.style.stroke = targetColor;
+          path.setAttribute('stroke', targetColor);
+          path.style.cssText = `stroke: ${targetColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
+        } else {
+          // Fallback: if we still don't have a color, make it gray but visible
+          path.style.cssText = `stroke: #6b7280 !important; stroke-opacity: 0.5 !important; fill: none !important;`;
         }
       });
     };
   
-    // Run after Markmap completes rendering
+    // Run after Markmap completes
     setTimeout(() => {
       requestAnimationFrame(colorElements);
     }, 800);
