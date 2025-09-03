@@ -527,6 +527,9 @@
       <div class="card-header d-flex justify-content-between align-items-center">
         <div>Markmap Visualization</div>
         <div class="d-flex gap-2">
+          <button id="mmFullscreenBtn" class="btn btn-sm btn-outline-light" title="Fullscreen">
+            <i class="bi bi-arrows-fullscreen"></i>
+          </button>
           <button id="saveCheckpointBtn" class="btn btn-sm btn-outline-light d-flex align-items-center gap-1" title="Save current tree as a checkpoint" disabled>
             <span class="spinner-border spinner-border-sm d-none" id="saveCpSpinner"></span>
             <i class="bi bi-bookmark"></i> Save checkpoint
@@ -797,6 +800,25 @@
         }
       });
     });
+
+    // Fullscreen toggle for the results area
+    (function () {
+      const btn = document.getElementById('mmFullscreenBtn');
+      const card = document.getElementById('resultsCard');
+      btn?.addEventListener('click', () => {
+        if (!document.fullscreenElement) card?.requestFullscreen?.();
+        else document.exitFullscreen?.();
+      });
+      // When fullscreen size changes, re-fit the active tree
+      document.addEventListener('fullscreenchange', () => {
+        const activePane = document.querySelector('#treeTabContent .tab-pane.active');
+        const svg = activePane?.querySelector('svg');
+        if (!svg || !window.treeManager) return;
+        const id = activePane.id.replace('-content','');
+        const tree = window.treeManager.trees.find(t => t.id === id);
+        if (tree?._mm) setTimeout(() => tree._mm.fit(), 50);
+      });
+    })();
   </script>
   <!-- Add this right before the closing </body> tag in your index.html file -->
   <footer class="mt-5 mb-3 text-center">
