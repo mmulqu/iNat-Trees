@@ -368,8 +368,7 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    // Let Markmap try to color by node content too (works at initial render)
-    // Ref: IMarkmapOptions.color (function) :contentReference[oaicite:1]{index=1}
+    // Create markmap and let it try to color nodes initially from content
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       duration: 500,
@@ -377,47 +376,46 @@ class TreeManager {
         const haystacks = [node.v, node.content, node.payload?.content];
         for (const s of haystacks) {
           if (s && typeof s === 'string') {
-            if (s.includes('user1-node')) return '#dc2626';     // red
-            if (s.includes('user2-node')) return '#2563eb';     // blue
-            if (s.includes('shared-node')) return '#9333ea';    // purple
+            if (s.includes('user1-node')) return '#dc2626';   // red
+            if (s.includes('user2-node')) return '#2563eb';   // blue
+            if (s.includes('shared-node')) return '#9333ea';  // purple
           }
         }
-        return undefined; // let default scheme handle others
+        return undefined; // let default palette handle others
       }
     }, root);
   
-    // Utility: infer color from the HTML label inside a node
+    // Helper: determine a node's color based on its HTML label
     const getNodeColor = (gNode) => {
       const foreign = gNode.querySelector('foreignObject');
       if (!foreign) return null;
+  
       const has1 = !!foreign.querySelector('.user1-node');
       const has2 = !!foreign.querySelector('.user2-node');
       const hasShared = !!foreign.querySelector('.shared-node');
+  
       if (hasShared || (has1 && has2)) return '#9333ea';
       if (has1) return '#dc2626';
       if (has2) return '#2563eb';
       return null;
     };
   
-    // Color nodes + links by matching their shared data-path attribute
-    // Markmap renders <path class="markmap-link" data-path="..."> and
-    // <g class="markmap-node" data-path="..."> for the SAME node. :contentReference[oaicite:2]{index=2}
+    // Paint nodes and links after Markmap finishes its render
     const colorElements = () => {
-      const nodeColorByPath = new Map();
+      // 1) Paint nodes and build a color map by data-path
+      const colorByPath = new Map();
   
-      // First pass: paint nodes and collect colors keyed by data-path
       svg.querySelectorAll('g.markmap-node').forEach((g) => {
         const pathKey = g.getAttribute('data-path');
-        if (!pathKey) return;
-  
         const color = getNodeColor(g);
         if (!color) return;
   
-        nodeColorByPath.set(pathKey, color);
+        if (pathKey) colorByPath.set(pathKey, color);
   
-        // paint the node’s line + circle
+        // Color node visuals (circle/line)
         const line = g.querySelector('line');
         if (line) line.setAttribute('stroke', color);
+  
         const circle = g.querySelector('circle');
         if (circle) {
           circle.setAttribute('stroke', color);
@@ -425,35 +423,81 @@ class TreeManager {
         }
       });
   
-      // Second pass: paint each link using the destination node’s color
-      svg.querySelectorAll('path.markmap-link').forEach((p) => {
-        const pathKey = p.getAttribute('data-path');
-        if (!pathKey) return;
-        const color = nodeColorByPath.get(pathKey);
-        if (!color) return;
-        p.setAttribute('stroke', color);
-        p.style.stroke = color;
-        p.style.strokeOpacity = '1';
-        p.style.fill = 'none';
+      // 2) Paint only real edges (paths with .markmap-link)
+      const links = svg.querySelectorAll('path.markmap-link');
+      links.forEach((linkEl) => {
+        // Prefer the shared data-path attribute
+        let pathKey = linkEl.getAttribute('data-path');
+        let gNode = null;
+  
+        if (pathKey) {
+          gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
+        }
+  
+        // Fallback: use D3's bound datum to locate the target node
+        if (!gNode) {
+          const d = linkEl.__data__;              // { source, target }
+          const target = d && d.target;
+          if (target) {
+            // Some builds expose a .path string on nodes; try that
+            if (!pathKey && target.path) {
+              pathKey = target.path;
+              gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
+            }
+            // Last resort: if Markmap exposes findElement, use it
+            if (!gNode && typeof mm.findElement === 'function') {
+              try {
+                const el = mm.findElement(target);
+                if (el && el.g) gNode = el.g;
+              } catch (_) {}
+            }
+          }
+        }
+  
+        // Final fallback: nearest following node in DOM (rarely needed)
+        if (!gNode) {
+          let next = linkEl.nextElementSibling;
+          while (next && !next.classList?.contains('markmap-node')) {
+            next = next.nextElementSibling;
+          }
+          gNode = next || null;
+        }
+  
+        const nodeColor =
+          (gNode && getNodeColor(gNode)) ||
+          (pathKey && colorByPath.get(pathKey)) ||
+          null;
+  
+        if (!nodeColor) return;
+  
+        // Apply stroke with high specificity
+        linkEl.setAttribute('stroke', nodeColor);
+        linkEl.style.stroke = nodeColor;
+        linkEl.style.strokeOpacity = '1';
+        linkEl.style.fill = 'none';
       });
     };
   
-    // Run after Markmap completes its first render
-    setTimeout(() => requestAnimationFrame(colorElements), 600);
+    // Initial pass (slight delay so the layout is in place)
+    setTimeout(() => requestAnimationFrame(colorElements), 400);
   
-    // Re-apply on expand/collapse (Markmap mutates the SVG)
+    // Re-apply on expand/collapse
     svg.addEventListener('click', () => {
-      setTimeout(() => requestAnimationFrame(colorElements), 400);
+      setTimeout(() => requestAnimationFrame(colorElements), 250);
     });
   
-    // Dark mode: brighten text and html labels
+    // Dark mode handling
     try {
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
           const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          svg.querySelectorAll('.markmap-foreign *').forEach(el => { el.style.color = '#f8fafc'; });
+          texts.forEach(t => { 
+            t.setAttribute('fill', '#f8fafc');
+            t.style.opacity = '0.96';
+          });
+          const foreign = svg.querySelectorAll('.markmap-foreign *');
+          foreign.forEach(el => { el.style.color = '#f8fafc'; });
         }, 0);
       }
     } catch (_) {}
