@@ -515,7 +515,9 @@ class TreeManager {
         );
         if (comparisonDashboard && tabContent) {
           tabContent.appendChild(comparisonDashboard);
+          this.createBattleSummary(tree);
         }
+        
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
       }
@@ -526,41 +528,41 @@ class TreeManager {
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates
     const tabContent = document.getElementById(`${tree.id}-content`);
-    const existingBattleSummary = tabContent.querySelector('.battle-summary');
-    if (existingBattleSummary) {
-      existingBattleSummary.remove();
-    }
-
+    const existingBattleSummary = tabContent?.querySelector('.battle-summary');
+    if (existingBattleSummary) existingBattleSummary.remove();
+  
+    // App colors (same as your markmap palette)
+    const COLOR_USER1  = '#dc2626'; // red
+    const COLOR_USER2  = '#2563eb'; // blue
+    const COLOR_SHARED = '#9333ea'; // purple
+  
     const statsContainer = document.createElement('div');
     statsContainer.className = 'battle-summary mt-4';
-
+  
     // Use the statistics data if available
-    let user1Count = 0;
-    let user2Count = 0;
-    let user1Only = 0;
-    let user2Only = 0;
-    let shared = 0;
-
+    let user1Count = 0, user2Count = 0, user1Only = 0, user2Only = 0, shared = 0;
+  
     if (tree.stats && tree.stats.user1 && tree.stats.user2 && tree.stats.shared) {
       user1Count = tree.stats.user1.withShared.total || 0;
       user2Count = tree.stats.user2.withShared.total || 0;
-      user1Only = tree.stats.user1.unique.total || 0;
-      user2Only = tree.stats.user2.unique.total || 0;
-      shared = tree.stats.shared.total || 0;
+      user1Only  = tree.stats.user1.unique.total     || 0;
+      user2Only  = tree.stats.user2.unique.total     || 0;
+      shared     = tree.stats.shared.total           || 0;
     } else if (tree.stats) {
       // Fallback to the original stats format if available
       user1Count = tree.stats.user1Total || 0;
       user2Count = tree.stats.user2Total || 0;
-      user1Only = tree.stats.user1Only || 0;
-      user2Only = tree.stats.user2Only || 0;
-      shared = tree.stats.shared || 0;
+      user1Only  = tree.stats.user1Only  || 0;
+      user2Only  = tree.stats.user2Only  || 0;
+      shared     = tree.stats.shared     || 0;
     }
-
+  
     const total = user1Only + user2Only + shared;
-    const user1Percent = total > 0 ? Math.round((user1Only / total) * 100) : 0;
-    const user2Percent = total > 0 ? Math.round((user2Only / total) * 100) : 0;
-    const sharedPercent = total > 0 ? Math.round((shared / total) * 100) : 0;
-
+    const user1Percent  = total > 0 ? Math.round((user1Only / total) * 100) : 0;
+    const user2Percent  = total > 0 ? Math.round((user2Only / total) * 100) : 0;
+    const sharedPercent = total > 0 ? Math.round((shared    / total) * 100) : 0;
+  
+    // Render
     statsContainer.innerHTML = `
       <div class="battle-summary-header">
         <div class="battle-user battle-user-1">
@@ -574,30 +576,71 @@ class TreeManager {
         </div>
       </div>
       <div class="battle-stats">
-        <div class="battle-stat">
+        <div class="battle-stat battle-stat-user1">
           <div class="battle-stat-value">${user1Only}</div>
           <div class="battle-stat-label">Unique to ${tree.username1}</div>
         </div>
-        <div class="battle-stat">
+        <div class="battle-stat battle-stat-shared">
           <div class="battle-stat-value">${shared}</div>
           <div class="battle-stat-label">Shared</div>
         </div>
-        <div class="battle-stat">
+        <div class="battle-stat battle-stat-user2">
           <div class="battle-stat-value">${user2Only}</div>
           <div class="battle-stat-label">Unique to ${tree.username2}</div>
         </div>
       </div>
       <div class="battle-progress">
-        <div class="battle-progress-bar user1-bar" style="width:${user1Percent}%;">${user1Percent}%</div>
+        <div class="battle-progress-bar user1-bar"  style="width:${user1Percent}%;">${user1Percent}%</div>
         <div class="battle-progress-bar shared-bar" style="width:${sharedPercent}%;">${sharedPercent}%</div>
-        <div class="battle-progress-bar user2-bar" style="width:${user2Percent}%;">${user2Percent}%</div>
+        <div class="battle-progress-bar user2-bar"  style="width:${user2Percent}%;">${user2Percent}%</div>
       </div>
     `;
-
+  
+    // Apply consistent colors (light & dark themes)
+    const applyColors = (root) => {
+      // Avatars
+      const av1 = root.querySelector('.battle-user-1 .battle-user-avatar');
+      const av2 = root.querySelector('.battle-user-2 .battle-user-avatar');
+      if (av1) { av1.style.background = COLOR_USER1; av1.style.color = '#fff'; }
+      if (av2) { av2.style.background = COLOR_USER2; av2.style.color = '#fff'; }
+  
+      // Numbers
+      const v1 = root.querySelector('.battle-stat-user1 .battle-stat-value');
+      const vs = root.querySelector('.battle-stat-shared .battle-stat-value');
+      const v2 = root.querySelector('.battle-stat-user2 .battle-stat-value');
+      if (v1) v1.style.color = COLOR_USER1;
+      if (vs) vs.style.color = COLOR_SHARED;
+      if (v2) v2.style.color = COLOR_USER2;
+  
+      // Labels (subtle tint)
+      const l1 = root.querySelector('.battle-stat-user1 .battle-stat-label');
+      const ls = root.querySelector('.battle-stat-shared .battle-stat-label');
+      const l2 = root.querySelector('.battle-stat-user2 .battle-stat-label');
+      if (l1) l1.style.color = COLOR_USER1 + 'cc';
+      if (ls) ls.style.color = COLOR_SHARED + 'cc';
+      if (l2) l2.style.color = COLOR_USER2 + 'cc';
+  
+      // Progress bars
+      const pb1 = root.querySelector('.battle-progress .user1-bar');
+      const pbs = root.querySelector('.battle-progress .shared-bar');
+      const pb2 = root.querySelector('.battle-progress .user2-bar');
+      if (pb1) pb1.style.background = COLOR_USER1;
+      if (pbs) pbs.style.background = COLOR_SHARED;
+      if (pb2) pb2.style.background = COLOR_USER2;
+  
+      // Optional: a thin accent border that stays visible in dark mode
+      root.style.borderLeft = `4px solid ${COLOR_USER1}`;
+      root.style.borderRight = `4px solid ${COLOR_USER2}`;
+      root.style.borderRadius = '10px';
+      root.style.paddingLeft = '8px';
+      root.style.paddingRight = '8px';
+    };
+  
     if (tabContent) {
       tabContent.appendChild(statsContainer);
+      applyColors(statsContainer);
     }
-  }
+  }  
 }
 
 // Initialize as a global variable
