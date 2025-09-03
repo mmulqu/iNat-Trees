@@ -7,7 +7,6 @@ class TaxonomyStats {
   }
 
   initializeStyles() {
-    // Add CSS styles for the stats dashboard if not already added
     if (!document.getElementById('taxonomy-stats-styles')) {
       const style = document.createElement('style');
       style.id = 'taxonomy-stats-styles';
@@ -58,34 +57,21 @@ class TaxonomyStats {
           font-size: 0.8rem;
           margin-top: 5px;
         }
-        .increase {
-          color: #2ecc71;
-        }
-        .decrease {
-          color: #e74c3c;
-        }
+        .increase { color: #2ecc71; }
+        .decrease { color: #e74c3c; }
+  
         .comparison-stats {
           display: flex;
           justify-content: space-between;
           gap: 15px;
           flex-wrap: wrap;
         }
-        .user-stats {
-          flex: 1;
-          min-width: 300px;
-        }
-        .user1-stats {
-          border-left-color: #ff6b6b;
-        }
-        .user1-stats .taxonomy-stat-value {
-          color: #ff6b6b;
-        }
-        .user2-stats {
-          border-left-color: #4dabf7;
-        }
-        .user2-stats .taxonomy-stat-value {
-          color: #4dabf7;
-        }
+        .user-stats { flex: 1; min-width: 300px; }
+        .user1-stats { border-left-color: #dc2626; }              /* red */
+        .user1-stats .taxonomy-stat-value { color: #dc2626; }
+        .user2-stats { border-left-color: #2563eb; }              /* blue */
+        .user2-stats .taxonomy-stat-value { color: #2563eb; }
+  
         .winner-badge {
           display: inline-block;
           background-color: #ffd700;
@@ -96,6 +82,7 @@ class TaxonomyStats {
           margin-left: 5px;
           vertical-align: middle;
         }
+  
         /* Dark theme variants */
         body.dark-theme .taxonomy-stats {
           background-color: #1d1f20;
@@ -109,12 +96,73 @@ class TaxonomyStats {
           color: #e6e6e6;
         }
         body.dark-theme .taxonomy-stat-label { color: #cfd6d8; }
-        body.dark-theme .taxonomy-stat-value { color: #6ad4b2; }
-        body.dark-theme .taxonomy-stat-change { color: #b7c3c6; }
+        body.dark-theme .taxonomy-stat-value { color: #6ad4b2; } /* default for non-user panels */
+  
+        /* --- NEW: keep per-user colors in dark mode (override the generic rule above) --- */
+        body.dark-theme .comparison-stats .user1-stats { border-left-color: #dc2626 !important; }
+        body.dark-theme .comparison-stats .user2-stats { border-left-color: #2563eb !important; }
+        body.dark-theme .comparison-stats .user1-stats .taxonomy-stat-value { color: #dc2626 !important; }
+        body.dark-theme .comparison-stats .user2-stats .taxonomy-stat-value { color: #2563eb !important; }
+  
+        /* --- NEW: Battle summary styling (light + dark) --- */
+        .battle-summary {
+          background: #f8f9fa;
+          border-radius: 12px;
+          padding: 16px 18px;
+          box-shadow: 0 2px 6px rgba(0,0,0,.06);
+          border-left: 4px solid #dc2626; /* user1 */
+          border-right: 4px solid #2563eb; /* user2 */
+        }
+        body.dark-theme .battle-summary {
+          background: #1d1f20;
+          box-shadow: 0 1px 3px rgba(0,0,0,.35);
+          color: #e6e6e6;
+        }
+        .battle-summary-header {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 32px;
+          margin-bottom: 10px;
+        }
+        .battle-user-avatar {
+          width: 26px; height: 26px; border-radius: 9999px;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 700; font-size: 14px;
+        }
+        .battle-user-1 .battle-user-avatar { background: #dc2626; color: #fff; }
+        .battle-user-2 .battle-user-avatar { background: #2563eb; color: #fff; }
+  
+        .battle-stats {
+          display: flex; gap: 12px; justify-content: space-around;
+          margin: 6px 0 12px;
+        }
+        .battle-stat {
+          text-align: center; border-radius: 8px; padding: 8px 10px; min-width: 120px;
+          background: rgba(0,0,0,.03);
+        }
+        body.dark-theme .battle-stat { background: rgba(255,255,255,.05); }
+        .battle-stat-user1 .battle-stat-value { color: #dc2626; }
+        .battle-stat-shared .battle-stat-value { color: #9333ea; }
+        .battle-stat-user2 .battle-stat-value { color: #2563eb; }
+  
+        .battle-progress {
+          display: flex; height: 20px; border-radius: 999px; overflow: hidden;
+          background: rgba(0,0,0,.08);
+        }
+        body.dark-theme .battle-progress { background: rgba(255,255,255,.08); }
+        .battle-progress-bar {
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; font-weight: 700; color: #fff; line-height: 1;
+        }
+        .battle-progress .user1-bar { background: #dc2626; }
+        .battle-progress .shared-bar { background: #9333ea; }
+        .battle-progress .user2-bar { background: #2563eb; }
       `;
       document.head.appendChild(style);
     }
   }
+  
 
   // Process a tree markdown to extract taxonomy counts
   processMarkdown(markdown) {
