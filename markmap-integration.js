@@ -45,12 +45,26 @@ document.addEventListener('DOMContentLoaded', function() {
   body.dark-theme .mm-badge.mm-count{background:#123524; color:#a7f3d0}
   body.dark-theme .mm-badge.mm-photo::before{background:#e5e7eb}
   .mm-common{opacity:.7}
-  .first-obs-preview{position:absolute; z-index:9999; width:300px; max-width:44vw; box-shadow:0 8px 24px rgba(0,0,0,.18); border:1px solid rgba(0,0,0,.08); border-radius:10px; overflow:hidden; background:#fff}
-  .first-obs-preview header{display:flex; justify-content:space-between; align-items:center; padding:.5rem .7rem; font-size:.9rem; background:#f8fafc; border-bottom:1px solid #eee; color:#111827}
+
+  /* Draggable first-observation popup */
+  .first-obs-preview{
+    position:fixed;               /* <-- fixed so it doesn't jump on scroll */
+    z-index:9999; width:300px; max-width:44vw;
+    box-shadow:0 8px 24px rgba(0,0,0,.18);
+    border:1px solid rgba(0,0,0,.08);
+    border-radius:10px; overflow:hidden; background:#fff
+  }
+  .first-obs-preview header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:.5rem .7rem; font-size:.9rem; background:#f8fafc; border-bottom:1px solid #eee; color:#111827;
+    cursor:move; user-select:none;           /* <-- drag handle UX */
+  }
+  .first-obs-preview header.drag-handle{ cursor:move; }
   .first-obs-preview .body{padding:.5rem .7rem}
   .first-obs-preview img{width:100%; height:auto; display:block}
   .first-obs-preview .actions{display:flex; gap:.5rem; margin-top:.5rem}
   .first-obs-spinner{width:100%; padding:1rem; text-align:center; font-size:.9rem; color:#6b7280}
+
   /* Dark theme overrides for preview */
   body.dark-theme .first-obs-preview{background:#1d1f20; border-color:#3a3f42}
   body.dark-theme .first-obs-preview header{background:#202324; color:#e6e6e6}
@@ -62,19 +76,25 @@ document.addEventListener('DOMContentLoaded', function() {
 (() => {
   const API_BASE = window.CF_API_BASE;
   if (!API_BASE) return;
+
   const cache = new Map();
   let previewEl = null;
+
   function authHeaders(){
     const headers = { 'Accept': 'application/json' };
     const jwt = localStorage.getItem('inat_jwt');
     const token = localStorage.getItem('inat_token');
-    if (jwt) headers['Authorization'] = `Bearer ${jwt}`; else if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (jwt) headers['Authorization'] = `Bearer ${jwt}`;
+    else if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
   }
+
   function closestPane(el){ return el.closest('.tab-pane'); }
   function key(u,t){ return `${u}:${t}`; }
+
   async function fetchFirstObs(username, taxonId){
     const k = key(username, taxonId);
+
     // localStorage cache (persist across reloads)
     try {
       const raw = localStorage.getItem('firstObsCache');
@@ -83,13 +103,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (obj && obj[k]) return obj[k];
       }
     } catch(_) {}
+
     if (cache.has(k)) return cache.get(k);
+
     const u = new URL(`${API_BASE}/first-observation`);
     u.searchParams.set('username', username);
     u.searchParams.set('taxon_id', String(taxonId));
     const r = await fetch(u.toString(), { headers: authHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
+
     cache.set(k, data);
     try {
       const raw = localStorage.getItem('firstObsCache');
@@ -102,24 +125,196 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch(_) {}
     return data;
   }
+
   function ensurePreview(){
     if (previewEl) return previewEl;
     previewEl = document.createElement('div');
     previewEl.className='first-obs-preview';
     previewEl.style.display='none';
+    previewEl.dataset.dragged = '0';
     document.body.appendChild(previewEl);
+
+    // --- Drag support (delegated to header) ---
+    enableDrag(previewEl);
+
     // Close on ESC
-    document.addEventListener('keydown', e=>{ if(e.key==='Escape') previewEl.style.display='none';});
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Escape') previewEl.style.display='none';
+    });
+
     // Outside click close (bubble phase) and ignore clicks on chips
     document.addEventListener('click', e=>{
       if (e.target && e.target.closest && e.target.closest('a.first-obs-trigger')) return;
-      if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(e.target)) previewEl.style.display='none';
+      if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(e.target)) {
+        previewEl.style.display='none';
+      }
     });
     return previewEl;
   }
-  function position(rect){ const el=ensurePreview(); const m=8; const top=window.scrollY+rect.bottom+m; const left=Math.min(window.scrollX+rect.left, window.scrollX+document.documentElement.clientWidth-el.offsetWidth-m); el.style.top=`${top}px`; el.style.left=`${left}px`; }
-  function spinner(rect){ const el=ensurePreview(); el.innerHTML='<div class="first-obs-spinner">Loading…</div>'; el.style.display='block'; position(rect); }
-  function render(rect, username, taxonId, payload){ const el=ensurePreview(); if(!payload||payload.notFound){ el.innerHTML='<header><strong>No photo found</strong><button class="btn btn-sm btn-link" onclick="this.closest(\'.first-obs-preview\').style.display=\'none\'">✕</button></header><div class="body"><div class="text-muted">Try relaxing filters on iNat</div></div>'; el.style.display='block'; position(rect); return; } const {obs_url, observed_on, image_urls}=payload; const img=image_urls?.medium||image_urls?.small||image_urls?.thumb||''; const full=image_urls?.original||img||obs_url; el.innerHTML=`<header><div>First photo • <span class="text-muted">${observed_on?new Date(observed_on).toLocaleDateString():'date unknown'}</span></div><button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button></header><div class="body">${img?`<img alt="First observation photo" src="${img}">`:''}<div class="actions"><a class="btn btn-sm btn-primary" href="${obs_url}" target="_blank" rel="noopener">Open observation</a>${full?`<a class="btn btn-sm btn-outline-secondary" href="${full}" target="_blank" rel="noopener">Open image</a>`:''}</div></div>`; el.style.display='block'; position(rect); }
-  let t=null; document.addEventListener('mouseenter', e=>{ const a=e.target.closest('a.first-obs-trigger'); if(!a) return; const pane=closestPane(a); const username=a.dataset.username||pane?.dataset.username; const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id'); if(!username||!taxonId) return; t=setTimeout(async ()=>{ try{ const payload=await fetchFirstObs(username, taxonId); if(!payload||payload.notFound||!payload.image_urls){ a.remove(); } }catch(_){} },250); }, true); document.addEventListener('mouseleave', e=>{ if(t){clearTimeout(t); t=null;} }, true);
-  document.addEventListener('click', async e=>{ const a=e.target.closest('a.first-obs-trigger'); if(!a) return; e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); const pane=closestPane(a); const username=a.dataset.username||pane?.dataset.username||a.dataset.username1||a.dataset.username2; const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id'); if(!username||!taxonId) return; const rect=a.getBoundingClientRect(); spinner(rect); try{ const payload=await fetchFirstObs(username, taxonId); if(e.metaKey||e.ctrlKey){ if(payload&&payload.obs_url) window.open(payload.obs_url,'_blank'); ensurePreview().style.display='none'; return;} if(!payload||payload.notFound||!payload.image_urls){ a.remove(); ensurePreview().style.display='none'; return;} render(rect, username, taxonId, payload);}catch(err){ ensurePreview().style.display='none'; console.error('first-observation error', err);} }, true);
+
+  // Auto position near the triggering rect (do not override if user dragged)
+  function position(rect){
+    const el = ensurePreview();
+    if (el.dataset.dragged === '1') return; // user moved it; don't snap back
+
+    const m = 8;
+    // For position: fixed, rect.{left,bottom} are viewport-relative
+    const top  = Math.min(window.innerHeight - el.offsetHeight - m, Math.max(m, rect.bottom + m));
+    const left = Math.min(window.innerWidth  - el.offsetWidth  - m, Math.max(m, rect.left));
+
+    el.style.top  = `${top}px`;
+    el.style.left = `${left}px`;
+  }
+
+  function spinner(rect){
+    const el = ensurePreview();
+    el.dataset.dragged = '0';
+    el.innerHTML = `
+      <header class="drag-handle">
+        <strong>Loading image…</strong>
+        <button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button>
+      </header>
+      <div class="first-obs-spinner">Loading…</div>
+    `;
+    el.style.display='block';
+    // position after it's visible (so offsetWidth/Height are measurable)
+    requestAnimationFrame(() => position(rect));
+  }
+
+  function render(rect, username, taxonId, payload){
+    const el = ensurePreview();
+    el.dataset.dragged = '0';
+
+    if(!payload||payload.notFound){
+      el.innerHTML = `
+        <header class="drag-handle">
+          <strong>No photo found</strong>
+          <button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button>
+        </header>
+        <div class="body"><div class="text-muted">Try relaxing filters on iNat</div></div>
+      `;
+      el.style.display='block';
+      requestAnimationFrame(() => position(rect));
+      return;
+    }
+
+    const {obs_url, observed_on, image_urls} = payload;
+    const img  = image_urls?.medium || image_urls?.small || image_urls?.thumb || '';
+    const full = image_urls?.original || img || obs_url;
+
+    el.innerHTML = `
+      <header class="drag-handle">
+        <div>First photo • <span class="text-muted">${observed_on?new Date(observed_on).toLocaleDateString():'date unknown'}</span></div>
+        <button class="btn btn-sm btn-link" onclick="this.closest('.first-obs-preview').style.display='none'">✕</button>
+      </header>
+      <div class="body">
+        ${img?`<img alt="First observation photo" src="${img}">`:''}
+        <div class="actions">
+          <a class="btn btn-sm btn-primary" href="${obs_url}" target="_blank" rel="noopener">Open observation</a>
+          ${full?`<a class="btn btn-sm btn-outline-secondary" href="${full}" target="_blank" rel="noopener">Open image</a>`:''}
+        </div>
+      </div>
+    `;
+    el.style.display='block';
+    requestAnimationFrame(() => position(rect));
+  }
+
+  // Hover prefetch (kept from your original)
+  let t=null;
+  document.addEventListener('mouseenter', e=>{
+    const a=e.target.closest('a.first-obs-trigger');
+    if(!a) return;
+    const pane=closestPane(a);
+    const username=a.dataset.username||pane?.dataset.username;
+    const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id');
+    if(!username||!taxonId) return;
+    t=setTimeout(async ()=>{
+      try{
+        const payload=await fetchFirstObs(username, taxonId);
+        if(!payload||payload.notFound||!payload.image_urls){ a.remove(); }
+      }catch(_){}
+    },250);
+  }, true);
+
+  document.addEventListener('mouseleave', e=>{
+    if(t){clearTimeout(t); t=null;}
+  }, true);
+
+  // Click to open
+  document.addEventListener('click', async e=>{
+    const a=e.target.closest('a.first-obs-trigger');
+    if(!a) return;
+    e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+    const pane=closestPane(a);
+    const username=a.dataset.username||pane?.dataset.username||a.dataset.username1||a.dataset.username2;
+    const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id');
+    if(!username||!taxonId) return;
+
+    const rect=a.getBoundingClientRect();
+    spinner(rect);
+
+    try{
+      const payload=await fetchFirstObs(username, taxonId);
+
+      if(e.metaKey||e.ctrlKey){
+        if(payload&&payload.obs_url) window.open(payload.obs_url,'_blank');
+        ensurePreview().style.display='none';
+        return;
+      }
+
+      if(!payload||payload.notFound||!payload.image_urls){
+        a.remove();
+        ensurePreview().style.display='none';
+        return;
+      }
+      render(rect, username, taxonId, payload);
+    }catch(err){
+      ensurePreview().style.display='none';
+      console.error('first-observation error', err);
+    }
+  }, true);
+
+  // ---- draggable support ----
+  function enableDrag(box){
+    let dragging = false, sx=0, sy=0, sl=0, st=0;
+
+    const onDown = (e) => {
+      const header = e.target.closest('.drag-handle, .first-obs-preview > header');
+      if (!header || !box.contains(header)) return;
+      dragging = true;
+      const rect = box.getBoundingClientRect();
+      sx = e.clientX; sy = e.clientY;
+      sl = rect.left; st = rect.top;
+      box.dataset.dragged = '1'; // from now on, don't auto-snap on open
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+    };
+
+    const onMove = (e) => {
+      if (!dragging) return;
+      let left = sl + (e.clientX - sx);
+      let top  = st + (e.clientY - sy);
+
+      const m = 8;
+      const maxL = window.innerWidth  - box.offsetWidth  - m;
+      const maxT = window.innerHeight - box.offsetHeight - m;
+      left = Math.max(m, Math.min(maxL, left));
+      top  = Math.max(m, Math.min(maxT, top));
+
+      box.style.left = `${left}px`;
+      box.style.top  = `${top}px`;
+    };
+
+    const onUp = () => {
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousedown', onDown);
+  }
 })();
