@@ -1,4 +1,68 @@
 // tree-manager.js
+
+// ---- Markmap mini-map + scroll gutters (global styles) ----
+(() => {
+  if (document.getElementById('mm-ux-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'mm-ux-styles';
+  s.textContent = `
+    .markmap-container { position: relative; }
+
+    /* Mini-map box */
+    .mm-minimap {
+      position: absolute; right: 12px; bottom: 12px;
+      width: 180px; height: 120px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.8);
+      border: 1px solid rgba(0,0,0,.15);
+      box-shadow: 0 6px 18px rgba(0,0,0,.2);
+      z-index: 5;
+      pointer-events: none; /* visual only; let main SVG handle input */
+    }
+    body.dark-theme .mm-minimap {
+      background: rgba(0,0,0,.55);
+      border-color: rgba(255,255,255,.22);
+    }
+    .mm-minimap.hidden { display:none; }
+    .mm-minimap .mm-mini-links path {
+      vector-effect: non-scaling-stroke;
+      stroke-width: .8;
+      stroke: #6b7280;
+      stroke-opacity: .6;
+      fill: none;
+    }
+    body.dark-theme .mm-minimap .mm-mini-links path {
+      stroke: #a8b1b8;
+      stroke-opacity: .7;
+    }
+    .mm-minimap .mm-mini-viewport {
+      fill: none;
+      stroke: #111827;
+      stroke-width: 2;
+      stroke-opacity: .9;
+      rx: 3; ry: 3;
+    }
+    body.dark-theme .mm-minimap .mm-mini-viewport { stroke: #e5e7eb; }
+
+    /* Scroll gutters: wheel here scrolls the page, not the map */
+    :root { --mm-scroll-gutter: 36px; }
+    @media (min-width: 992px) { :root { --mm-scroll-gutter: 48px; } }
+
+    .mm-scroll-gutter {
+      position: absolute; top: 0; bottom: 0; width: var(--mm-scroll-gutter);
+      background: transparent; z-index: 8; pointer-events: auto;
+    }
+    .mm-scroll-gutter.left  { left: 0; }
+    .mm-scroll-gutter.right { right: 0; }
+    /* subtle hint on hover (optional) */
+    .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(0,0,0,.06), transparent); }
+    .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(0,0,0,.06), transparent); }
+    body.dark-theme .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(255,255,255,.06), transparent); }
+    body.dark-theme .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(255,255,255,.06), transparent); }
+  `;
+  document.head.appendChild(s);
+})();
+
 class TreeManager {
   constructor() {
     this.trees = [];
@@ -190,6 +254,10 @@ class TreeManager {
 
     // Install/update the floating toolbar
     this.installToolbar(tree, mm, root);
+
+    // Add scroll gutters and mini-map
+    this._ensureScrollGutters(svg.closest('.markmap-container'));
+    this._ensureMiniMap(tree.id, svg);
     try {
       // ensure labels are bright in dark theme (html labels too)
       const isDark = document.body.classList.contains('dark-theme');
@@ -564,6 +632,10 @@ class TreeManager {
 
         // Install/update the floating toolbar
         this.installToolbar(tree, mm, root);
+
+        // Add scroll gutters and mini-map
+        this._ensureScrollGutters(svg.closest('.markmap-container'));
+        this._ensureMiniMap(tree.id, svg);
         
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
@@ -813,6 +885,139 @@ class TreeManager {
           else mm.fit();
         } catch(_) { mm.fit(); }
       });
+  }
+
+  // Create left/right transparent overlays so the page can always scroll
+  _ensureScrollGutters(host) {
+    if (!host) return;
+    if (!host.querySelector('.mm-scroll-gutter.left')) {
+      const left = document.createElement('div');
+      left.className = 'mm-scroll-gutter left';
+      host.appendChild(left);
+    }
+    if (!host.querySelector('.mm-scroll-gutter.right')) {
+      const right = document.createElement('div');
+      right.className = 'mm-scroll-gutter right';
+      host.appendChild(right);
+    }
+    // No handlers needed: default wheel/scroll bubbles to the page here.
+  }
+
+  // Build/maintain the mini-map and live viewport rectangle
+  _ensureMiniMap(treeId, svg) {
+    const host = svg.closest('.markmap-container');
+    if (!host) return;
+
+    // Create mini SVG once
+    let mini = host.querySelector('.mm-minimap');
+    const NS = 'http://www.w3.org/2000/svg';
+    if (!mini) {
+      mini = document.createElementNS(NS, 'svg');
+      mini.classList.add('mm-minimap');
+      mini.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+      const linksLayer = document.createElementNS(NS, 'g');
+      linksLayer.classList.add('mm-mini-links');
+      mini.appendChild(linksLayer);
+
+      const vp = document.createElementNS(NS, 'rect');
+      vp.classList.add('mm-mini-viewport');
+      mini.appendChild(vp);
+
+      host.appendChild(mini);
+    }
+
+    const linksLayer = mini.querySelector('.mm-mini-links');
+    const vpRect     = mini.querySelector('.mm-mini-viewport');
+
+    // Utility: union bbox of all nodes + links (content bounds in content coords)
+    const getContentBBox = () => {
+      const els = svg.querySelectorAll('path.markmap-link, g.markmap-node');
+      let x1 =  Infinity, y1 =  Infinity, x2 = -Infinity, y2 = -Infinity;
+      els.forEach(el => {
+        try {
+          const b = el.getBBox();
+          x1 = Math.min(x1, b.x);
+          y1 = Math.min(y1, b.y);
+          x2 = Math.max(x2, b.x + b.width);
+          y2 = Math.max(y2, b.y + b.height);
+        } catch (_) {}
+      });
+      if (!isFinite(x1)) return { x:0, y:0, width:100, height:100 };
+      return { x:x1, y:y1, width:(x2 - x1), height:(y2 - y1) };
+    };
+
+    // Copy (lightweight) the tree links into the mini-map
+    const rebuildMiniLinks = () => {
+      linksLayer.innerHTML = '';
+      const paths = svg.querySelectorAll('path.markmap-link');
+      paths.forEach(p => {
+        const miniPath = document.createElementNS(NS, 'path');
+        miniPath.setAttribute('d', p.getAttribute('d') || '');
+        linksLayer.appendChild(miniPath);
+      });
+    };
+
+    // Update mini viewport rectangle to reflect the visible area
+    const updateViewport = () => {
+      const bbox = getContentBBox();
+      mini.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+
+      // Find the group with the transform (parent of nodes/links)
+      const contentG = svg.querySelector('g') || svg;
+      const ctm = contentG.getCTM && contentG.getCTM();
+      if (!ctm) return;
+
+      const inv = ctm.inverse();
+      const pt = svg.createSVGPoint();
+
+      pt.x = 0; pt.y = 0;
+      const tl = pt.matrixTransform(inv);
+      pt.x = svg.clientWidth; pt.y = svg.clientHeight;
+      const br = pt.matrixTransform(inv);
+
+      const vx = Math.min(tl.x, br.x);
+      const vy = Math.min(tl.y, br.y);
+      const vw = Math.abs(br.x - tl.x);
+      const vh = Math.abs(br.y - tl.y);
+
+      vpRect.setAttribute('x', vx);
+      vpRect.setAttribute('y', vy);
+      vpRect.setAttribute('width',  vw);
+      vpRect.setAttribute('height', vh);
+    };
+
+    // Initial build & position
+    rebuildMiniLinks();
+    updateViewport();
+
+    // Rebuild paths when DOM changes (expand/collapse)
+    if (!host._miniObserver) {
+      const mo = new MutationObserver(() => {
+        clearTimeout(host._miniDeb);
+        host._miniDeb = setTimeout(() => { rebuildMiniLinks(); updateViewport(); }, 120);
+      });
+      mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d','transform'] });
+      host._miniObserver = mo;
+    }
+
+    // Keep viewport rectangle in sync on resize and zoom/pan
+    if (!host._miniResize) {
+      const ro = new ResizeObserver(() => updateViewport());
+      ro.observe(svg);
+      host._miniResize = ro;
+    }
+    try {
+      // If d3 is present, piggyback on the zoom event
+      if (window.d3 && window.d3.select) {
+        window.d3.select(svg).on('zoom.mmMini', () => { requestAnimationFrame(updateViewport); });
+      } else {
+        // Fallback: listen to common interactions
+        ['wheel','pointermove','pointerup','transitionend'].forEach(ev =>
+          svg.addEventListener(ev, () => requestAnimationFrame(updateViewport), { passive: true })
+        );
+      }
+    } catch(_) {}
   }
 }
 
