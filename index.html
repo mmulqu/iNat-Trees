@@ -333,6 +333,29 @@
       position: relative;
       z-index: 100;
     }
+
+    /* Make the results card go edge-to-edge without refactoring containers */
+    #resultsCard {
+      margin-left: calc(50% - 50vw);
+      width: 100vw;
+      border-radius: 0;
+    }
+
+    /* Give the tree real vertical room. dvh works better on mobile browsers */
+    .markmap-container {
+      height: calc(100dvh - 64px); /* ~ navbar height; tweak if needed */
+    }
+
+    /* When in Fullscreen, let the canvas own the screen */
+    :fullscreen .markmap-container { height: 100dvh; }
+
+    /* Place toolbars over the canvas */
+    .tab-pane { position: relative; }
+    .mm-toolbar {
+      position: absolute; top: .5rem; right: .5rem; z-index: 5;
+      display: flex; gap: .5rem; align-items: center;
+    }
+    .mm-toolbar .form-select, .mm-toolbar .btn { padding: .25rem .5rem; }
   </style>
 </head>
 <body>
