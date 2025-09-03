@@ -164,7 +164,32 @@ class TreeManager {
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
-    const mm = Markmap.create(svg, { htmlLabels: true }, root);
+
+    // Better defaults + persisted expand level
+    const expandLevel = Number(localStorage.getItem('mm_expand_level') ?? 2);
+    const mm = Markmap.create(svg, {
+      htmlLabels: true,
+      autoFit: true,
+      fitRatio: 0.98,
+      pan: true,
+      zoom: true,
+      scrollForPan: true,
+      initialExpandLevel: expandLevel,
+      spacingHorizontal: 60,
+      spacingVertical: 14,
+      nodeMinHeight: 10
+    }, root);
+
+    // Keep a handle + keep fitting
+    tree._mm = mm;
+    const pane = svg.closest('.tab-pane');
+    if (tree._ro) try { tree._ro.disconnect(); } catch(_) {}
+    tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
+    if (pane) tree._ro.observe(pane);
+    requestAnimationFrame(() => mm.fit());
+
+    // Install/update the floating toolbar
+    this.installToolbar(tree, mm, root);
     try {
       // ensure labels are bright in dark theme (html labels too)
       const isDark = document.body.classList.contains('dark-theme');
@@ -368,10 +393,20 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    // Create markmap and let it try to color nodes initially from content
+    // Better defaults + persisted expand level
+    const expandLevel = Number(localStorage.getItem('mm_expand_level') ?? 2);
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       duration: 500,
+      autoFit: true,
+      fitRatio: 0.98,
+      pan: true,
+      zoom: true,
+      scrollForPan: true,
+      initialExpandLevel: expandLevel,
+      spacingHorizontal: 60,
+      spacingVertical: 14,
+      nodeMinHeight: 10,
       color: (node) => {
         const haystacks = [node.v, node.content, node.payload?.content];
         for (const s of haystacks) {
@@ -384,6 +419,14 @@ class TreeManager {
         return undefined; // let default palette handle others
       }
     }, root);
+
+    // Keep a handle + keep fitting
+    tree._mm = mm;
+    const pane = svg.closest('.tab-pane');
+    if (tree._ro) try { tree._ro.disconnect(); } catch(_) {}
+    tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
+    if (pane) tree._ro.observe(pane);
+    requestAnimationFrame(() => mm.fit());
   
     // Helper: determine a node's color based on its HTML label
     const getNodeColor = (gNode) => {
@@ -518,6 +561,9 @@ class TreeManager {
           this.applyComparisonStatsColors(tree);   // <— NEW
           this.createBattleSummary(tree);
         }
+
+        // Install/update the floating toolbar
+        this.installToolbar(tree, mm, root);
         
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
@@ -713,6 +759,60 @@ class TreeManager {
         el.style.setProperty('color', COLOR_SHARED, 'important');
       }
     });
+  }
+
+  installToolbar(tree, mm, root) {
+    const tabContent = document.getElementById(`${tree.id}-content`);
+    if (!tabContent) return;
+
+    // Remove an old toolbar if we re-rendered
+    const old = tabContent.querySelector('.mm-toolbar');
+    if (old) old.remove();
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'mm-toolbar';
+    toolbar.innerHTML = `
+      <button class="btn btn-sm btn-light" data-act="fit" title="Fit">
+        <i class="bi bi-aspect-ratio"></i>
+      </button>
+      <select class="form-select form-select-sm w-auto" data-act="expand" title="Expand level">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="-1">All</option>
+      </select>
+      <button class="btn btn-sm btn-light" data-act="center" title="Center root">
+        <i class="bi bi-crosshair"></i>
+      </button>
+    `;
+    tabContent.appendChild(toolbar);
+
+    // Init expand select from storage
+    const sel = toolbar.querySelector('[data-act="expand"]');
+    sel.value = String(localStorage.getItem('mm_expand_level') ?? 2);
+
+    // Wire up actions
+    toolbar.querySelector('[data-act="fit"]')
+      .addEventListener('click', () => { try { mm.fit(); } catch(_){} });
+
+    sel.addEventListener('change', (e) => {
+      const v = Number(e.target.value);
+      localStorage.setItem('mm_expand_level', String(v));
+      try {
+        mm.setOptions({ initialExpandLevel: v });
+        mm.renderData(root);
+        requestAnimationFrame(() => mm.fit());
+      } catch (_) {}
+    });
+
+    toolbar.querySelector('[data-act="center"]')
+      .addEventListener('click', async () => {
+        try {
+          if (typeof mm.centerNode === 'function') await mm.centerNode(mm.state.data);
+          else mm.fit();
+        } catch(_) { mm.fit(); }
+      });
   }
 }
 
