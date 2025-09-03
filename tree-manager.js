@@ -368,176 +368,97 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    // Store the transformed root for reference
-    this.currentTreeRoot = root;
-  
-    // Create markmap with node coloring
+    // Let Markmap try to color by node content too (works at initial render)
+    // Ref: IMarkmapOptions.color (function) :contentReference[oaicite:1]{index=1}
     const mm = Markmap.create(svg, {
       htmlLabels: true,
+      duration: 500,
       color: (node) => {
-        const searchIn = [node.v, node.content, node.payload?.content, JSON.stringify(node)];
-        for (const s of searchIn) {
+        const haystacks = [node.v, node.content, node.payload?.content];
+        for (const s of haystacks) {
           if (s && typeof s === 'string') {
-            if (s.includes('user1-node')) return '#dc2626';
-            if (s.includes('user2-node')) return '#2563eb';
-            if (s.includes('shared-node')) return '#9333ea';
+            if (s.includes('user1-node')) return '#dc2626';     // red
+            if (s.includes('user2-node')) return '#2563eb';     // blue
+            if (s.includes('shared-node')) return '#9333ea';    // purple
           }
         }
-        return null;
-      },
-      duration: 500
+        return undefined; // let default scheme handle others
+      }
     }, root);
   
-    // Helper to determine node color based on classes
+    // Utility: infer color from the HTML label inside a node
     const getNodeColor = (gNode) => {
       const foreign = gNode.querySelector('foreignObject');
       if (!foreign) return null;
-      
       const has1 = !!foreign.querySelector('.user1-node');
       const has2 = !!foreign.querySelector('.user2-node');
       const hasShared = !!foreign.querySelector('.shared-node');
-      
       if (hasShared || (has1 && has2)) return '#9333ea';
       if (has1) return '#dc2626';
       if (has2) return '#2563eb';
       return null;
     };
   
-    // Build a color rule map from the tree structure
-    const buildColorRules = (treeNode, parentColor = null) => {
-      const rules = new Map();
-      
-      // Determine this node's color from its content
-      let nodeColor = null;
-      const content = treeNode.v || treeNode.content || '';
-      if (content.includes('user1-node')) nodeColor = '#dc2626';
-      else if (content.includes('user2-node')) nodeColor = '#2563eb';
-      else if (content.includes('shared-node')) nodeColor = '#9333ea';
-      
-      // If this node has children, process them
-      if (treeNode.c && Array.isArray(treeNode.c)) {
-        treeNode.c.forEach(child => {
-          // The path TO this child should be colored based on the child's color
-          const childRules = buildColorRules(child, nodeColor);
-          childRules.forEach((color, key) => rules.set(key, color));
-        });
-      }
-      
-      // Store this node's color
-      if (nodeColor && content) {
-        // Extract text content for matching
-        const cleanContent = content.replace(/<[^>]*>/g, '').trim();
-        if (cleanContent) {
-          rules.set(cleanContent, nodeColor);
-        }
-      }
-      
-      return rules;
-    };
-  
-    // Color elements after rendering
+    // Color nodes + links by matching their shared data-path attribute
+    // Markmap renders <path class="markmap-link" data-path="..."> and
+    // <g class="markmap-node" data-path="..."> for the SAME node. :contentReference[oaicite:2]{index=2}
     const colorElements = () => {
-      // Build color rules from tree structure
-      const colorRules = buildColorRules(root);
-      
-      // Color all nodes and remember their colors
-      const nodeColors = new Map();
-      const nodes = svg.querySelectorAll('g.markmap-node');
-      
-      nodes.forEach(node => {
-        const color = getNodeColor(node);
-        if (color) {
-          nodeColors.set(node, color);
-          
-          // Color circle
-          const circle = node.querySelector('circle');
-          if (circle) {
-            circle.style.stroke = color;
-            circle.style.fill = color;
-          }
-          
-          // Store text content for matching
-          const text = node.textContent?.trim();
-          if (text) {
-            nodeColors.set(text, color);
-          }
+      const nodeColorByPath = new Map();
+  
+      // First pass: paint nodes and collect colors keyed by data-path
+      svg.querySelectorAll('g.markmap-node').forEach((g) => {
+        const pathKey = g.getAttribute('data-path');
+        if (!pathKey) return;
+  
+        const color = getNodeColor(g);
+        if (!color) return;
+  
+        nodeColorByPath.set(pathKey, color);
+  
+        // paint the node’s line + circle
+        const line = g.querySelector('line');
+        if (line) line.setAttribute('stroke', color);
+        const circle = g.querySelector('circle');
+        if (circle) {
+          circle.setAttribute('stroke', color);
+          circle.setAttribute('fill', color);
         }
       });
   
-      // Color paths based on their following node
-      const paths = svg.querySelectorAll('path');
-      const nodeArray = Array.from(nodes);
-      
-      paths.forEach(path => {
-        // Find which node this path leads to
-        // Paths in Markmap typically appear just before their target node in DOM order
-        let targetNode = null;
-        let targetColor = null;
-        
-        // Check immediate next sibling
-        let nextSibling = path.nextElementSibling;
-        if (nextSibling && nextSibling.classList.contains('markmap-node')) {
-          targetNode = nextSibling;
-          targetColor = nodeColors.get(targetNode);
-        }
-        
-        // If not found, look through all nodes and find the one that follows this path
-        if (!targetColor) {
-          const pathIndex = Array.from(svg.children).indexOf(path);
-          for (let i = 0; i < nodeArray.length; i++) {
-            const nodeIndex = Array.from(svg.children).indexOf(nodeArray[i]);
-            if (nodeIndex > pathIndex) {
-              // This is the first node after the path
-              targetNode = nodeArray[i];
-              targetColor = nodeColors.get(targetNode);
-              break;
-            }
-          }
-        }
-        
-        // Apply the color
-        if (targetColor) {
-          path.style.stroke = targetColor;
-          path.setAttribute('stroke', targetColor);
-          path.style.cssText = `stroke: ${targetColor} !important; stroke-opacity: 1 !important; fill: none !important;`;
-        } else {
-          // Fallback: if we still don't have a color, make it gray but visible
-          path.style.cssText = `stroke: #6b7280 !important; stroke-opacity: 0.5 !important; fill: none !important;`;
-        }
+      // Second pass: paint each link using the destination node’s color
+      svg.querySelectorAll('path.markmap-link').forEach((p) => {
+        const pathKey = p.getAttribute('data-path');
+        if (!pathKey) return;
+        const color = nodeColorByPath.get(pathKey);
+        if (!color) return;
+        p.setAttribute('stroke', color);
+        p.style.stroke = color;
+        p.style.strokeOpacity = '1';
+        p.style.fill = 'none';
       });
     };
   
-    // Run after Markmap completes
-    setTimeout(() => {
-      requestAnimationFrame(colorElements);
-    }, 800);
+    // Run after Markmap completes its first render
+    setTimeout(() => requestAnimationFrame(colorElements), 600);
   
-    // Re-apply on expand/collapse
+    // Re-apply on expand/collapse (Markmap mutates the SVG)
     svg.addEventListener('click', () => {
-      setTimeout(() => {
-        requestAnimationFrame(colorElements);
-      }, 700);
+      setTimeout(() => requestAnimationFrame(colorElements), 400);
     });
   
-    // Dark mode handling
+    // Dark mode: brighten text and html labels
     try {
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
           const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { 
-            t.setAttribute('fill', '#f8fafc'); 
-            t.style.opacity = '0.96'; 
-          });
-          const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { 
-            el.style.color = '#f8fafc'; 
-          });
+          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          svg.querySelectorAll('.markmap-foreign *').forEach(el => { el.style.color = '#f8fafc'; });
         }, 0);
       }
     } catch (_) {}
   
-    // Stats dashboard code
+    // Stats dashboard (unchanged)
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
@@ -556,6 +477,7 @@ class TreeManager {
       }
     }
   }
+  
 
   createBattleSummary(tree) {
     // First, remove any existing battle-summary elements to prevent duplicates
