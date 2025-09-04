@@ -74,12 +74,12 @@
     body.dark-theme .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(255,255,255,.06), transparent); }
     body.dark-theme .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(255,255,255,.06), transparent); }
 
-    /* Keep the toolbar clickable by staying clear of the right scroll gutter */
+    /* Floating toolbar stays clickable and outside scroll gutters */
     .mm-toolbar{
-      position: absolute;
+      position: fixed;
       top: 12px;
-      right: calc(var(--mm-scroll-gutter) + 12px); /* ← moves it inside the safe area */
-      z-index: 20;                                  /* above gutters & svg */
+      right: calc(var(--mm-scroll-gutter) + 12px);
+      z-index: 2147483647; /* above gutters/minimap */
       display: flex;
       gap: .5rem;
       align-items: center;
@@ -92,12 +92,13 @@
     }
     .mm-toolbar .form-select.form-select-sm{ padding:.15rem .5rem; height:28px; }
     .mm-toolbar .btn.btn-sm{ height:28px; display:flex; align-items:center; }
+    .mm-toolbar .btn,
+    .mm-toolbar .form-select { box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 
-    /* Ensure dropdown opens neatly on the right edge */
-    .mm-toolbar .dropdown-menu { right: 0; left: auto; }
-
-    /* Bluesky glyph sizing in the button */
-    .mm-toolbar .bsky-svg { display:block; width: 16px; height: 16px; fill: currentColor; }
+    /* Optional: compact on small screens */
+    @media (max-width: 576px){
+      .mm-toolbar{ top: 8px; right: calc(var(--mm-scroll-gutter) + 8px); gap: .35rem; }
+    }
   `;
   document.head.appendChild(s);
 })();
@@ -899,9 +900,11 @@ class TreeManager {
         </ul>
       </div>
 
-      <button class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
-              data-act="share-bsky" title="Share on Bluesky">
-        <span class="bsky-icon" aria-hidden="true"></span>
+      <!-- Bluesky (butterfly icon inline SVG) -->
+      <button class="btn btn-sm btn-light" data-act="share-bsky" title="Share on Bluesky" aria-label="Share on Bluesky">
+        <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+          <path d="M53 32c19 0 36 16 75 58 39-42 56-58 75-58 15 0 26 10 26 24 0 14-10 27-31 41 27 9 41 23 41 41 0 14-9 24-23 24-21 0-42-18-63-35-4-3-8-7-12-10-4 3-8 7-12 10-21 17-42 35-63 35-14 0-23-10-23-24 0-18 14-32 41-41-21-14-31-27-31-41 0-14 11-24 26-24z"/>
+        </svg>
       </button>
     `;
 
@@ -933,11 +936,6 @@ class TreeManager {
         } catch { mm.fit(); }
       });
 
-    // Load Bluesky icon
-    const shareBtn = toolbar.querySelector('[data-act="share-bsky"]');
-    const shareIconHost = toolbar.querySelector('.bsky-icon');
-    if (shareIconHost) this._loadBlueskyIcon(shareIconHost);
-
     // NEW: export + share
     toolbar.querySelector('[data-act="export-svg"]')
       ?.addEventListener('click', (e) => { e.preventDefault(); this._exportSVG(tree); });
@@ -945,7 +943,8 @@ class TreeManager {
     toolbar.querySelector('[data-act="export-png"]')
       ?.addEventListener('click', (e) => { e.preventDefault(); this._exportPNG(tree); });
 
-    shareBtn?.addEventListener('click', () => this._shareBluesky(tree));
+    toolbar.querySelector('[data-act="share-bsky"]')
+      ?.addEventListener('click', () => this._shareBluesky(tree));
   }
 
   // Always keep page-scrollable gutters around the map
@@ -1122,65 +1121,55 @@ _ensureMiniMap(treeId, svg) {
   } catch (_) {}
 }
 
-  _fileSafeName(s){
-    return String(s||'').replace(/[^\w\-]+/g,'_').replace(/_{2,}/g,'_').replace(/^_+|_+$/g,'');
+  _fileSafeName(s) {
+    return String(s || '').replace(/[^\w\-]+/g, '_').replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
   }
-  _treeLabel(tree){
-    const who = tree.isComparison ? `${tree.username1}_vs_${tree.username2}` : (tree.username||'user');
+
+  _treeLabel(tree) {
+    const who = tree.isComparison ? `${tree.username1}_vs_${tree.username2}` : (tree.username || 'user');
     const what = tree.taxonName || `Taxon_${tree.taxonId}`;
     return `${who}-${what}`;
   }
-  /** Compute a tight bbox from what's currently visible, including HTML labels. */
-  _computeTightBBox(svg, pad = 16) {
-    const rootCTM = svg.getScreenCTM?.();
-    if (!rootCTM) {
-      // Fallback: top content group bbox
-      try {
-        const g = svg.querySelector('g') || svg;
-        const b = g.getBBox();
-        return { x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 };
-      } catch { return { x: 0, y: 0, width: svg.clientWidth || 1200, height: svg.clientHeight || 800 }; }
-    }
-    const inv = rootCTM.inverse();
 
-    const els = svg.querySelectorAll('path.markmap-link, g.markmap-node, foreignObject, text, circle, line');
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    els.forEach(el => {
-      const r = el.getBoundingClientRect?.();
-      if (!r || (!r.width && !r.height)) return;
-      const corners = [
-        new DOMPoint(r.left,  r.top).matrixTransform(inv),
-        new DOMPoint(r.right, r.top).matrixTransform(inv),
-        new DOMPoint(r.right, r.bottom).matrixTransform(inv),
-        new DOMPoint(r.left,  r.bottom).matrixTransform(inv),
-      ];
-      corners.forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      });
-    });
-
-    if (!isFinite(minX)) {
-      return { x: 0, y: 0, width: svg.clientWidth || 1200, height: svg.clientHeight || 800 };
-    }
-    return { x: minX - pad, y: minY - pad, width: (maxX - minX) + pad * 2, height: (maxY - minY) + pad * 2 };
+  /** Get the top-level content group (Markmap uses a single <g> under the SVG root). */
+  _getContentGroup(svg) {
+    // Prefer direct child <g> of the svg; fallback to first <g>
+    return svg.querySelector(':scope > g') || svg.querySelector('g');
   }
 
-  /** Serialize current SVG to a tight, standalone SVG string. */
-  _serializeSvgForExport(svg, pad = 16) {
-    const bbox = this._computeTightBBox(svg, pad);
+  /** Compute a tight bbox that includes nodes, links, labels & connectors in *content coords*. */
+  _getTightContentBBox(svg) {
+    const g = this._getContentGroup(svg);
+    if (!g) {
+      // fallback: whole svg viewport
+      return { x: 0, y: 0, width: svg.clientWidth || 1200, height: svg.clientHeight || 800 };
+    }
+    // getBBox on the content group already includes its descendants
+    const b = g.getBBox(); // in the group's local user space
+    // small padding so strokes/text aren't clipped
+    const pad = 4;
+    return { x: b.x - pad, y: b.y - pad, width: b.width + 2*pad, height: b.height + 2*pad };
+  }
+
+  /** Clone the SVG with pan/zoom neutralized (remove transform on content group) and a tight viewBox. */
+  _serializeSvgForExport(svg) {
     const clone = svg.cloneNode(true);
 
-    // Tight viewBox + width/height in px to match aspect
-    clone.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
-    clone.setAttribute('width',  Math.ceil(bbox.width));
-    clone.setAttribute('height', Math.ceil(bbox.height));
-    clone.removeAttribute('style'); // avoid layout side effects
+    // Normalize the content group: drop any pan/zoom transform
+    const g = this._getContentGroup(clone);
+    if (g) g.removeAttribute('transform');
 
-    // Embedded minimal styles so the file stands alone
+    // Compute tight bbox *after* neutralizing transform
+    // (use the original SVG to read geometry; it's fine, both share structure)
+    const bbox = this._getTightContentBBox(svg);
+
+    clone.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+    clone.setAttribute('width', Math.ceil(bbox.width));
+    clone.setAttribute('height', Math.ceil(bbox.height));
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+    // Minimal embedded style so links/text render correctly when standalone
     const style = document.createElement('style');
     style.textContent = `
       text, tspan { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
@@ -1188,55 +1177,60 @@ _ensureMiniMap(treeId, svg) {
     `;
     clone.insertBefore(style, clone.firstChild);
 
-    const xml = new XMLSerializer().serializeToString(clone);
-    const svgText = `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
+    const svgText = `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
     return { svgText, bbox };
   }
-  _downloadBlob(filename, blob){
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url; a.download=filename;
-    document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
+  _downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+
+  /** Build a PNG Blob from the current SVG (tight bbox, centered). */
+  _makePNGBlobFromSVG(svg, scale = 2) {
+    return new Promise((resolve, reject) => {
+      const { svgText, bbox } = this._serializeSvgForExport(svg);
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        const w = Math.max(1, Math.ceil(bbox.width  * scale));
+        const h = Math.max(1, Math.ceil(bbox.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const isDark = document.body.classList.contains('dark-theme');
+        ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('PNG encode failed')), 'image/png');
+      };
+      img.onerror = () => reject(new Error('Failed to rasterize SVG'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+    });
   }
   _exportSVG(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
-    const { svgText } = this._serializeSvgForExport(svg, 16);
+    const { svgText } = this._serializeSvgForExport(svg);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.svg`);
     this._downloadBlob(name, new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' }));
   }
 
-  _exportPNG(tree, scale = Math.max(2, Math.ceil(window.devicePixelRatio || 2))) {
+  async _exportPNG(tree, scale = 2) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
-    const { svgText, bbox } = this._serializeSvgForExport(svg, 16);
-    const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
-
-    const img = new Image();
-    img.decoding = 'async';
-    img.onload = () => {
-      const w = Math.max(1, Math.ceil(bbox.width  * scale));
-      const h = Math.max(1, Math.ceil(bbox.height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-
-      const ctx = canvas.getContext('2d', { alpha: false });
-      const isDark = document.body.classList.contains('dark-theme');
-      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
-        this._downloadBlob(name, blob);
-      }, 'image/png', 1);
-    };
-    img.onerror = () => console.error('PNG export: failed to load serialized SVG image');
-    img.src = svgUrl;
+    const blob = await this._makePNGBlobFromSVG(svg, scale);
+    const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
+    this._downloadBlob(name, blob);
   }
-  /** Open Bluesky compose with text, and try to put the PNG on clipboard so the user can paste. */
-  _shareBluesky(tree) {
+  /** Share to Bluesky. Uses Web Share API with file when supported; otherwise opens composer and copies PNG to clipboard. */
+  async _shareBluesky(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
 
@@ -1247,77 +1241,44 @@ _ensureMiniMap(treeId, svg) {
         : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
       ) + `\nBuilt with iNat Tree Viewer`;
 
-    const shareUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
-
-    // Prepare a PNG and try to copy it to clipboard
-    const { svgText, bbox } = this._serializeSvgForExport(svg, 16);
-    const img = new Image();
-    img.decoding = 'async';
-    img.onload = async () => {
-      try {
-        const scale = Math.max(2, Math.ceil(window.devicePixelRatio || 2));
-        const canvas = document.createElement('canvas');
-        canvas.width  = Math.ceil(bbox.width  * scale);
-        canvas.height = Math.ceil(bbox.height * scale);
-
-        const ctx = canvas.getContext('2d', { alpha: false });
-        const isDark = document.body.classList.contains('dark-theme');
-        ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 1));
-        if (blob && navigator.clipboard?.write) {
-          await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
-          // Toast hint
-          const note = document.createElement('div');
-          note.textContent = 'PNG copied. In Bluesky, press ⌘V / Ctrl+V to attach.';
-          Object.assign(note.style, {
-            position: 'fixed', bottom: '16px', right: '16px',
-            background: 'rgba(0,0,0,.8)', color: '#fff', padding: '8px 12px',
-            borderRadius: '8px', zIndex: 99999, fontSize: '12px'
-          });
-          if (document.body.classList.contains('dark-theme')) note.style.background = 'rgba(255,255,255,.15)';
-          document.body.appendChild(note);
-          setTimeout(() => note.remove(), 3500);
-        }
-      } catch (err) {
-        console.warn('Clipboard image copy failed; user can attach manually.', err);
-      } finally {
-        window.open(shareUrl, '_blank', 'noopener');
+    // Try native share with an attached PNG (mobile Safari/Chrome support this)
+    try {
+      const pngBlob = await this._makePNGBlobFromSVG(svg, 2);
+      const file = new File([pngBlob], this._fileSafeName(`${title}.png`), { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ text, files: [file] });
+        return;
       }
-    };
-    img.onerror = () => {
-      console.warn('Could not rasterize PNG for clipboard; opening composer without it.');
-      window.open(shareUrl, '_blank', 'noopener');
-    };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+    } catch {}
+
+    // Fallback: open Bluesky composer with text + URL, and copy PNG to clipboard for quick paste.
+    const base = 'https://bsky.app/intent/compose';
+    const url  = `${base}?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
+    window.open(url, '_blank', 'noopener');
+
+    try {
+      const pngBlob = await this._makePNGBlobFromSVG(svg, 2);
+      // Copy to clipboard so user can paste into the composer
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+        this._toast('PNG copied to clipboard — paste it into the Bluesky composer.');
+      }
+    } catch {}
   }
 
-  /** Load the Bluesky butterfly (Simple Icons) into a target span; fallback to 🦋. */
-  async _loadBlueskyIcon(intoEl) {
-    if (!intoEl) return;
-    const sources = [
-      'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/bluesky.svg',
-      'https://unpkg.com/simple-icons@latest/icons/bluesky.svg',
-      'https://cdn.simpleicons.org/bluesky' // some CDNs support this path
-    ];
-    for (const url of sources) {
-      try {
-        const res = await fetch(url, { mode: 'cors' });
-        if (!res.ok) continue;
-        const svg = (await res.text()).trim();
-        if (!svg.startsWith('<svg')) continue;
-        // Normalize sizing and let it inherit currentColor
-        const normalized = svg
-          .replace('<svg', '<svg class="bsky-svg" viewBox="0 0 24 24" aria-hidden="true"')
-          .replace(/fill="[^"]*"/g, 'fill="currentColor"');
-        intoEl.innerHTML = normalized;
-        return;
-      } catch (_) {}
-    }
-    // Fallback: emoji
-    intoEl.textContent = '🦋';
+  /* tiny toast */
+  _toast(msg){
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position: 'fixed', bottom: '16px', right: '16px',
+      background: 'rgba(0,0,0,.8)', color: '#fff',
+      padding: '8px 12px', borderRadius: '8px',
+      zIndex: 2147483647, fontSize: '12px'
+    });
+    if (document.body.classList.contains('dark-theme')) el.style.background = 'rgba(255,255,255,.15)';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
   }
 
   // Infer user color from a node's HTML label, if present
