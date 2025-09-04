@@ -89,9 +89,6 @@
     .mm-toolbar .btn,
     .mm-toolbar .form-select { box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 
-    /* Small Bluesky button with the butterfly */
-    .btn-bsky { display:inline-flex; align-items:center; gap:.35rem; }
-    .btn-bsky img { width:16px; height:16px; display:block; }
 
     /* Optional: slightly tighter dropdown on the export group */
     .mm-toolbar .dropdown-menu { min-width: 10rem; }
@@ -398,7 +395,7 @@ class TreeManager {
         }, 0);
       }
     } catch (_) {}
-  
+
     // Stats dashboard (unchanged)
     try {
       const tabContent = document.getElementById(`${tree.id}-content`);
@@ -571,7 +568,7 @@ class TreeManager {
       .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
-
+  
 
   renderComparisonTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
@@ -635,7 +632,7 @@ class TreeManager {
         }, 0);
       }
     } catch (_) {}
-  
+
     // Stats dashboard (unchanged)
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
@@ -677,13 +674,13 @@ class TreeManager {
     const COLOR_USER1  = '#dc2626'; // red
     const COLOR_USER2  = '#2563eb'; // blue
     const COLOR_SHARED = '#9333ea'; // purple
-  
+
     const statsContainer = document.createElement('div');
     statsContainer.className = 'battle-summary mt-4';
-  
+
     // Use the statistics data if available
     let user1Count = 0, user2Count = 0, user1Only = 0, user2Only = 0, shared = 0;
-  
+
     if (tree.stats && tree.stats.user1 && tree.stats.user2 && tree.stats.shared) {
       user1Count = tree.stats.user1.withShared.total || 0;
       user2Count = tree.stats.user2.withShared.total || 0;
@@ -698,7 +695,7 @@ class TreeManager {
       user2Only  = tree.stats.user2Only  || 0;
       shared     = tree.stats.shared     || 0;
     }
-  
+
     const total = user1Only + user2Only + shared;
     const user1Percent  = total > 0 ? Math.round((user1Only / total) * 100) : 0;
     const user2Percent  = total > 0 ? Math.round((user2Only / total) * 100) : 0;
@@ -777,7 +774,7 @@ class TreeManager {
       root.style.paddingLeft = '8px';
       root.style.paddingRight = '8px';
     };
-  
+
     if (tabContent) {
       tabContent.appendChild(statsContainer);
       applyColors(statsContainer);
@@ -893,11 +890,6 @@ class TreeManager {
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
         </ul>
       </div>
-
-      <button class="btn btn-sm btn-light btn-bsky" data-act="share-bsky" title="Share on Bluesky">
-        <img alt="Bluesky" src="https://upload.wikimedia.org/wikipedia/commons/5/5c/Bluesky_Social_butterfly_logo_icon.svg">
-        Share
-      </button>
     `;
 
     host.appendChild(toolbar);
@@ -933,9 +925,6 @@ class TreeManager {
 
     toolbar.querySelector('[data-act="export-png"]')
       ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportPNG(tree); });
-
-    toolbar.querySelector('[data-act="share-bsky"]')
-      ?.addEventListener('click', ()=> this._shareBluesky(tree));
   }
 
   // Always keep page-scrollable gutters around the map
@@ -1013,15 +1002,30 @@ _ensureMiniMap(treeId, svg) {
     linksLayer.innerHTML = '';
     connsLayer.innerHTML = '';
 
-    // 1) Curved links (carry over user classes)
+    // helper: read the stroke we applied on the main element (attr, style, or computed)
+    const readStroke = (el) => {
+      return el.getAttribute('stroke')
+          || el.style?.stroke
+          || (window.getComputedStyle ? getComputedStyle(el).stroke : null)
+          || null;
+    };
+
+    // 1) Curved links (carry over edge classes AND stroke color)
     svg.querySelectorAll('path.markmap-link').forEach(p => {
       const miniPath = document.createElementNS(NS, 'path');
       miniPath.setAttribute('d', p.getAttribute('d') || '');
+
+      // Keep comparison classes (if present)
       const cls = p.getAttribute('class') || '';
       const keep = cls.split(/\s+/).filter(c =>
         c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
       );
       if (keep.length) miniPath.setAttribute('class', keep.join(' '));
+
+      // Also copy the actual stroke so single-user rank colors show up
+      const stroke = readStroke(p);
+      if (stroke) miniPath.setAttribute('stroke', stroke);
+
       linksLayer.appendChild(miniPath);
     });
 
@@ -1041,12 +1045,16 @@ _ensureMiniMap(treeId, svg) {
       miniLine.setAttribute('x2', p2.x);
       miniLine.setAttribute('y2', p2.y);
 
-      // Mirror user color class from the node label
+      // If a rank/user stroke exists, copy it directly
+      const stroke = readStroke(ln);
+      if (stroke) miniLine.setAttribute('stroke', stroke);
+
+      // Keep comparison edge classes too (harmless in single-user)
       const gNode = ln.closest('g.markmap-node');
       const c = this._inferNodeColorFromG(gNode);
-      if (c === '#dc2626') miniLine.setAttribute('class', 'user1-edge');
-      else if (c === '#2563eb') miniLine.setAttribute('class', 'user2-edge');
-      else if (c === '#9333ea') miniLine.setAttribute('class', 'shared-edge');
+      if (c === '#dc2626') miniLine.classList.add('user1-edge');
+      else if (c === '#2563eb') miniLine.classList.add('user2-edge');
+      else if (c === '#9333ea') miniLine.classList.add('shared-edge');
 
       connsLayer.appendChild(miniLine);
     });
@@ -1090,7 +1098,7 @@ _ensureMiniMap(treeId, svg) {
     });
     mo.observe(svg, {
       subtree: true, childList: true, attributes: true,
-      attributeFilter: ['d','transform','class','x1','y1','x2','y2']
+      attributeFilter: ['d','transform','class','x1','y1','x2','y2','stroke']
     });
     host._miniObserver = mo;
   }
@@ -1219,200 +1227,6 @@ _ensureMiniMap(treeId, svg) {
     const blob = await this._makePNGBlobFromSVG(svg, scale);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
     this._downloadBlob(name, blob);
-  }
-  /* ---------- Bluesky helpers ---------- */
-
-  async _shareBluesky(tree){
-    try{
-      // 1) Render a tight canvas (same framing used by your export)
-      const svg = document.getElementById(`${tree.id}-svg`);
-      if (!svg) return;
-      const { canvas, blob, alt } = await this._makeShareImageFromSvg(svg, tree);
-
-      // 2) Ensure a Bluesky session (quick app-password modal)
-      const sess = await this._bskyEnsureSession();
-      if (!sess) return; // user cancelled
-
-      // 3) Upload image blob
-      const uploaded = await this._bskyUploadBlob(sess, blob);
-
-      // 4) Create a post with the image embed
-      const text = this._composeShareText(tree);
-      const created = await this._bskyCreateImagePost(sess, text, uploaded, alt);
-
-      // 5) Open the created post in a new tab
-      const rkey = created?.uri?.split('/').pop();
-      const profile = sess.handle || sess.did;
-      if (rkey && profile) window.open(`https://bsky.app/profile/${encodeURIComponent(profile)}/post/${encodeURIComponent(rkey)}`, '_blank','noopener');
-
-    }catch(err){
-      console.error('Bluesky share failed', err);
-      // Fallback: open composer with text only
-      const text = this._composeShareText(tree);
-      window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-    }
-  }
-
-  // Build the status text
-  _composeShareText(tree){
-    return tree.isComparison
-      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-      : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
-  }
-
-  // Export the visible SVG to a canvas + make a <=1MB blob (preferring WebP)
-  async _makeShareImageFromSvg(svg, tree){
-    const { svgText, bbox } = this._serializeSvgForExport(svg); // you already have this
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
-
-    // Draw at 2x, then compress to <= 1,000,000 bytes
-    const img = await new Promise((res, rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    const scaleStart = 2;
-    let scale = scaleStart, quality = 0.92, blob = null, canvas = null;
-
-    for (let attempt=0; attempt<5; attempt++){
-      const w = Math.max(1, Math.ceil(bbox.width * scale));
-      const h = Math.max(1, Math.ceil(bbox.height * scale));
-      canvas = Object.assign(document.createElement('canvas'), { width:w, height:h });
-      const ctx = canvas.getContext('2d', { alpha:false });
-      const isDark = document.body.classList.contains('dark-theme');
-      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
-      ctx.fillRect(0,0,w,h);
-      ctx.drawImage(img, 0, 0, w, h);
-
-      blob = await new Promise(res=> canvas.toBlob(b=>res(b), 'image/webp', quality));
-      if (blob && blob.size <= 1000000) break;
-
-      // reduce quality first, then scale
-      if (quality > 0.6) quality -= 0.12;
-      else scale *= 0.85;
-    }
-
-    if (!blob){ // worst case: fall back to PNG once
-      blob = await new Promise(res=> canvas.toBlob(b=>res(b), 'image/png'));
-    }
-
-    const alt = `Taxonomic tree for ${tree.isComparison ? `${tree.username1} vs ${tree.username2}` : tree.username}: ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
-    return { canvas, blob, alt };
-  }
-
-  /* ---- Minimal app-password session (keep app password out of storage). 
-     For full OAuth PKCE, see Bluesky's guide. */
-  async _bskyEnsureSession(){
-    // Reuse in-memory or local session
-    if (this._bskySession?.accessJwt) return this._bskySession;
-
-    // Build a tiny login modal if it doesn't exist
-    let modal = document.getElementById('bskyLoginModal');
-    if (!modal){
-      modal = document.createElement('div');
-      modal.id = 'bskyLoginModal';
-      modal.innerHTML = `
-        <div class="modal fade" tabindex="-1">
-          <div class="modal-dialog"><form class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title">Sign in to Bluesky</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-              <label class="form-label">Handle (e.g. yourname.bsky.social)</label>
-              <input class="form-control mb-2" name="handle" placeholder="handle" required>
-              <label class="form-label">App password</label>
-              <input class="form-control" type="password" name="password" placeholder="xxxx-xxxx-xxxx-xxxx" required>
-              <div class="form-text mt-2">Use a Bluesky <strong>app password</strong>, not your main password.</div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn btn-primary" type="submit">Continue</button>
-            </div>
-          </form></div>
-        </div>`;
-      document.body.appendChild(modal);
-
-      const form = modal.querySelector('form');
-      form.addEventListener('submit', async (e)=>{
-        e.preventDefault();
-        const handle = form.handle.value.trim();
-        const password = form.password.value.trim();
-        try{
-          const sess = await this._bskyCreateSession(handle, password);
-          this._bskySession = sess;
-          bootstrap.Modal.getInstance(modal.querySelector('.modal'))?.hide();
-          form.reset();
-        }catch(err){
-          alert('Sign-in failed. Please check handle and app password.');
-          console.error(err);
-        }
-      });
-    }
-
-    // Show modal and wait until _bskySession is set or user cancels
-    const bs = new bootstrap.Modal(modal.querySelector('.modal'), { backdrop: 'static' });
-    bs.show();
-    return await new Promise((resolve)=>{
-      const check = () => this._bskySession?.accessJwt ? resolve(this._bskySession) : setTimeout(check, 200);
-      const onHidden = () => { modal.querySelector('.modal').removeEventListener('hidden.bs.modal', onHidden); resolve(null); };
-      modal.querySelector('.modal').addEventListener('hidden.bs.modal', onHidden);
-      check();
-    });
-  }
-
-  async _bskyCreateSession(identifier, password){
-    // Fast path assumes bsky.social PDS. For non-default PDS, upgrade to OAuth. :contentReference[oaicite:1]{index=1}
-    const resp = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ identifier, password })
-    });
-    if (!resp.ok) throw new Error('createSession failed');
-    const data = await resp.json();
-    // { did, handle, accessJwt, refreshJwt, ... }
-    return { ...data, pds: 'https://bsky.social' };
-  }
-
-  async _bskyUploadBlob(sess, blob){
-    const u = `${sess.pds}/xrpc/com.atproto.repo.uploadBlob`; // raw binary upload
-    const resp = await fetch(u, {
-      method:'POST',
-      headers:{ 'Authorization': `Bearer ${sess.accessJwt}`, 'Content-Type': blob.type || 'image/png' },
-      body: blob
-    });
-    if (!resp.ok) throw new Error('uploadBlob failed');
-    return resp.json(); // → { blob: { ref:{$link:...}, mimeType, size } }
-  }
-
-  async _bskyCreateImagePost(sess, text, uploadResult, alt){
-    const image = uploadResult?.blob;
-    const record = {
-      $type: 'app.bsky.feed.post',
-      text,
-      createdAt: new Date().toISOString(),
-      embed: {
-        $type: 'app.bsky.embed.images',
-        images: [{ image, alt }]
-      }
-    };
-    const resp = await fetch(`${sess.pds}/xrpc/com.atproto.repo.createRecord`, {
-      method:'POST',
-      headers:{ 'Authorization': `Bearer ${sess.accessJwt}`, 'Content-Type':'application/json' },
-      body: JSON.stringify({ repo: sess.did, collection: 'app.bsky.feed.post', record })
-    });
-    if (!resp.ok) throw new Error('createRecord failed');
-    return resp.json(); // → { uri: 'at://did/app.bsky.feed.post/rkey', cid: '...' }
-  }
-
-  /* tiny toast */
-  _toast(msg){
-    const el = document.createElement('div');
-    el.textContent = msg;
-    Object.assign(el.style, {
-      position: 'fixed', bottom: '16px', right: '16px',
-      background: 'rgba(0,0,0,.8)', color: '#fff',
-      padding: '8px 12px', borderRadius: '8px',
-      zIndex: 2147483647, fontSize: '12px'
-    });
-    if (document.body.classList.contains('dark-theme')) el.style.background = 'rgba(255,255,255,.15)';
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3500);
   }
 
   // Infer user color from a node's HTML label, if present
