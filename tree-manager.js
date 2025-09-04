@@ -1049,9 +1049,13 @@ _ensureMiniMap(treeId, svg) {
       );
       if (keep.length) miniPath.setAttribute('class', keep.join(' '));
 
-      // Also copy the actual stroke so single-user rank colors show up
+      // Copy stroke color and force it as inline style so it beats the gray CSS
       const stroke = readStroke(p);
-      if (stroke) miniPath.setAttribute('stroke', stroke);
+      if (stroke) {
+        miniPath.setAttribute('stroke', stroke);
+        miniPath.style.stroke = stroke;            // inline style wins
+        miniPath.style.strokeOpacity = '1';        // keep solid when colored
+      }
 
       linksLayer.appendChild(miniPath);
     });
@@ -1072,9 +1076,13 @@ _ensureMiniMap(treeId, svg) {
       miniLine.setAttribute('x2', p2.x);
       miniLine.setAttribute('y2', p2.y);
 
-      // If a rank/user stroke exists, copy it directly
+      // Copy stroke color and force it as inline style so it beats the gray CSS
       const stroke = readStroke(ln);
-      if (stroke) miniLine.setAttribute('stroke', stroke);
+      if (stroke) {
+        miniLine.setAttribute('stroke', stroke);
+        miniLine.style.stroke = stroke;            // inline style wins
+        miniLine.style.strokeOpacity = '1';        // keep solid when colored
+      }
 
       // Keep comparison edge classes too (harmless in single-user)
       const gNode = ln.closest('g.markmap-node');
@@ -1125,7 +1133,10 @@ _ensureMiniMap(treeId, svg) {
     });
     mo.observe(svg, {
       subtree: true, childList: true, attributes: true,
-      attributeFilter: ['d','transform','class','x1','y1','x2','y2','stroke']
+      attributeFilter: [
+        'd','transform','class','style',     // added 'style'
+        'x1','y1','x2','y2','stroke','stroke-opacity'
+      ]
     });
     host._miniObserver = mo;
   }
