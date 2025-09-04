@@ -902,19 +902,28 @@ class TreeManager {
     const toolbar = document.createElement('div');
     toolbar.className = 'mm-toolbar';
 
+    // Fit • Center (tree icon) • Export • Bluesky
     toolbar.innerHTML = `
-      <button class="btn btn-sm btn-light" data-act="fit" title="Fit">
+      <button class="btn btn-sm btn-light" data-act="fit" title="Fit to view">
         <i class="bi bi-aspect-ratio"></i>
       </button>
 
-      <select class="form-select form-select-sm w-auto" data-act="expand" title="Expand level">
-        <option value="0">0</option><option value="1">1</option>
-        <option value="2">2</option><option value="3">3</option>
-        <option value="-1">All</option>
-      </select>
-
-      <button class="btn btn-sm btn-light" data-act="center" title="Center root">
-        <i class="bi bi-crosshair"></i>
+      <button class="btn btn-sm btn-light" data-act="center" title="Center on root">
+        <!-- inline 'hierarchy/tree' icon (no dependency on Bootstrap Icons) -->
+        <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"
+             style="display:block">
+          <!-- boxes -->
+          <rect x="7"  y="1.5"  width="6" height="3.5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="1.5" y="14.8" width="5" height="3.5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="7.5" y="14.8" width="5" height="3.5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="13.5" y="14.8" width="5" height="3.5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <!-- connectors -->
+          <path d="M10 5.2v3.1M10 8.3H3.9v3.1M10 8.3H10v3.1M10 8.3h6.1v3.1"
+                fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <!-- down stems to bottom boxes -->
+          <path d="M3.9 11.4v2.6M10 11.4v2.6M16.1 11.4v2.6"
+                fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
       </button>
 
       <div class="btn-group">
@@ -934,23 +943,9 @@ class TreeManager {
 
     host.appendChild(toolbar);
 
-    // init expand select from storage
-    const sel = toolbar.querySelector('[data-act="expand"]');
-    sel.value = String(localStorage.getItem('mm_expand_level') ?? 2);
-
     // actions
     toolbar.querySelector('[data-act="fit"]')
       ?.addEventListener('click', () => { try { mm.fit(); } catch {} });
-
-    sel.addEventListener('change', (e) => {
-      const v = Number(e.target.value);
-      localStorage.setItem('mm_expand_level', String(v));
-      try {
-        mm.setOptions({ initialExpandLevel: v });
-        mm.renderData(root);
-        requestAnimationFrame(() => mm.fit());
-      } catch {}
-    });
 
     toolbar.querySelector('[data-act="center"]')
       ?.addEventListener('click', async () => {
