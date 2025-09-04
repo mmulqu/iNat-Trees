@@ -899,125 +899,169 @@ class TreeManager {
     }
   }
 
-  // Mini-map with live viewport; mirrors link colors (user1/user2/shared)
-  _ensureMiniMap(treeId, svg) {
-    const host = svg.closest('.markmap-container');
-    if (!host) return;
+ // Mini-map with live viewport; mirrors link colors and connector lines
+_ensureMiniMap(treeId, svg) {
+  const host = svg.closest('.markmap-container');
+  if (!host) return;
 
-    const NS = 'http://www.w3.org/2000/svg';
-    let mini = host.querySelector('.mm-minimap');
-    if (!mini) {
-      mini = document.createElementNS(NS, 'svg');
-      mini.classList.add('mm-minimap');
-      mini.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-      const linksLayer = document.createElementNS(NS, 'g');
-      linksLayer.classList.add('mm-mini-links');
-      mini.appendChild(linksLayer);
-      const vp = document.createElementNS(NS, 'rect');
-      vp.classList.add('mm-mini-viewport');
-      mini.appendChild(vp);
-      host.appendChild(mini);
-    }
+  const NS = 'http://www.w3.org/2000/svg';
+  let mini = host.querySelector('.mm-minimap');
+  if (!mini) {
+    mini = document.createElementNS(NS, 'svg');
+    mini.classList.add('mm-minimap');
+    mini.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-    const linksLayer = mini.querySelector('.mm-mini-links');
-    const vpRect     = mini.querySelector('.mm-mini-viewport');
+    const linksLayer = document.createElementNS(NS, 'g');
+    linksLayer.classList.add('mm-mini-links');
+    mini.appendChild(linksLayer);
 
-    const getContentBBox = () => {
-      const els = svg.querySelectorAll('path.markmap-link, g.markmap-node');
-      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-      els.forEach(el => {
-        try {
-          const b = el.getBBox();
-          x1 = Math.min(x1, b.x);
-          y1 = Math.min(y1, b.y);
-          x2 = Math.max(x2, b.x + b.width);
-          y2 = Math.max(y2, b.y + b.height);
-        } catch(_) {}
-      });
-      if (!isFinite(x1)) return { x: 0, y: 0, width: 100, height: 100 };
-      return { x: x1, y: y1, width: (x2 - x1), height: (y2 - y1) };
-    };
+    const connsLayer = document.createElementNS(NS, 'g');
+    connsLayer.classList.add('mm-mini-conns');
+    mini.appendChild(connsLayer);
 
-    // Rebuild mini links; copy d + color classes so they match the main map
-    const rebuildMiniLinks = () => {
-      linksLayer.innerHTML = '';
-      svg.querySelectorAll('path.markmap-link').forEach(p => {
-        const miniPath = document.createElementNS(NS, 'path');
-        miniPath.setAttribute('d', p.getAttribute('d') || '');
-    
-        // Copy edge classes (keeps PVP coloring when present)
-        const cls = p.getAttribute('class') || '';
-        const keep = cls.split(/\s+/).filter(c =>
-          c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
-        );
-        if (keep.length) miniPath.setAttribute('class', keep.join(' '));
-    
-        // NEW: also copy the actual stroke color for single-user rank colors
-        const stroke = p.style.stroke || p.getAttribute('stroke');
-        if (stroke) miniPath.setAttribute('stroke', stroke);
-        const sop = p.style.strokeOpacity || p.getAttribute('stroke-opacity');
-        if (sop) miniPath.setAttribute('stroke-opacity', sop);
-    
-        linksLayer.appendChild(miniPath);
-      });
-    };
-    
+    const vp = document.createElementNS(NS, 'rect');
+    vp.classList.add('mm-mini-viewport');
+    mini.appendChild(vp);
 
-    const updateViewport = () => {
-      const bbox = getContentBBox();
-      mini.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
-
-      const contentG = svg.querySelector('g') || svg;
-      const ctm = contentG.getCTM && contentG.getCTM();
-      if (!ctm) return;
-
-      const inv = ctm.inverse();
-      const pt = svg.createSVGPoint();
-      pt.x = 0; pt.y = 0;
-      const tl = pt.matrixTransform(inv);
-      pt.x = svg.clientWidth; pt.y = svg.clientHeight;
-      const br = pt.matrixTransform(inv);
-
-      const vx = Math.min(tl.x, br.x);
-      const vy = Math.min(tl.y, br.y);
-      const vw = Math.abs(br.x - tl.x);
-      const vh = Math.abs(br.y - tl.y);
-
-      vpRect.setAttribute('x', vx);
-      vpRect.setAttribute('y', vy);
-      vpRect.setAttribute('width',  vw);
-      vpRect.setAttribute('height', vh);
-    };
-
-    // Build now
-    rebuildMiniLinks();
-    updateViewport();
-
-    // Watch DOM changes (expand/collapse) to re-sync paths and viewport
-    if (!host._miniObserver) {
-      const mo = new MutationObserver(() => {
-        clearTimeout(host._miniDeb);
-        host._miniDeb = setTimeout(() => { rebuildMiniLinks(); updateViewport(); }, 120);
-      });
-      mo.observe(svg, { subtree: true, childList: true, attributes: true, attributeFilter: ['d','transform','class'] });
-      host._miniObserver = mo;
-    }
-    // Recompute viewport on size/interaction
-    if (!host._miniResize) {
-      const ro = new ResizeObserver(updateViewport);
-      ro.observe(svg);
-      host._miniResize = ro;
-    }
-    try {
-      if (window.d3 && window.d3.select) {
-        window.d3.select(svg).on('zoom.mmMini', () => requestAnimationFrame(updateViewport));
-      } else {
-        ['wheel','pointermove','pointerup','transitionend'].forEach(ev =>
-          svg.addEventListener(ev, () => requestAnimationFrame(updateViewport), { passive: true })
-        );
-      }
-    } catch(_) {}
+    host.appendChild(mini);
   }
+
+  const linksLayer = mini.querySelector('.mm-mini-links');
+  const connsLayer = mini.querySelector('.mm-mini-conns');
+  const vpRect     = mini.querySelector('.mm-mini-viewport');
+
+  const getContentBBox = () => {
+    const els = svg.querySelectorAll('path.markmap-link, g.markmap-node');
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    els.forEach(el => {
+      try {
+        const b = el.getBBox();
+        x1 = Math.min(x1, b.x);
+        y1 = Math.min(y1, b.y);
+        x2 = Math.max(x2, b.x + b.width);
+        y2 = Math.max(y2, b.y + b.height);
+      } catch(_) {}
+    });
+    if (!isFinite(x1)) return { x: 0, y: 0, width: 100, height: 100 };
+    return { x: x1, y: y1, width: (x2 - x1), height: (y2 - y1) };
+  };
+
+  // Transform a point through element CTM into "content" coordinates
+  const toContentCoords = (x, y, el) => {
+    const contentG = svg.querySelector('g') || svg;
+    const pt = svg.createSVGPoint();
+    pt.x = x; pt.y = y;
+    const toViewport = el.getCTM && el.getCTM();
+    if (!toViewport) return { x, y };
+    const pV = pt.matrixTransform(toViewport);
+    const invContent = contentG.getCTM && contentG.getCTM().inverse();
+    return invContent ? pV.matrixTransform(invContent) : pV;
+  };
+
+  // Clone links + connector lines into mini-map
+  const rebuildMini = () => {
+    linksLayer.innerHTML = '';
+    connsLayer.innerHTML = '';
+
+    // 1) Curved links (carry over user classes)
+    svg.querySelectorAll('path.markmap-link').forEach(p => {
+      const miniPath = document.createElementNS(NS, 'path');
+      miniPath.setAttribute('d', p.getAttribute('d') || '');
+      const cls = p.getAttribute('class') || '';
+      const keep = cls.split(/\s+/).filter(c =>
+        c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
+      );
+      if (keep.length) miniPath.setAttribute('class', keep.join(' '));
+      linksLayer.appendChild(miniPath);
+    });
+
+    // 2) Node connector lines (short lines from node to label)
+    svg.querySelectorAll('g.markmap-node line').forEach(ln => {
+      const x1 = parseFloat(ln.getAttribute('x1') || '0');
+      const y1 = parseFloat(ln.getAttribute('y1') || '0');
+      const x2 = parseFloat(ln.getAttribute('x2') || '0');
+      const y2 = parseFloat(ln.getAttribute('y2') || '0');
+
+      const p1 = toContentCoords(x1, y1, ln);
+      const p2 = toContentCoords(x2, y2, ln);
+
+      const miniLine = document.createElementNS(NS, 'line');
+      miniLine.setAttribute('x1', p1.x);
+      miniLine.setAttribute('y1', p1.y);
+      miniLine.setAttribute('x2', p2.x);
+      miniLine.setAttribute('y2', p2.y);
+
+      // Mirror user color class from the node label
+      const gNode = ln.closest('g.markmap-node');
+      const c = this._inferNodeColorFromG(gNode);
+      if (c === '#dc2626') miniLine.setAttribute('class', 'user1-edge');
+      else if (c === '#2563eb') miniLine.setAttribute('class', 'user2-edge');
+      else if (c === '#9333ea') miniLine.setAttribute('class', 'shared-edge');
+
+      connsLayer.appendChild(miniLine);
+    });
+  };
+
+  const updateViewport = () => {
+    const bbox = getContentBBox();
+    mini.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+
+    const contentG = svg.querySelector('g') || svg;
+    const ctm = contentG.getCTM && contentG.getCTM();
+    if (!ctm) return;
+
+    const inv = ctm.inverse();
+    const pt = svg.createSVGPoint();
+    pt.x = 0; pt.y = 0;
+    const tl = pt.matrixTransform(inv);
+    pt.x = svg.clientWidth; pt.y = svg.clientHeight;
+    const br = pt.matrixTransform(inv);
+
+    const vx = Math.min(tl.x, br.x);
+    const vy = Math.min(tl.y, br.y);
+    const vw = Math.abs(br.x - tl.x);
+    const vh = Math.abs(br.y - tl.y);
+
+    vpRect.setAttribute('x', vx);
+    vpRect.setAttribute('y', vy);
+    vpRect.setAttribute('width',  vw);
+    vpRect.setAttribute('height', vh);
+  };
+
+  // Initial build & viewport
+  rebuildMini();
+  updateViewport();
+
+  // Watch DOM changes to re-sync
+  if (!host._miniObserver) {
+    const mo = new MutationObserver(() => {
+      clearTimeout(host._miniDeb);
+      host._miniDeb = setTimeout(() => { rebuildMini(); updateViewport(); }, 120);
+    });
+    mo.observe(svg, {
+      subtree: true, childList: true, attributes: true,
+      attributeFilter: ['d','transform','class','x1','y1','x2','y2']
+    });
+    host._miniObserver = mo;
+  }
+
+  // Recompute viewport on size/interaction
+  if (!host._miniResize) {
+    const ro = new ResizeObserver(updateViewport);
+    ro.observe(svg);
+    host._miniResize = ro;
+  }
+  try {
+    if (window.d3?.select) {
+      window.d3.select(svg).on('zoom.mmMini', () => requestAnimationFrame(updateViewport));
+    } else {
+      ['wheel','pointermove','pointerup','transitionend','resize'].forEach(ev =>
+        svg.addEventListener(ev, () => requestAnimationFrame(updateViewport), { passive: true })
+      );
+    }
+  } catch (_) {}
+}
+
 
   // Infer user color from a node's HTML label, if present
   _inferNodeColorFromG(g) {
