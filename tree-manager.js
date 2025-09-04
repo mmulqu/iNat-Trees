@@ -74,10 +74,16 @@
     body.dark-theme .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(255,255,255,.06), transparent); }
     body.dark-theme .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(255,255,255,.06), transparent); }
 
-    /* Floating Markmap toolbar */
+    /* Keep the toolbar clickable by staying clear of the right scroll gutter */
     .mm-toolbar{
-      position:absolute; top:10px; right:10px; z-index:9;
-      display:flex; gap:.5rem; align-items:center;
+      position: absolute;
+      top: 12px;
+      right: calc(var(--mm-scroll-gutter) + 12px); /* ← moves it inside the safe area */
+      z-index: 20;                                  /* above gutters & svg */
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      pointer-events: auto;
       background:rgba(255,255,255,.9); backdrop-filter:blur(6px);
       border:1px solid rgba(0,0,0,.12); border-radius:10px; padding:6px;
     }
@@ -86,6 +92,12 @@
     }
     .mm-toolbar .form-select.form-select-sm{ padding:.15rem .5rem; height:28px; }
     .mm-toolbar .btn.btn-sm{ height:28px; display:flex; align-items:center; }
+
+    /* Ensure dropdown opens neatly on the right edge */
+    .mm-toolbar .dropdown-menu { right: 0; left: auto; }
+
+    /* Bluesky glyph sizing in the button */
+    .mm-toolbar .bsky-svg { display:block; width: 16px; height: 16px; fill: currentColor; }
   `;
   document.head.appendChild(s);
 })();
@@ -887,8 +899,9 @@ class TreeManager {
         </ul>
       </div>
 
-      <button class="btn btn-sm btn-light" data-act="share-bsky" title="Share on Bluesky">
-        <i class="bi bi-share"></i>
+      <button class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
+              data-act="share-bsky" title="Share on Bluesky">
+        <span class="bsky-icon" aria-hidden="true"></span>
       </button>
     `;
 
@@ -920,6 +933,11 @@ class TreeManager {
         } catch { mm.fit(); }
       });
 
+    // Load Bluesky icon
+    const shareBtn = toolbar.querySelector('[data-act="share-bsky"]');
+    const shareIconHost = toolbar.querySelector('.bsky-icon');
+    if (shareIconHost) this._loadBlueskyIcon(shareIconHost);
+
     // NEW: export + share
     toolbar.querySelector('[data-act="export-svg"]')
       ?.addEventListener('click', (e) => { e.preventDefault(); this._exportSVG(tree); });
@@ -927,8 +945,7 @@ class TreeManager {
     toolbar.querySelector('[data-act="export-png"]')
       ?.addEventListener('click', (e) => { e.preventDefault(); this._exportPNG(tree); });
 
-    toolbar.querySelector('[data-act="share-bsky"]')
-      ?.addEventListener('click', () => this._shareBluesky(tree));
+    shareBtn?.addEventListener('click', () => this._shareBluesky(tree));
   }
 
   // Always keep page-scrollable gutters around the map
@@ -1180,6 +1197,32 @@ _ensureMiniMap(treeId, svg) {
     Object.assign(note.style,{position:'fixed',bottom:'16px',right:'16px',background:'rgba(0,0,0,.8)',color:'#fff',padding:'8px 12px',borderRadius:'8px',zIndex:99999,fontSize:'12px'});
     if (document.body.classList.contains('dark-theme')) note.style.background='rgba(255,255,255,.15)';
     document.body.appendChild(note); setTimeout(()=>note.remove(),4000);
+  }
+
+  /** Load the Bluesky butterfly (Simple Icons) into a target span; fallback to 🦋. */
+  async _loadBlueskyIcon(intoEl) {
+    if (!intoEl) return;
+    const sources = [
+      'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/bluesky.svg',
+      'https://unpkg.com/simple-icons@latest/icons/bluesky.svg',
+      'https://cdn.simpleicons.org/bluesky' // some CDNs support this path
+    ];
+    for (const url of sources) {
+      try {
+        const res = await fetch(url, { mode: 'cors' });
+        if (!res.ok) continue;
+        const svg = (await res.text()).trim();
+        if (!svg.startsWith('<svg')) continue;
+        // Normalize sizing and let it inherit currentColor
+        const normalized = svg
+          .replace('<svg', '<svg class="bsky-svg" viewBox="0 0 24 24" aria-hidden="true"')
+          .replace(/fill="[^"]*"/g, 'fill="currentColor"');
+        intoEl.innerHTML = normalized;
+        return;
+      } catch (_) {}
+    }
+    // Fallback: emoji
+    intoEl.textContent = '🦋';
   }
 
   // Infer user color from a node's HTML label, if present
