@@ -6,7 +6,20 @@
   const s = document.createElement('style');
   s.id = 'mm-ux-styles';
   s.textContent = `
-    .markmap-container { position: relative; }
+    /* Markmap window frame */
+    .markmap-container{
+      position: relative;
+      border: 1px solid rgba(0,0,0,.12);
+      border-radius: 12px;
+      background: #ffffff;
+      overflow: hidden;                 /* clip gutters/minimap inside frame */
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    body.dark-theme .markmap-container{
+      background: #111827;              /* slate-900 */
+      border-color: #3a3f42;            /* subtle frame in dark */
+      box-shadow: 0 2px 12px rgba(0,0,0,.35);
+    }
 
     /* Mini-map box */
     .mm-minimap {
@@ -50,17 +63,17 @@
     /* Hide labels in the mini-map */
     .mm-minimap text, .mm-minimap foreignObject { display: none !important; }
 
-    /* Live viewport box */
-    .mm-minimap .mm-mini-viewport {
-      fill: rgba(255, 215, 0, 0.12);   /* soft gold fill */
-      stroke: #facc15;                 /* tailwind's yellow-400 (#facc15) */
-      stroke-width: 3.5;               /* thicker outline */
+    /* High-visibility live viewport box in the mini-map */
+    .mm-minimap .mm-mini-viewport{
+      fill: rgba(255, 215, 0, 0.14);    /* soft gold fill */
+      stroke: #facc15;                  /* yellow-400 outline */
+      stroke-width: 3.5;                /* thicker to track easily */
       stroke-opacity: 1;
-      rx: 4; ry: 4;                    /* slightly round corners */
+      rx: 4; ry: 4;
     }
-    body.dark-theme .mm-minimap .mm-mini-viewport {
-      stroke: #fde047;                 /* lighter yellow for dark bg */
-      fill: rgba(250, 204, 21, 0.18);  /* faint gold fill */
+    body.dark-theme .mm-minimap .mm-mini-viewport{
+      stroke: #fde047;                  /* yellow-300 on dark */
+      fill: rgba(250, 204, 21, 0.20);
     }
 
     /* Scroll gutters */
@@ -299,7 +312,7 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
-      scrollForPan: true
+      scrollForPan: false   // wheel = zoom; gutters = page scroll
     }, root);
   
     // Keep a handle + keep fitting
@@ -614,7 +627,7 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree now
       pan: true,
       zoom: true,
-      scrollForPan: true,
+      scrollForPan: false,   // wheel = zoom; gutters = page scroll
       color: (node) => {
         const hay = [node.v, node.content, node.payload?.content];
         for (const s of hay) {
