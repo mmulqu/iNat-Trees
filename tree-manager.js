@@ -52,13 +52,16 @@
 
     /* Live viewport box */
     .mm-minimap .mm-mini-viewport {
-      fill: none;
-      stroke: #111827;
-      stroke-width: 2;
-      stroke-opacity: .9;
-      rx: 3; ry: 3;
+      fill: rgba(255, 215, 0, 0.12);   /* soft gold fill */
+      stroke: #facc15;                 /* tailwind's yellow-400 (#facc15) */
+      stroke-width: 3.5;               /* thicker outline */
+      stroke-opacity: 1;
+      rx: 4; ry: 4;                    /* slightly round corners */
     }
-    body.dark-theme .mm-minimap .mm-mini-viewport { stroke: #e5e7eb; }
+    body.dark-theme .mm-minimap .mm-mini-viewport {
+      stroke: #fde047;                 /* lighter yellow for dark bg */
+      fill: rgba(250, 204, 21, 0.18);  /* faint gold fill */
+    }
 
     /* Scroll gutters */
     :root { --mm-scroll-gutter: 36px; }
