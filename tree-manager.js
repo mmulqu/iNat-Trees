@@ -890,6 +890,10 @@ class TreeManager {
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
         </ul>
       </div>
+
+      <button class="btn btn-sm btn-light" data-act="share-bsky" title="Share on Bluesky">
+        <span style="font-size:14px;line-height:1">🦋</span>
+      </button>
     `;
 
     host.appendChild(toolbar);
@@ -925,6 +929,9 @@ class TreeManager {
 
     toolbar.querySelector('[data-act="export-png"]')
       ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportPNG(tree); });
+
+    toolbar.querySelector('[data-act="share-bsky"]')
+      ?.addEventListener('click', () => this._openBskyComposer(tree));
   }
 
   // Always keep page-scrollable gutters around the map
@@ -1227,6 +1234,227 @@ _ensureMiniMap(treeId, svg) {
     const blob = await this._makePNGBlobFromSVG(svg, scale);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
     this._downloadBlob(name, blob);
+  }
+
+  /* ------- Bluesky: confirm-then-post flow (no auto-post) ------- */
+
+  // Build default post text
+  _composeShareText(tree){
+    return tree.isComparison
+      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+      : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+  }
+
+  // Make a <= ~1–2MB image (try WebP, fallback PNG) + preview URL
+  async _makeShareImageForBsky(svg, tree){
+    const { svgText, bbox } = this._serializeSvgForExport(svg);
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+
+    const img = await new Promise((res, rej)=>{
+      const i = new Image();
+      i.decoding = 'async';
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
+
+    // Render at ~2x then compress
+    let scale = 2, quality = 0.92, blob = null, dataUrl = null;
+    for (let attempts = 0; attempts < 5; attempts++){
+      const w = Math.max(1, Math.ceil(bbox.width * scale));
+      const h = Math.max(1, Math.ceil(bbox.height * scale));
+      const canvas = Object.assign(document.createElement('canvas'), { width:w, height:h });
+      const ctx = canvas.getContext('2d', { alpha:false });
+
+      const isDark = document.body.classList.contains('dark-theme');
+      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+      ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Prefer WebP for size, fallback to PNG
+      blob = await new Promise(r => canvas.toBlob(r, 'image/webp', quality));
+      if (!blob || blob.size > 2_000_000) {
+        if (quality > 0.6) { quality -= 0.12; continue; }
+        scale *= 0.85; continue;
+      }
+      break;
+    }
+    if (!blob) {
+      // Fallback PNG once
+      const pngCanvas = Object.assign(document.createElement('canvas'), {
+        width: Math.ceil(bbox.width * 2),
+        height: Math.ceil(bbox.height * 2)
+      });
+      const ctx = pngCanvas.getContext('2d', { alpha:false });
+      const isDark = document.body.classList.contains('dark-theme');
+      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+      ctx.fillRect(0,0,pngCanvas.width,pngCanvas.height);
+      ctx.drawImage(img, 0, 0, pngCanvas.width, pngCanvas.height);
+      blob = await new Promise(r => pngCanvas.toBlob(r, 'image/png'));
+    }
+
+    dataUrl = URL.createObjectURL(blob);
+    const alt = `Taxonomic tree for ${tree.isComparison ? `${tree.username1} vs ${tree.username2}` : tree.username}: ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+    return { blob, dataUrl, alt };
+  }
+
+  // Show modal that previews image + lets user edit text, then post on confirm
+  async _openBskyComposer(tree){
+    // Build modal once
+    let shell = document.getElementById('bskyComposeModal');
+    if (!shell){
+      shell = document.createElement('div');
+      shell.id = 'bskyComposeModal';
+      shell.innerHTML = `
+        <div class="modal fade" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <form class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Compose to Bluesky</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row g-3">
+                  <div class="col-md-7">
+                    <div class="ratio ratio-4x3 border rounded">
+                      <img id="bskyPreviewImg" alt="Preview" style="object-fit:contain;width:100%;height:100%">
+                    </div>
+                  </div>
+                  <div class="col-md-5">
+                    <label class="form-label">Post text</label>
+                    <textarea id="bskyText" class="form-control" rows="6" maxlength="300"></textarea>
+                    <div class="form-text">You can also paste a link to your app/page here.</div>
+                    <hr class="my-3">
+                    <label class="form-label">Bluesky handle</label>
+                    <input id="bskyHandle" class="form-control" placeholder="name.bsky.social" required>
+                    <label class="form-label mt-2">App password</label>
+                    <input id="bskyPass" class="form-control" type="password" placeholder="xxxx-xxxx-xxxx-xxxx" required>
+                    <div class="form-text">Use a Bluesky <strong>app password</strong>, not your main password.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <a id="bskyIntentLink" class="btn btn-outline-secondary" target="_blank" rel="noopener">Open Bluesky composer (text only)</a>
+                <button type="submit" class="btn btn-primary">
+                  Post to Bluesky
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>`;
+      document.body.appendChild(shell);
+
+      // Wire submit -> login + upload + create
+      const form = shell.querySelector('form');
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.textContent = 'Posting…';
+
+        try{
+          const handle = form.querySelector('#bskyHandle').value.trim();
+          const password = form.querySelector('#bskyPass').value.trim();
+          const text = form.querySelector('#bskyText').value;
+
+          if (!shell._shareBlob) throw new Error('Image not ready');
+          const sess = await this._bskyCreateSession(handle, password);
+          const uploaded = await this._bskyUploadBlob(sess, shell._shareBlob);
+          const created  = await this._bskyCreateImagePost(sess, text, uploaded, shell._shareAlt);
+
+          // Open the created post for the user
+          const rkey = created?.uri?.split('/').pop();
+          const profile = sess.handle || sess.did;
+          if (rkey && profile) window.open(`https://bsky.app/profile/${encodeURIComponent(profile)}/post/${encodeURIComponent(rkey)}`, '_blank','noopener');
+
+          bootstrap.Modal.getInstance(shell.querySelector('.modal'))?.hide();
+        }catch(err){
+          console.error(err);
+          alert('Posting failed. Please check your handle/app password and try again.');
+        }finally{
+          btn.disabled = false; btn.textContent = 'Post to Bluesky';
+        }
+      });
+
+      // Cleanup object URLs when hidden
+      shell.querySelector('.modal').addEventListener('hidden.bs.modal', ()=>{
+        if (shell._shareUrl) { URL.revokeObjectURL(shell._shareUrl); shell._shareUrl = null; }
+        shell._shareBlob = null; shell._shareAlt = null;
+        shell.querySelector('#bskyPass').value = '';
+      });
+    }
+
+    // Prefill text + preview + intent link
+    const modal = new bootstrap.Modal(shell.querySelector('.modal'));
+    const text = this._composeShareText(tree);
+    shell.querySelector('#bskyText').value = text;
+
+    // "Intent" link (text only) as a fallback/open-in-Bluesky option
+    const intent = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}&url=${encodeURIComponent(location.href)}`;
+    shell.querySelector('#bskyIntentLink').href = intent;
+
+    // Build the image preview from the current SVG
+    try{
+      const svg = document.getElementById(`${tree.id}-svg`);
+      const { blob, dataUrl, alt } = await this._makeShareImageForBsky(svg, tree);
+      // retain for submit
+      shell._shareBlob = blob;
+      shell._shareAlt  = alt;
+      if (shell._shareUrl) URL.revokeObjectURL(shell._shareUrl);
+      shell._shareUrl = dataUrl;
+
+      const img = shell.querySelector('#bskyPreviewImg');
+      img.alt = alt;
+      img.src = dataUrl;
+    }catch(err){
+      console.error('Preview failed', err);
+      alert('Could not prepare the image preview.');
+    }
+
+    modal.show();
+  }
+
+  // --- Minimal Bluesky API calls (app-password flow) ---
+
+  async _bskyCreateSession(identifier, password){
+    const resp = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ identifier, password })
+    });
+    if (!resp.ok) throw new Error('createSession failed');
+    const data = await resp.json();
+    return { ...data, pds: 'https://bsky.social' };
+  }
+
+  async _bskyUploadBlob(sess, blob){
+    const u = `${sess.pds}/xrpc/com.atproto.repo.uploadBlob`;
+    const resp = await fetch(u, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${sess.accessJwt}`,
+        'Content-Type': blob.type || 'image/png'
+      },
+      body: blob
+    });
+    if (!resp.ok) throw new Error('uploadBlob failed');
+    return resp.json(); // { blob:{ ref:{ $link: ... }, mimeType, size } }
+  }
+
+  async _bskyCreateImagePost(sess, text, uploadResult, alt){
+    const image = uploadResult?.blob;
+    const record = {
+      $type: 'app.bsky.feed.post',
+      text,
+      createdAt: new Date().toISOString(),
+      embed: { $type: 'app.bsky.embed.images', images: [{ image, alt }] }
+    };
+    const resp = await fetch(`${sess.pds}/xrpc/com.atproto.repo.createRecord`, {
+      method:'POST',
+      headers:{ 'Authorization': `Bearer ${sess.accessJwt}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({ repo: sess.did, collection: 'app.bsky.feed.post', record })
+    });
+    if (!resp.ok) throw new Error('createRecord failed');
+    return resp.json();
   }
 
   // Infer user color from a node's HTML label, if present
