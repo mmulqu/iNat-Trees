@@ -92,6 +92,29 @@
 
     /* Optional: slightly tighter dropdown on the export group */
     .mm-toolbar .dropdown-menu { min-width: 10rem; }
+
+    /* Bluesky composer: dark theme polish */
+    body.dark-theme .modal-content{
+      background:#1f2937;            /* slate-800 */
+      color:#e5e7eb;                  /* slate-200 */
+      border-color:#374151;           /* slate-700 */
+    }
+    body.dark-theme .modal-header,
+    body.dark-theme .modal-footer{ border-color:#374151; }
+
+    body.dark-theme .form-label{ color:#e5e7eb; }
+    body.dark-theme .form-control{
+      background:#111827;             /* slate-900 */
+      color:#e5e7eb;
+      border-color:#374151;
+    }
+    body.dark-theme .form-control::placeholder{ color:#9ca3af; } /* slate-400 */
+    body.dark-theme .ratio.border{ border-color:#374151 !important; }
+    body.dark-theme .btn.btn-light{
+      background:#2d333b;
+      color:#e5e7eb;
+      border-color:#3a3f42;
+    }
   `;
   document.head.appendChild(s);
 })();
@@ -1323,10 +1346,17 @@ _ensureMiniMap(treeId, svg) {
                     <div class="form-text">You can also paste a link to your app/page here.</div>
                     <hr class="my-3">
                     <label class="form-label">Bluesky handle</label>
-                    <input id="bskyHandle" class="form-control" placeholder="name.bsky.social" required>
+                    <input id="bskyHandle" class="form-control" placeholder="name.bsky.social" autocomplete="username" required>
                     <label class="form-label mt-2">App password</label>
-                    <input id="bskyPass" class="form-control" type="password" placeholder="xxxx-xxxx-xxxx-xxxx" required>
-                    <div class="form-text">Use a Bluesky <strong>app password</strong>, not your main password.</div>
+                    <input id="bskyPass" class="form-control" type="password" placeholder="xxxx-xxxx-xxxx-xxxx" autocomplete="current-password" required>
+                    <div class="form-check mt-2">
+                      <input id="bskyShow" class="form-check-input" type="checkbox">
+                      <label class="form-check-label" for="bskyShow">Show password</label>
+                    </div>
+                    <div class="form-text">
+                      Your handle and <strong>app password</strong> are sent <em>directly</em> to Bluesky
+                      from your browser. We never store them or send them to our servers.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1358,6 +1388,9 @@ _ensureMiniMap(treeId, svg) {
           const uploaded = await this._bskyUploadBlob(sess, shell._shareBlob);
           const created  = await this._bskyCreateImagePost(sess, text, uploaded, shell._shareAlt);
 
+          // Delete the session after successful post
+          await this._bskyDeleteSession(sess);
+
           // Open the created post for the user
           const rkey = created?.uri?.split('/').pop();
           const profile = sess.handle || sess.did;
@@ -1370,6 +1403,12 @@ _ensureMiniMap(treeId, svg) {
         }finally{
           btn.disabled = false; btn.textContent = 'Post to Bluesky';
         }
+      });
+
+      // Password toggle
+      shell.querySelector('#bskyShow')?.addEventListener('change', e => {
+        const pw = shell.querySelector('#bskyPass');
+        pw.type = e.target.checked ? 'text' : 'password';
       });
 
       // Cleanup object URLs when hidden
@@ -1452,6 +1491,15 @@ _ensureMiniMap(treeId, svg) {
     });
     if (!resp.ok) throw new Error('createRecord failed');
     return resp.json();
+  }
+
+  async _bskyDeleteSession(sess){
+    try{
+      await fetch(`${sess.pds}/xrpc/com.atproto.server.deleteSession`, {
+        method:'POST',
+        headers:{ 'Authorization': `Bearer ${sess.accessJwt}` }
+      });
+    }catch(_){}
   }
 
   // Infer user color from a node's HTML label, if present
