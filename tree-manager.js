@@ -1130,24 +1130,67 @@ _ensureMiniMap(treeId, svg) {
     const what = tree.taxonName || `Taxon_${tree.taxonId}`;
     return `${who}-${what}`;
   }
-  _getContentBBox(svg){
-    const els = svg.querySelectorAll('path.markmap-link, g.markmap-node');
-    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
-    els.forEach(el=>{ try{ const b=el.getBBox(); x1=Math.min(x1,b.x); y1=Math.min(y1,b.y); x2=Math.max(x2,b.x+b.width); y2=Math.max(y2,b.y+b.height);}catch{} });
-    if(!isFinite(x1)) return { x:0,y:0,width:svg.clientWidth||1200,height:svg.clientHeight||800 };
-    return { x:x1,y:y1,width:(x2-x1),height:(y2-y1) };
+  /** Compute a tight bbox from what's currently visible, including HTML labels. */
+  _computeTightBBox(svg, pad = 16) {
+    const rootCTM = svg.getScreenCTM?.();
+    if (!rootCTM) {
+      // Fallback: top content group bbox
+      try {
+        const g = svg.querySelector('g') || svg;
+        const b = g.getBBox();
+        return { x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 };
+      } catch { return { x: 0, y: 0, width: svg.clientWidth || 1200, height: svg.clientHeight || 800 }; }
+    }
+    const inv = rootCTM.inverse();
+
+    const els = svg.querySelectorAll('path.markmap-link, g.markmap-node, foreignObject, text, circle, line');
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    els.forEach(el => {
+      const r = el.getBoundingClientRect?.();
+      if (!r || (!r.width && !r.height)) return;
+      const corners = [
+        new DOMPoint(r.left,  r.top).matrixTransform(inv),
+        new DOMPoint(r.right, r.top).matrixTransform(inv),
+        new DOMPoint(r.right, r.bottom).matrixTransform(inv),
+        new DOMPoint(r.left,  r.bottom).matrixTransform(inv),
+      ];
+      corners.forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      });
+    });
+
+    if (!isFinite(minX)) {
+      return { x: 0, y: 0, width: svg.clientWidth || 1200, height: svg.clientHeight || 800 };
+    }
+    return { x: minX - pad, y: minY - pad, width: (maxX - minX) + pad * 2, height: (maxY - minY) + pad * 2 };
   }
-  _serializeSvgForExport(svg){
-    const bbox=this._getContentBBox(svg);
-    const clone=svg.cloneNode(true);
-    clone.setAttribute('viewBox',`${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
-    clone.setAttribute('width',Math.ceil(bbox.width));
-    clone.setAttribute('height',Math.ceil(bbox.height));
-    const style=document.createElement('style');
-    style.textContent=`text,tspan{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}.markmap-link{fill:none}`;
+
+  /** Serialize current SVG to a tight, standalone SVG string. */
+  _serializeSvgForExport(svg, pad = 16) {
+    const bbox = this._computeTightBBox(svg, pad);
+    const clone = svg.cloneNode(true);
+
+    // Tight viewBox + width/height in px to match aspect
+    clone.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+    clone.setAttribute('width',  Math.ceil(bbox.width));
+    clone.setAttribute('height', Math.ceil(bbox.height));
+    clone.removeAttribute('style'); // avoid layout side effects
+
+    // Embedded minimal styles so the file stands alone
+    const style = document.createElement('style');
+    style.textContent = `
+      text, tspan { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+      .markmap-link { fill: none; }
+    `;
     clone.insertBefore(style, clone.firstChild);
-    const xml=new XMLSerializer().serializeToString(clone);
-    return { svgText:`<?xml version="1.0" encoding="UTF-8"?>\n${xml}`, bbox };
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgText = `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
+    return { svgText, bbox };
   }
   _downloadBlob(filename, blob){
     const url=URL.createObjectURL(blob);
@@ -1155,48 +1198,100 @@ _ensureMiniMap(treeId, svg) {
     document.body.appendChild(a); a.click();
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },0);
   }
-  _exportSVG(tree){
-    const svg=document.getElementById(`${tree.id}-svg`); if(!svg) return;
-    const { svgText }=this._serializeSvgForExport(svg);
-    const name=this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.svg`);
-    this._downloadBlob(name,new Blob([svgText],{type:'image/svg+xml;charset=utf-8'}));
+  _exportSVG(tree) {
+    const svg = document.getElementById(`${tree.id}-svg`);
+    if (!svg) return;
+    const { svgText } = this._serializeSvgForExport(svg, 16);
+    const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.svg`);
+    this._downloadBlob(name, new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' }));
   }
-  _exportPNG(tree, scale=2){
-    const svg=document.getElementById(`${tree.id}-svg`); if(!svg) return;
-    const { svgText, bbox }=this._serializeSvgForExport(svg);
-    const img=new Image(); img.decoding='async';
-    img.onload=()=>{
-      const w=Math.max(1,Math.ceil(bbox.width*scale));
-      const h=Math.max(1,Math.ceil(bbox.height*scale));
-      const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
-      const ctx=canvas.getContext('2d',{alpha:false});
-      const isDark=document.body.classList.contains('dark-theme');
-      ctx.fillStyle=isDark?'#1d1f20':'#ffffff'; ctx.fillRect(0,0,w,h);
-      ctx.drawImage(img,0,0,w,h);
-      canvas.toBlob((blob)=>{
-        if(!blob) return;
-        const name=this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
-        this._downloadBlob(name, blob);
-      },'image/png');
-    };
-    img.onerror=()=>console.error('PNG export failed to load SVG image');
-    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgText);
-  }
-  _shareBluesky(tree){
-    const title=this._treeLabel(tree).replace(/_/g,' ');
-    const text=(tree.isComparison
-      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-      : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-    ) + `\nBuilt with iNat Tree Viewer`;
-    const url=`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
-    window.open(url,'_blank','noopener');
 
-    // small hint
-    const note=document.createElement('div');
-    note.textContent='Tip: use Export → PNG, then attach the image in the Bluesky composer.';
-    Object.assign(note.style,{position:'fixed',bottom:'16px',right:'16px',background:'rgba(0,0,0,.8)',color:'#fff',padding:'8px 12px',borderRadius:'8px',zIndex:99999,fontSize:'12px'});
-    if (document.body.classList.contains('dark-theme')) note.style.background='rgba(255,255,255,.15)';
-    document.body.appendChild(note); setTimeout(()=>note.remove(),4000);
+  _exportPNG(tree, scale = Math.max(2, Math.ceil(window.devicePixelRatio || 2))) {
+    const svg = document.getElementById(`${tree.id}-svg`);
+    if (!svg) return;
+    const { svgText, bbox } = this._serializeSvgForExport(svg, 16);
+    const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      const w = Math.max(1, Math.ceil(bbox.width  * scale));
+      const h = Math.max(1, Math.ceil(bbox.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+
+      const ctx = canvas.getContext('2d', { alpha: false });
+      const isDark = document.body.classList.contains('dark-theme');
+      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
+        this._downloadBlob(name, blob);
+      }, 'image/png', 1);
+    };
+    img.onerror = () => console.error('PNG export: failed to load serialized SVG image');
+    img.src = svgUrl;
+  }
+  /** Open Bluesky compose with text, and try to put the PNG on clipboard so the user can paste. */
+  _shareBluesky(tree) {
+    const svg = document.getElementById(`${tree.id}-svg`);
+    if (!svg) return;
+
+    const title = this._treeLabel(tree).replace(/_/g, ' ');
+    const text =
+      (tree.isComparison
+        ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+        : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+      ) + `\nBuilt with iNat Tree Viewer`;
+
+    const shareUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
+
+    // Prepare a PNG and try to copy it to clipboard
+    const { svgText, bbox } = this._serializeSvgForExport(svg, 16);
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = async () => {
+      try {
+        const scale = Math.max(2, Math.ceil(window.devicePixelRatio || 2));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.ceil(bbox.width  * scale);
+        canvas.height = Math.ceil(bbox.height * scale);
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const isDark = document.body.classList.contains('dark-theme');
+        ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 1));
+        if (blob && navigator.clipboard?.write) {
+          await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+          // Toast hint
+          const note = document.createElement('div');
+          note.textContent = 'PNG copied. In Bluesky, press ⌘V / Ctrl+V to attach.';
+          Object.assign(note.style, {
+            position: 'fixed', bottom: '16px', right: '16px',
+            background: 'rgba(0,0,0,.8)', color: '#fff', padding: '8px 12px',
+            borderRadius: '8px', zIndex: 99999, fontSize: '12px'
+          });
+          if (document.body.classList.contains('dark-theme')) note.style.background = 'rgba(255,255,255,.15)';
+          document.body.appendChild(note);
+          setTimeout(() => note.remove(), 3500);
+        }
+      } catch (err) {
+        console.warn('Clipboard image copy failed; user can attach manually.', err);
+      } finally {
+        window.open(shareUrl, '_blank', 'noopener');
+      }
+    };
+    img.onerror = () => {
+      console.warn('Could not rasterize PNG for clipboard; opening composer without it.');
+      window.open(shareUrl, '_blank', 'noopener');
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
   }
 
   /** Load the Bluesky butterfly (Simple Icons) into a target span; fallback to 🦋. */
