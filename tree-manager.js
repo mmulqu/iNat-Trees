@@ -633,7 +633,7 @@ class TreeManager {
       }
     } catch (_) {}
 
-    // Stats dashboard (unchanged)
+    // (Optional) stats dashboard
     const tabContent = document.getElementById(`${tree.id}-content`);
     if (tabContent) {
       const existingStats = tabContent.querySelectorAll('.comparison-stats, .battle-summary');
@@ -646,21 +646,18 @@ class TreeManager {
         );
         if (comparisonDashboard && tabContent) {
           tabContent.appendChild(comparisonDashboard);
-          this.applyComparisonStatsColors(tree);   // <— NEW
+          this.applyComparisonStatsColors(tree);
           this.createBattleSummary(tree);
         }
-
-        // Install/update the floating toolbar
-        this.installToolbar(tree, mm, root);
-
-        // Add scroll gutters and mini-map
-        this._ensureScrollGutters(svg.closest('.markmap-container'));
-        this._ensureMiniMap(tree.id, svg);
-        
       } catch (error) {
         console.error('Error creating comparison dashboard:', error);
       }
     }
+
+    // --- ALWAYS add these, regardless of stats ---
+    this.installToolbar(tree, mm, root);
+    this._ensureScrollGutters(svg.closest('.markmap-container'));
+    this._ensureMiniMap(tree.id, svg);
   }
   
 
