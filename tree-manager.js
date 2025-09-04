@@ -1029,38 +1029,66 @@ _ensureMiniMap(treeId, svg) {
     linksLayer.innerHTML = '';
     connsLayer.innerHTML = '';
 
-    // helper: read the stroke we applied on the main element (attr, style, or computed)
     const readStroke = (el) => {
-      return el.getAttribute('stroke')
-          || el.style?.stroke
-          || (window.getComputedStyle ? getComputedStyle(el).stroke : null)
-          || null;
+      if (!el) return null;
+      const attr = el.getAttribute('stroke');
+      if (attr && attr !== 'none') return attr;
+      const inline = el.style && el.style.stroke;
+      if (inline && inline !== 'none') return inline;
+      try {
+        const cs = getComputedStyle(el);
+        if (cs && cs.stroke && cs.stroke !== 'none') return cs.stroke;
+      } catch (_) {}
+      return null;
     };
 
-    // 1) Curved links (carry over edge classes AND stroke color)
+    const styleStrokeImportant = (el, stroke, opacity = '1') => {
+      el.setAttribute('stroke', stroke);
+      el.style.setProperty('stroke', stroke, 'important');           // force over gray CSS
+      el.style.setProperty('stroke-opacity', opacity, 'important');
+      el.style.setProperty('fill', 'none', 'important');
+    };
+
+    const targetNodeForPath = (pathEl) => {
+      // Prefer data-path on the path, else use bound datum
+      let key = pathEl.getAttribute('data-path');
+      if (!key) {
+        const d = pathEl.__data__;
+        const target = d && d.target;
+        if (target && target.path) key = target.path;
+      }
+      return key ? svg.querySelector(`g.markmap-node[data-path="${key}"]`) : null;
+    };
+
+    // 1) Curved links
     svg.querySelectorAll('path.markmap-link').forEach(p => {
       const miniPath = document.createElementNS(NS, 'path');
       miniPath.setAttribute('d', p.getAttribute('d') || '');
 
-      // Keep comparison classes (if present)
+      // keep comparison classes if present
       const cls = p.getAttribute('class') || '';
       const keep = cls.split(/\s+/).filter(c =>
         c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
       );
       if (keep.length) miniPath.setAttribute('class', keep.join(' '));
 
-      // Copy stroke color and force it as inline style so it beats the gray CSS
-      const stroke = readStroke(p);
-      if (stroke) {
-        miniPath.setAttribute('stroke', stroke);
-        miniPath.style.stroke = stroke;            // inline style wins
-        miniPath.style.strokeOpacity = '1';        // keep solid when colored
+      // try to read the actual stroke; if absent/gray, fall back to node connector color
+      let stroke = readStroke(p);
+
+      // fallback via the target node's connector (rank color)
+      if (!stroke || /rgb\(\s*107\s*,\s*114\s*,\s*128\s*\)/i.test(stroke)) { // gray #6b7280
+        const g = targetNodeForPath(p);
+        const ln = g && g.querySelector('line');
+        const s2 = readStroke(ln);
+        if (s2) stroke = s2;
       }
+
+      if (stroke) styleStrokeImportant(miniPath, stroke, '1');
 
       linksLayer.appendChild(miniPath);
     });
 
-    // 2) Node connector lines (short lines from node to label)
+    // 2) Node connector lines
     svg.querySelectorAll('g.markmap-node line').forEach(ln => {
       const x1 = parseFloat(ln.getAttribute('x1') || '0');
       const y1 = parseFloat(ln.getAttribute('y1') || '0');
@@ -1076,15 +1104,10 @@ _ensureMiniMap(treeId, svg) {
       miniLine.setAttribute('x2', p2.x);
       miniLine.setAttribute('y2', p2.y);
 
-      // Copy stroke color and force it as inline style so it beats the gray CSS
       const stroke = readStroke(ln);
-      if (stroke) {
-        miniLine.setAttribute('stroke', stroke);
-        miniLine.style.stroke = stroke;            // inline style wins
-        miniLine.style.strokeOpacity = '1';        // keep solid when colored
-      }
+      if (stroke) styleStrokeImportant(miniLine, stroke, '1');
 
-      // Keep comparison edge classes too (harmless in single-user)
+      // keep comparison edge classes (harmless in single-user)
       const gNode = ln.closest('g.markmap-node');
       const c = this._inferNodeColorFromG(gNode);
       if (c === '#dc2626') miniLine.classList.add('user1-edge');
