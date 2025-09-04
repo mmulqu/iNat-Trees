@@ -74,16 +74,10 @@
     body.dark-theme .mm-scroll-gutter.left:hover  { background: linear-gradient(to right, rgba(255,255,255,.06), transparent); }
     body.dark-theme .mm-scroll-gutter.right:hover { background: linear-gradient(to left,  rgba(255,255,255,.06), transparent); }
 
-    /* Floating toolbar stays clickable and outside scroll gutters */
+    /* Toolbar is above gutters and offset from the right gutter */
     .mm-toolbar{
-      position: fixed;
-      top: 12px;
-      right: calc(var(--mm-scroll-gutter) + 12px);
-      z-index: 2147483647; /* above gutters/minimap */
-      display: flex;
-      gap: .5rem;
-      align-items: center;
-      pointer-events: auto;
+      position:absolute; top:8px; right:calc(var(--mm-scroll-gutter) + 8px);
+      z-index:50; display:flex; gap:.5rem; align-items:center; pointer-events:auto;
       background:rgba(255,255,255,.9); backdrop-filter:blur(6px);
       border:1px solid rgba(0,0,0,.12); border-radius:10px; padding:6px;
     }
@@ -95,10 +89,12 @@
     .mm-toolbar .btn,
     .mm-toolbar .form-select { box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 
-    /* Optional: compact on small screens */
-    @media (max-width: 576px){
-      .mm-toolbar{ top: 8px; right: calc(var(--mm-scroll-gutter) + 8px); gap: .35rem; }
-    }
+    /* Small Bluesky button with the butterfly */
+    .btn-bsky { display:inline-flex; align-items:center; gap:.35rem; }
+    .btn-bsky img { width:16px; height:16px; display:block; }
+
+    /* Optional: slightly tighter dropdown on the export group */
+    .mm-toolbar .dropdown-menu { min-width: 10rem; }
   `;
   document.head.appendChild(s);
 })();
@@ -879,10 +875,8 @@ class TreeManager {
       </button>
 
       <select class="form-select form-select-sm w-auto" data-act="expand" title="Expand level">
-        <option value="0">0</option>
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
+        <option value="0">0</option><option value="1">1</option>
+        <option value="2">2</option><option value="3">3</option>
         <option value="-1">All</option>
       </select>
 
@@ -900,11 +894,9 @@ class TreeManager {
         </ul>
       </div>
 
-      <!-- Bluesky (butterfly icon inline SVG) -->
-      <button class="btn btn-sm btn-light" data-act="share-bsky" title="Share on Bluesky" aria-label="Share on Bluesky">
-        <svg width="18" height="18" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
-          <path d="M53 32c19 0 36 16 75 58 39-42 56-58 75-58 15 0 26 10 26 24 0 14-10 27-31 41 27 9 41 23 41 41 0 14-9 24-23 24-21 0-42-18-63-35-4-3-8-7-12-10-4 3-8 7-12 10-21 17-42 35-63 35-14 0-23-10-23-24 0-18 14-32 41-41-21-14-31-27-31-41 0-14 11-24 26-24z"/>
-        </svg>
+      <button class="btn btn-sm btn-light btn-bsky" data-act="share-bsky" title="Share on Bluesky">
+        <img alt="Bluesky" src="https://upload.wikimedia.org/wikipedia/commons/5/5c/Bluesky_Social_butterfly_logo_icon.svg">
+        Share
       </button>
     `;
 
@@ -936,15 +928,14 @@ class TreeManager {
         } catch { mm.fit(); }
       });
 
-    // NEW: export + share
     toolbar.querySelector('[data-act="export-svg"]')
-      ?.addEventListener('click', (e) => { e.preventDefault(); this._exportSVG(tree); });
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportSVG(tree); });
 
     toolbar.querySelector('[data-act="export-png"]')
-      ?.addEventListener('click', (e) => { e.preventDefault(); this._exportPNG(tree); });
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportPNG(tree); });
 
     toolbar.querySelector('[data-act="share-bsky"]')
-      ?.addEventListener('click', () => this._shareBluesky(tree));
+      ?.addEventListener('click', ()=> this._shareBluesky(tree));
   }
 
   // Always keep page-scrollable gutters around the map
@@ -1229,41 +1220,184 @@ _ensureMiniMap(treeId, svg) {
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
     this._downloadBlob(name, blob);
   }
-  /** Share to Bluesky. Uses Web Share API with file when supported; otherwise opens composer and copies PNG to clipboard. */
-  async _shareBluesky(tree) {
-    const svg = document.getElementById(`${tree.id}-svg`);
-    if (!svg) return;
+  /* ---------- Bluesky helpers ---------- */
 
-    const title = this._treeLabel(tree).replace(/_/g, ' ');
-    const text =
-      (tree.isComparison
-        ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-        : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-      ) + `\nBuilt with iNat Tree Viewer`;
+  async _shareBluesky(tree){
+    try{
+      // 1) Render a tight canvas (same framing used by your export)
+      const svg = document.getElementById(`${tree.id}-svg`);
+      if (!svg) return;
+      const { canvas, blob, alt } = await this._makeShareImageFromSvg(svg, tree);
 
-    // Try native share with an attached PNG (mobile Safari/Chrome support this)
-    try {
-      const pngBlob = await this._makePNGBlobFromSVG(svg, 2);
-      const file = new File([pngBlob], this._fileSafeName(`${title}.png`), { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ text, files: [file] });
-        return;
+      // 2) Ensure a Bluesky session (quick app-password modal)
+      const sess = await this._bskyEnsureSession();
+      if (!sess) return; // user cancelled
+
+      // 3) Upload image blob
+      const uploaded = await this._bskyUploadBlob(sess, blob);
+
+      // 4) Create a post with the image embed
+      const text = this._composeShareText(tree);
+      const created = await this._bskyCreateImagePost(sess, text, uploaded, alt);
+
+      // 5) Open the created post in a new tab
+      const rkey = created?.uri?.split('/').pop();
+      const profile = sess.handle || sess.did;
+      if (rkey && profile) window.open(`https://bsky.app/profile/${encodeURIComponent(profile)}/post/${encodeURIComponent(rkey)}`, '_blank','noopener');
+
+    }catch(err){
+      console.error('Bluesky share failed', err);
+      // Fallback: open composer with text only
+      const text = this._composeShareText(tree);
+      window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    }
+  }
+
+  // Build the status text
+  _composeShareText(tree){
+    return tree.isComparison
+      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+      : `My iNaturalist taxonomic tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+  }
+
+  // Export the visible SVG to a canvas + make a <=1MB blob (preferring WebP)
+  async _makeShareImageFromSvg(svg, tree){
+    const { svgText, bbox } = this._serializeSvgForExport(svg); // you already have this
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+
+    // Draw at 2x, then compress to <= 1,000,000 bytes
+    const img = await new Promise((res, rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    const scaleStart = 2;
+    let scale = scaleStart, quality = 0.92, blob = null, canvas = null;
+
+    for (let attempt=0; attempt<5; attempt++){
+      const w = Math.max(1, Math.ceil(bbox.width * scale));
+      const h = Math.max(1, Math.ceil(bbox.height * scale));
+      canvas = Object.assign(document.createElement('canvas'), { width:w, height:h });
+      const ctx = canvas.getContext('2d', { alpha:false });
+      const isDark = document.body.classList.contains('dark-theme');
+      ctx.fillStyle = isDark ? '#1d1f20' : '#ffffff';
+      ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img, 0, 0, w, h);
+
+      blob = await new Promise(res=> canvas.toBlob(b=>res(b), 'image/webp', quality));
+      if (blob && blob.size <= 1000000) break;
+
+      // reduce quality first, then scale
+      if (quality > 0.6) quality -= 0.12;
+      else scale *= 0.85;
+    }
+
+    if (!blob){ // worst case: fall back to PNG once
+      blob = await new Promise(res=> canvas.toBlob(b=>res(b), 'image/png'));
+    }
+
+    const alt = `Taxonomic tree for ${tree.isComparison ? `${tree.username1} vs ${tree.username2}` : tree.username}: ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+    return { canvas, blob, alt };
+  }
+
+  /* ---- Minimal app-password session (keep app password out of storage). 
+     For full OAuth PKCE, see Bluesky's guide. */
+  async _bskyEnsureSession(){
+    // Reuse in-memory or local session
+    if (this._bskySession?.accessJwt) return this._bskySession;
+
+    // Build a tiny login modal if it doesn't exist
+    let modal = document.getElementById('bskyLoginModal');
+    if (!modal){
+      modal = document.createElement('div');
+      modal.id = 'bskyLoginModal';
+      modal.innerHTML = `
+        <div class="modal fade" tabindex="-1">
+          <div class="modal-dialog"><form class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Sign in to Bluesky</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <label class="form-label">Handle (e.g. yourname.bsky.social)</label>
+              <input class="form-control mb-2" name="handle" placeholder="handle" required>
+              <label class="form-label">App password</label>
+              <input class="form-control" type="password" name="password" placeholder="xxxx-xxxx-xxxx-xxxx" required>
+              <div class="form-text mt-2">Use a Bluesky <strong>app password</strong>, not your main password.</div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-primary" type="submit">Continue</button>
+            </div>
+          </form></div>
+        </div>`;
+      document.body.appendChild(modal);
+
+      const form = modal.querySelector('form');
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const handle = form.handle.value.trim();
+        const password = form.password.value.trim();
+        try{
+          const sess = await this._bskyCreateSession(handle, password);
+          this._bskySession = sess;
+          bootstrap.Modal.getInstance(modal.querySelector('.modal'))?.hide();
+          form.reset();
+        }catch(err){
+          alert('Sign-in failed. Please check handle and app password.');
+          console.error(err);
+        }
+      });
+    }
+
+    // Show modal and wait until _bskySession is set or user cancels
+    const bs = new bootstrap.Modal(modal.querySelector('.modal'), { backdrop: 'static' });
+    bs.show();
+    return await new Promise((resolve)=>{
+      const check = () => this._bskySession?.accessJwt ? resolve(this._bskySession) : setTimeout(check, 200);
+      const onHidden = () => { modal.querySelector('.modal').removeEventListener('hidden.bs.modal', onHidden); resolve(null); };
+      modal.querySelector('.modal').addEventListener('hidden.bs.modal', onHidden);
+      check();
+    });
+  }
+
+  async _bskyCreateSession(identifier, password){
+    // Fast path assumes bsky.social PDS. For non-default PDS, upgrade to OAuth. :contentReference[oaicite:1]{index=1}
+    const resp = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ identifier, password })
+    });
+    if (!resp.ok) throw new Error('createSession failed');
+    const data = await resp.json();
+    // { did, handle, accessJwt, refreshJwt, ... }
+    return { ...data, pds: 'https://bsky.social' };
+  }
+
+  async _bskyUploadBlob(sess, blob){
+    const u = `${sess.pds}/xrpc/com.atproto.repo.uploadBlob`; // raw binary upload
+    const resp = await fetch(u, {
+      method:'POST',
+      headers:{ 'Authorization': `Bearer ${sess.accessJwt}`, 'Content-Type': blob.type || 'image/png' },
+      body: blob
+    });
+    if (!resp.ok) throw new Error('uploadBlob failed');
+    return resp.json(); // → { blob: { ref:{$link:...}, mimeType, size } }
+  }
+
+  async _bskyCreateImagePost(sess, text, uploadResult, alt){
+    const image = uploadResult?.blob;
+    const record = {
+      $type: 'app.bsky.feed.post',
+      text,
+      createdAt: new Date().toISOString(),
+      embed: {
+        $type: 'app.bsky.embed.images',
+        images: [{ image, alt }]
       }
-    } catch {}
-
-    // Fallback: open Bluesky composer with text + URL, and copy PNG to clipboard for quick paste.
-    const base = 'https://bsky.app/intent/compose';
-    const url  = `${base}?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`;
-    window.open(url, '_blank', 'noopener');
-
-    try {
-      const pngBlob = await this._makePNGBlobFromSVG(svg, 2);
-      // Copy to clipboard so user can paste into the composer
-      if (navigator.clipboard && window.ClipboardItem) {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-        this._toast('PNG copied to clipboard — paste it into the Bluesky composer.');
-      }
-    } catch {}
+    };
+    const resp = await fetch(`${sess.pds}/xrpc/com.atproto.repo.createRecord`, {
+      method:'POST',
+      headers:{ 'Authorization': `Bearer ${sess.accessJwt}`, 'Content-Type':'application/json' },
+      body: JSON.stringify({ repo: sess.did, collection: 'app.bsky.feed.post', record })
+    });
+    if (!resp.ok) throw new Error('createRecord failed');
+    return resp.json(); // → { uri: 'at://did/app.bsky.feed.post/rkey', cid: '...' }
   }
 
   /* tiny toast */
