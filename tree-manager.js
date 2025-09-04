@@ -232,23 +232,25 @@ class TreeManager {
   renderTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
+  
     // Clear the SVG container before rendering
     svg.innerHTML = '';
+  
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(tree.markdown);
-
+  
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       duration: 500,
       autoFit: true,
       fitRatio: 0.98,
-      initialExpandLevel: -1,   // ← expand all immediately
+      initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
       scrollForPan: true
     }, root);
-
+  
     // Keep a handle + keep fitting
     tree._mm = mm;
     const pane = svg.closest('.tab-pane');
@@ -256,15 +258,101 @@ class TreeManager {
     tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
-
+  
+    // ---------- NEW: rank-based edge coloring for single-user trees ----------
+    // Palette per rank (tweak as you like)
+    const RANK_COLOR = {
+      species:    '#22c55e',
+      subspecies: '#22c55e',
+      variety:    '#22c55e',
+      genus:      '#10b981',
+      subgenus:   '#10b981',
+      family:     '#06b6d4',
+      subfamily:  '#06b6d4',
+      order:      '#6366f1',
+      suborder:   '#6366f1',
+      class:      '#f59e0b',
+      subclass:   '#f59e0b',
+      phylum:     '#ef4444',
+      subphylum:  '#ef4444',
+      kingdom:    '#a855f7',
+      domain:     '#a855f7',
+      superkingdom: '#a855f7',
+      stateofmatter: '#64748b'
+    };
+  
+    const getRankColor = (gNode) => {
+      // We emit <span class="mm-badge mm-rank" title="Class">C</span> in labels.
+      const badge = gNode.querySelector('.mm-badge.mm-rank');
+      if (!badge) return null;
+      const rank = (badge.getAttribute('title') || '').trim().toLowerCase();
+      return RANK_COLOR[rank] || null;
+    };
+  
+    const colorByRank = () => {
+      const colorByPath = new Map();
+  
+      // Color node visuals and record color per data-path
+      svg.querySelectorAll('g.markmap-node').forEach((g) => {
+        const c = getRankColor(g);
+        if (!c) return;
+  
+        const pathKey = g.getAttribute('data-path');
+        if (pathKey) colorByPath.set(pathKey, c);
+  
+        const line = g.querySelector('line');
+        if (line) line.setAttribute('stroke', c);
+  
+        const circle = g.querySelector('circle');
+        if (circle) { circle.setAttribute('stroke', c); circle.setAttribute('fill', c); }
+      });
+  
+      // Paint the edges (real links)
+      svg.querySelectorAll('path.markmap-link').forEach((linkEl) => {
+        let pathKey = linkEl.getAttribute('data-path');
+        let gNode = pathKey ? svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`) : null;
+  
+        if (!gNode) {
+          const d = linkEl.__data__;
+          const target = d && d.target;
+          if (target && target.path) {
+            pathKey = target.path;
+            gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
+          }
+        }
+  
+        const c =
+          (gNode && getRankColor(gNode)) ||
+          (pathKey && colorByPath.get(pathKey)) ||
+          null;
+  
+        if (!c) return;
+  
+        // Inline styles win over global CSS
+        linkEl.setAttribute('stroke', c);
+        linkEl.style.stroke = c;
+        linkEl.style.strokeOpacity = '1';
+        linkEl.style.fill = 'none';
+      });
+    };
+  
+    // Initial paint (after layout settles)
+    setTimeout(() => requestAnimationFrame(colorByRank), 400);
+    // Re-apply after expand/collapse
+    svg.addEventListener('click', () => {
+      setTimeout(() => requestAnimationFrame(colorByRank), 250);
+    });
+    // ------------------------------------------------------------------------
+  
     // Install/update the floating toolbar
     this.installToolbar(tree, mm, root);
-
+  
     // Add scroll gutters and mini-map
     this._ensureScrollGutters(svg.closest('.markmap-container'));
     this._ensureMiniMap(tree.id, svg);
+  
+    // Dark theme label polish
     try {
-      // ensure labels are bright in dark theme (html labels too)
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
@@ -275,31 +363,25 @@ class TreeManager {
         }, 0);
       }
     } catch (_) {}
-
-    // Add statistics dashboard if available
+  
+    // Stats dashboard (unchanged)
     try {
-      // First, remove any existing stats containers to prevent duplicates
       const tabContent = document.getElementById(`${tree.id}-content`);
       const existingStats = tabContent.querySelectorAll('.taxonomy-stats');
       existingStats.forEach(el => el.remove());
-
-      // Check if stats are available and the taxonomyStats module is loaded
       if (tree.stats && window.taxonomyStats) {
         const statsContainer = this.createStatsDashboard(tree);
         if (statsContainer) {
-          // Insert the stats dashboard after the tree info (if it exists)
           const treeInfo = tabContent.querySelector('.tree-info');
-          if (treeInfo) {
-            treeInfo.after(statsContainer);
-          } else {
-            tabContent.appendChild(statsContainer);
-          }
+          if (treeInfo) treeInfo.after(statsContainer);
+          else tabContent.appendChild(statsContainer);
         }
       }
     } catch (error) {
       console.error('Error rendering statistics dashboard:', error);
     }
   }
+  
 
   // Create statistics dashboard for a single tree
   createStatsDashboard(tree) {
@@ -949,15 +1031,24 @@ class TreeManager {
       svg.querySelectorAll('path.markmap-link').forEach(p => {
         const miniPath = document.createElementNS(NS, 'path');
         miniPath.setAttribute('d', p.getAttribute('d') || '');
-        // Carry over color classes (user1-edge / user2-edge / shared-edge)
+    
+        // Copy edge classes (keeps PVP coloring when present)
         const cls = p.getAttribute('class') || '';
         const keep = cls.split(/\s+/).filter(c =>
           c === 'user1-edge' || c === 'user2-edge' || c === 'shared-edge'
         );
         if (keep.length) miniPath.setAttribute('class', keep.join(' '));
+    
+        // NEW: also copy the actual stroke color for single-user rank colors
+        const stroke = p.style.stroke || p.getAttribute('stroke');
+        if (stroke) miniPath.setAttribute('stroke', stroke);
+        const sop = p.style.strokeOpacity || p.getAttribute('stroke-opacity');
+        if (sop) miniPath.setAttribute('stroke-opacity', sop);
+    
         linksLayer.appendChild(miniPath);
       });
     };
+    
 
     const updateViewport = () => {
       const bbox = getContentBBox();
