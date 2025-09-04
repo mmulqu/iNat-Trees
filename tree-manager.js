@@ -17,31 +17,37 @@
       border: 1px solid rgba(0,0,0,.15);
       box-shadow: 0 8px 24px rgba(0,0,0,.25);
       z-index: 5;
-      pointer-events: none;   /* visual-only; main SVG handles input */
+      pointer-events: none; /* visual-only */
     }
     body.dark-theme .mm-minimap {
       background: rgba(0,0,0,.52);
       border-color: rgba(255,255,255,.22);
     }
     .mm-minimap.hidden { display: none; }
-    /* Draw links in the mini map; classes are copied from main links */
-    .mm-minimap .mm-mini-links path {
+
+    /* Mini-map link + connector strokes */
+    .mm-minimap .mm-mini-links path,
+    .mm-minimap .mm-mini-links line,
+    .mm-minimap .mm-mini-conns line {
       vector-effect: non-scaling-stroke;
       stroke-width: .9;
-      stroke: #6b7280;    /* default grey if no class is present */
+      stroke: #6b7280;
       stroke-opacity: .65;
       fill: none;
     }
-    body.dark-theme .mm-minimap .mm-mini-links path {
+    body.dark-theme .mm-minimap .mm-mini-links path,
+    body.dark-theme .mm-minimap .mm-mini-links line,
+    body.dark-theme .mm-minimap .mm-mini-conns line {
       stroke: #a8b1b8;
       stroke-opacity: .75;
     }
+
     /* Color the mini-map edges to match PVP */
     .mm-minimap .user1-edge { stroke: #dc2626 !important; stroke-opacity: .95; }
     .mm-minimap .user2-edge { stroke: #2563eb !important; stroke-opacity: .95; }
     .mm-minimap .shared-edge { stroke: #9333ea !important; stroke-opacity: .95; }
 
-    /* Hide any text that might leak into the mini-map at tiny scale */
+    /* Hide labels in the mini-map */
     .mm-minimap text, .mm-minimap foreignObject { display: none !important; }
 
     /* Live viewport box */
@@ -54,10 +60,9 @@
     }
     body.dark-theme .mm-minimap .mm-mini-viewport { stroke: #e5e7eb; }
 
-    /* Scroll gutters: wheel here scrolls the page, not the map */
+    /* Scroll gutters */
     :root { --mm-scroll-gutter: 36px; }
     @media (min-width: 992px) { :root { --mm-scroll-gutter: 48px; } }
-
     .mm-scroll-gutter {
       position: absolute; top: 0; bottom: 0; width: var(--mm-scroll-gutter);
       background: transparent; z-index: 8; pointer-events: auto;
@@ -71,6 +76,7 @@
   `;
   document.head.appendChild(s);
 })();
+
 
 class TreeManager {
   constructor() {
@@ -259,6 +265,13 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
   
+    // Color links and tag classes (single-user too)
+    setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
+    // Reapply on expand/collapse
+    svg.addEventListener('click', () => {
+      setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
+    });
+
     // ---------- NEW: rank-based edge coloring for single-user trees ----------
     // Palette per rank (tweak as you like)
     const RANK_COLOR = {
@@ -578,111 +591,11 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
   
-    // Helper: determine a node's color based on its HTML label
-    const getNodeColor = (gNode) => {
-      const foreign = gNode.querySelector('foreignObject');
-      if (!foreign) return null;
-  
-      const has1 = !!foreign.querySelector('.user1-node');
-      const has2 = !!foreign.querySelector('.user2-node');
-      const hasShared = !!foreign.querySelector('.shared-node');
-  
-      if (hasShared || (has1 && has2)) return '#9333ea';
-      if (has1) return '#dc2626';
-      if (has2) return '#2563eb';
-      return null;
-    };
-  
-    // Paint nodes and links after Markmap finishes its render
-    const colorElements = () => {
-      // 1) Paint nodes and build a color map by data-path
-      const colorByPath = new Map();
-  
-      svg.querySelectorAll('g.markmap-node').forEach((g) => {
-        const pathKey = g.getAttribute('data-path');
-        const color = getNodeColor(g);
-        if (!color) return;
-  
-        if (pathKey) colorByPath.set(pathKey, color);
-  
-        // Color node visuals (circle/line)
-        const line = g.querySelector('line');
-        if (line) line.setAttribute('stroke', color);
-  
-        const circle = g.querySelector('circle');
-        if (circle) {
-          circle.setAttribute('stroke', color);
-          circle.setAttribute('fill', color);
-        }
-      });
-  
-      // 2) Paint only real edges (paths with .markmap-link)
-      const links = svg.querySelectorAll('path.markmap-link');
-      links.forEach((linkEl) => {
-        // Prefer the shared data-path attribute
-        let pathKey = linkEl.getAttribute('data-path');
-        let gNode = null;
-  
-        if (pathKey) {
-          gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
-        }
-  
-        // Fallback: use D3's bound datum to locate the target node
-        if (!gNode) {
-          const d = linkEl.__data__;              // { source, target }
-          const target = d && d.target;
-          if (target) {
-            // Some builds expose a .path string on nodes; try that
-            if (!pathKey && target.path) {
-              pathKey = target.path;
-              gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
-            }
-            // Last resort: if Markmap exposes findElement, use it
-            if (!gNode && typeof mm.findElement === 'function') {
-              try {
-                const el = mm.findElement(target);
-                if (el && el.g) gNode = el.g;
-              } catch (_) {}
-            }
-          }
-        }
-  
-        // Final fallback: nearest following node in DOM (rarely needed)
-        if (!gNode) {
-          let next = linkEl.nextElementSibling;
-          while (next && !next.classList?.contains('markmap-node')) {
-            next = next.nextElementSibling;
-          }
-          gNode = next || null;
-        }
-  
-        const nodeColor =
-          (gNode && getNodeColor(gNode)) ||
-          (pathKey && colorByPath.get(pathKey)) ||
-          null;
-  
-        if (!nodeColor) return;
-  
-        // Apply stroke with high specificity
-        linkEl.setAttribute('stroke', nodeColor);
-        linkEl.style.stroke = nodeColor;
-        linkEl.style.strokeOpacity = '1';
-        linkEl.style.fill = 'none';
-
-        // Normalize color → edge class for mini-map
-        linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
-        if (nodeColor === '#dc2626') linkEl.classList.add('user1-edge');
-        else if (nodeColor === '#2563eb') linkEl.classList.add('user2-edge');
-        else if (nodeColor === '#9333ea') linkEl.classList.add('shared-edge');
-      });
-    };
-  
-    // Initial pass (slight delay so the layout is in place)
-    setTimeout(() => requestAnimationFrame(colorElements), 400);
-  
-    // Re-apply on expand/collapse
+    // Color links and tag classes (comparison too)
+    setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
+    // Reapply on expand/collapse
     svg.addEventListener('click', () => {
-      setTimeout(() => requestAnimationFrame(colorElements), 250);
+      setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
   
     // Dark mode handling
@@ -1104,6 +1017,70 @@ class TreeManager {
         );
       }
     } catch(_) {}
+  }
+
+  // Infer user color from a node's HTML label, if present
+  _inferNodeColorFromG(g) {
+    if (!g) return null;
+    const f = g.querySelector('foreignObject');
+    if (!f) return null;
+    if (f.querySelector('.shared-node')) return '#9333ea';
+    if (f.querySelector('.user1-node'))  return '#dc2626';
+    if (f.querySelector('.user2-node'))  return '#2563eb';
+    return null;
+  }
+
+  /** Paint markmap links to match node/user colors and tag classes for mini-map. */
+  _colorLinksAndTagEdges(svg, mm) {
+    if (!svg) return;
+
+    // Map data-path → color
+    const colorByPath = new Map();
+    svg.querySelectorAll('g.markmap-node').forEach(g => {
+      const key = g.getAttribute('data-path');
+      const c = this._inferNodeColorFromG(g);
+      if (key && c) colorByPath.set(key, c);
+
+      // Also tint the short connector line
+      const ln = g.querySelector('line');
+      if (ln && c) {
+        ln.setAttribute('stroke', c);
+        ln.style.stroke = c;
+      }
+    });
+
+    // Color the curved links and tag classes
+    svg.querySelectorAll('path.markmap-link').forEach(linkEl => {
+      let c = null;
+
+      // Prefer data-path
+      const key = linkEl.getAttribute('data-path');
+      if (key && colorByPath.has(key)) c = colorByPath.get(key);
+
+      // Fallback: use bound datum + mm.findElement
+      if (!c) {
+        const d = linkEl.__data__;
+        const target = d && d.target;
+        if (target && typeof mm?.findElement === 'function') {
+          try {
+            const el = mm.findElement(target);
+            if (el?.g) c = this._inferNodeColorFromG(el.g);
+          } catch (_) {}
+        }
+      }
+
+      if (!c) return;
+
+      linkEl.setAttribute('stroke', c);
+      linkEl.style.stroke = c;
+      linkEl.style.strokeOpacity = '1';
+      linkEl.style.fill = 'none';
+
+      linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+      if (c === '#dc2626') linkEl.classList.add('user1-edge');
+      else if (c === '#2563eb') linkEl.classList.add('user2-edge');
+      else if (c === '#9333ea') linkEl.classList.add('shared-edge');
+    });
   }
 }
 
