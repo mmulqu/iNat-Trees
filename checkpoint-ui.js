@@ -292,7 +292,6 @@ function renderTaxaList(groups) {
     btn.type = 'button';
     btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
 
-    // label span we can update later
     const label = document.createElement('span');
     label.className = 'js-taxon-label';
     label.textContent = g.taxonName;
@@ -305,19 +304,6 @@ function renderTaxaList(groups) {
 
     btn.addEventListener('click', () => selectTaxonGroup(g));
     list.appendChild(btn);
-
-    // If this is still "Taxon ####", resolve and update the UI + group object
-    if (/^Taxon \d+$/.test(g.taxonName)) {
-      resolveTaxonTitle(g.taxonId).then(name => {
-        g.taxonName = name;
-        label.textContent = name;
-        // If this group is currently selected, also fix the header text
-        if (window.__cpSelectedGroup === g) {
-          const head = document.getElementById('checkpointSelectedTitle');
-          if (head) head.textContent = `${name} — ${g.items.length} checkpoints`;
-        }
-      }).catch(() => {});
-    }
   }
 }
 
@@ -752,9 +738,36 @@ async function loadAndRenderList() {
   const username = localStorage.getItem('inat_username') || '';
   const token = localStorage.getItem('inat_token') || '';
   if (!username || !token) return;  // avoid 403 until signed in properly
-  const cps = await fetchCheckpoints(username);
+
+  const cps    = await fetchCheckpoints(username);
   const groups = groupByTaxon(cps);
+
+  // Initial fast render (may include "Taxon ####")
   renderTaxaList(groups);
+
+  // Resolve any generic names, then re-render the list once
+  const need = groups.filter(g => /^Taxon \d+$/.test(g.taxonName));
+  if (need.length) {
+    Promise.allSettled(
+      need.map(async g => {
+        const name = await resolveTaxonTitle(g.taxonId);
+        g.taxonName = name;
+      })
+    ).then(() => {
+      // Re-render with resolved scientific names
+      renderTaxaList(groups);
+
+      // If the currently selected group was generic, update the header too
+      if (window.__cpSelectedGroup) {
+        const cur = groups.find(x => x.taxonId === window.__cpSelectedGroup.taxonId);
+        if (cur) {
+          window.__cpSelectedGroup = cur;
+          const head = document.getElementById('checkpointSelectedTitle');
+          if (head) head.textContent = `${cur.taxonName} — ${cur.items.length} checkpoints`;
+        }
+      }
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
