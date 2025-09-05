@@ -288,16 +288,36 @@ function renderTaxaList(groups) {
   const list = document.getElementById('checkpointTaxaList');
   list.innerHTML = '';
   for (const g of groups) {
-    const a = document.createElement('button');
-    a.type = 'button';
-    a.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-    a.textContent = `${g.taxonName}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+
+    // label span we can update later
+    const label = document.createElement('span');
+    label.className = 'js-taxon-label';
+    label.textContent = g.taxonName;
+    btn.appendChild(label);
+
     const badge = document.createElement('span');
     badge.className = 'badge bg-secondary rounded-pill';
     badge.textContent = g.items.length;
-    a.appendChild(badge);
-    a.addEventListener('click', () => selectTaxonGroup(g));
-    list.appendChild(a);
+    btn.appendChild(badge);
+
+    btn.addEventListener('click', () => selectTaxonGroup(g));
+    list.appendChild(btn);
+
+    // If this is still "Taxon ####", resolve and update the UI + group object
+    if (/^Taxon \d+$/.test(g.taxonName)) {
+      resolveTaxonTitle(g.taxonId).then(name => {
+        g.taxonName = name;
+        label.textContent = name;
+        // If this group is currently selected, also fix the header text
+        if (window.__cpSelectedGroup === g) {
+          const head = document.getElementById('checkpointSelectedTitle');
+          if (head) head.textContent = `${name} — ${g.items.length} checkpoints`;
+        }
+      }).catch(() => {});
+    }
   }
 }
 
@@ -305,6 +325,14 @@ function selectTaxonGroup(group) {
   window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
   title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
+  // If the name is still "Taxon ####", resolve it and update header and group
+  if (/^Taxon \d+$/.test(group.taxonName)) {
+    resolveTaxonTitle(group.taxonId).then(name => {
+      group.taxonName = name;
+      const head = document.getElementById('checkpointSelectedTitle');
+      if (head) head.textContent = `${name} — ${group.items.length} checkpoints`;
+    }).catch(() => {});
+  }
   const cpSlider = document.getElementById('checkpointSlider');
   cpSlider.disabled = false;
   cpSlider.min = 0;
