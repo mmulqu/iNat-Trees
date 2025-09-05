@@ -276,6 +276,7 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId, pl
 
         // Now render the tree
         window.treeManager.renderComparisonTree(tree);
+        try { window.pvpMirror?.attachToTree(tree); } catch(_){}
       }
     }
   }, 300);
@@ -305,5 +306,13 @@ function showError(message) {
 function showResults() {
   const resultsCard = document.getElementById("resultsCard");
   resultsCard.style.display = "block";
-  resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Also surface the PvP mirror card
+  const pvpCard = document.getElementById("pvpResultsCard");
+  if (pvpCard) pvpCard.style.display = "block";
+
+  // Scroll to whichever pane is active
+  const pvpPane = document.getElementById('pvpPane');
+  const isPvpActive = pvpPane && pvpPane.classList.contains('show') && pvpPane.classList.contains('active');
+  (isPvpActive ? pvpCard : resultsCard)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
