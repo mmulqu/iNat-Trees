@@ -1,24 +1,66 @@
 // tab-controller.js
 
-function teleportResults(tabId) {
-  const container = document.getElementById('resultsCardContainer');
-  if (!container) return;
+function updatePvPMirror() {
+  const pvpResultsCard = document.getElementById('pvpResultsCard');
+  const pvpMirror = document.getElementById('pvpMirror');
+  if (!pvpResultsCard || !pvpMirror) return;
 
-  const homeMount = document.getElementById('resultsMountHome');
-  const pvpMount = document.getElementById('resultsMountPvP');
-
-  let target = null;
-  if (tabId === 'home') target = homeMount;
-  else if (tabId === 'pvpPane') target = pvpMount;
-  else if (tabId === 'checkpointsPane') {
-    // Keep the shared results with Home while in Checkpoints,
-    // since Checkpoints has its own cpResultsCard.
-    target = homeMount;
+  // Find the active comparison tree tab
+  const activeTab = document.querySelector('#treeTabs .nav-link.active');
+  if (!activeTab) {
+    pvpResultsCard.style.display = 'none';
+    return;
   }
 
-  if (target && container.parentElement !== target) {
-    target.appendChild(container);
+  const treeId = activeTab.id.replace('-tab', '');
+  const treeContent = document.getElementById(`${treeId}-content`);
+  if (!treeContent) {
+    pvpResultsCard.style.display = 'none';
+    return;
   }
+
+  // Check if this is a comparison tree
+  const isComparison = treeContent.dataset.username1 && treeContent.dataset.username2;
+  if (!isComparison) {
+    pvpResultsCard.style.display = 'none';
+    return;
+  }
+
+  // Clone the tree content for the mirror
+  const clone = treeContent.cloneNode(true);
+  
+  // Sanitize the clone to avoid ID conflicts
+  sanitizeClone(clone);
+  
+  // Clear and populate the mirror
+  pvpMirror.innerHTML = '';
+  pvpMirror.appendChild(clone);
+  
+  // Show the PvP results card
+  pvpResultsCard.style.display = 'block';
+}
+
+function sanitizeClone(clone) {
+  // Remove any existing IDs to prevent conflicts
+  const elementsWithIds = clone.querySelectorAll('[id]');
+  elementsWithIds.forEach(el => {
+    const originalId = el.id;
+    el.id = `pvp-${originalId}`;
+    
+    // Update any references to the original ID
+    const labels = clone.querySelectorAll(`label[for="${originalId}"]`);
+    labels.forEach(label => label.setAttribute('for', `pvp-${originalId}`));
+    
+    const ariaControls = clone.querySelectorAll(`[aria-controls="${originalId}"]`);
+    ariaControls.forEach(control => control.setAttribute('aria-controls', `pvp-${originalId}`));
+    
+    const ariaLabelledBy = clone.querySelectorAll(`[aria-labelledby="${originalId}"]`);
+    ariaLabelledBy.forEach(control => control.setAttribute('aria-labelledby', `pvp-${originalId}`));
+  });
+  
+  // Remove any event listeners by cloning again
+  const cleanClone = clone.cloneNode(true);
+  clone.parentNode.replaceChild(cleanClone, clone);
 }
 
 function showTab(tabId) {
@@ -44,8 +86,10 @@ function showTab(tabId) {
   const selectedNavLink = document.getElementById(tabId + '-tab');
   if (selectedNavLink) selectedNavLink.classList.add('active');
 
-  // Move the Results card into the active pane
-  teleportResults(tabId);
+  // Update PvP mirror if we're switching to PvP tab
+  if (tabId === 'pvpPane') {
+    setTimeout(() => updatePvPMirror(), 100);
+  }
 
   // After layout settles, ask TreeManager to re-render the active tree
   if (window.treeManager && typeof window.treeManager.reRenderActiveTab === 'function') {
@@ -53,8 +97,44 @@ function showTab(tabId) {
   }
 }
 
+// Listen for tree tab changes to update PvP mirror
 document.addEventListener('DOMContentLoaded', function() {
-  // Park results under Home on initial load
-  teleportResults('home');
+  // Initial setup
   showTab('home');
+  
+  // Listen for tree tab changes
+  const treeTabs = document.getElementById('treeTabs');
+  if (treeTabs) {
+    treeTabs.addEventListener('click', (e) => {
+      const tabLink = e.target.closest('.nav-link');
+      if (tabLink) {
+        setTimeout(() => updatePvPMirror(), 200);
+      }
+    });
+  }
+  
+  // Listen for tree additions/removals
+  if (window.treeManager) {
+    const originalAddTree = window.treeManager.addTree;
+    const originalAddComparisonTree = window.treeManager.addComparisonTree;
+    const originalRemoveTree = window.treeManager.removeTree;
+    
+    window.treeManager.addTree = function(...args) {
+      const result = originalAddTree.apply(this, args);
+      setTimeout(() => updatePvPMirror(), 100);
+      return result;
+    };
+    
+    window.treeManager.addComparisonTree = function(...args) {
+      const result = originalAddComparisonTree.apply(this, args);
+      setTimeout(() => updatePvPMirror(), 100);
+      return result;
+    };
+    
+    window.treeManager.removeTree = function(...args) {
+      const result = originalRemoveTree.apply(this, args);
+      setTimeout(() => updatePvPMirror(), 100);
+      return result;
+    };
+  }
 });
