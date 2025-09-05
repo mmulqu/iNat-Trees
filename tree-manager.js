@@ -158,6 +158,34 @@ class TreeManager {
     return `${this.idPrefix}-${++this.currentId}`;
   }
 
+  activateTab(treeId) {
+    const link = document.getElementById(`${treeId}-tab`);
+    const pane = document.getElementById(`${treeId}-content`);
+    if (!link || !pane) return;
+
+    // Deactivate other tabs in THIS manager only
+    this.tabsContainer?.querySelectorAll('.nav-link.active')?.forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    this.tabContentContainer?.querySelectorAll('.tab-pane.show.active')?.forEach(p => {
+      p.classList.remove('show', 'active');
+    });
+
+    // Activate this tab
+    if (typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+      new bootstrap.Tab(link).show();
+    } else {
+      link.classList.add('active');
+      link.setAttribute('aria-selected', 'true');
+      pane.classList.add('show', 'active');
+    }
+
+    // Ensure this manager's results card is visible
+    const card = document.getElementById(this.resultsCardId);
+    if (card) card.style.display = 'block';
+  }
+
   addTree(username, taxonName, taxonId, markdown) {
     const treeId = this.generateTreeId();
 
@@ -182,31 +210,31 @@ class TreeManager {
     };
     this.trees.push(tree);
     this.createTreeTab(tree);
+    this.activateTab(treeId);
     // Render immediately (and later on tab shown we re-render)
     this.renderTree(tree);
     return treeId;
   }
 
   reRenderActiveTab() {
-    // Try to find the active tree tab
-    let activeTabLink = this.tabsContainer.querySelector('.nav-link.active');
-    // If none is found and trees exist, use the most recent tab
+    // Find active tab in THIS manager
+    let activeTabLink = this.tabsContainer?.querySelector('.nav-link.active');
+
+    // If none, prefer the most recent tree and ACTIVATE it
     if (!activeTabLink && this.trees.length > 0) {
-      activeTabLink = document.getElementById(this.trees[this.trees.length - 1].id + '-tab');
+      const last = this.trees[this.trees.length - 1];
+      this.activateTab(last.id);
+      activeTabLink = document.getElementById(`${last.id}-tab`);
     }
-    if (!activeTabLink) {
-      console.log("No active tree tab found.");
-      return;
-    }
+    if (!activeTabLink) return;
+
     const treeId = activeTabLink.id.replace('-tab', '');
     const tree = this.trees.find(t => t.id === treeId);
     if (!tree) return;
-    console.log("Re-rendering tree", treeId, "isComparison:", tree.isComparison);
-    if (tree.isComparison) {
-      this.renderComparisonTree(tree);
-    } else {
-      this.renderTree(tree);
-    }
+
+    // Render into the now-active pane
+    if (tree.isComparison) this.renderComparisonTree(tree);
+    else this.renderTree(tree);
   }
 
   // Add this method to the TreeManager class
@@ -541,6 +569,7 @@ class TreeManager {
     };
     this.trees.push(tree);
     this.createComparisonTreeTab(tree);
+    this.activateTab(treeId);
     return treeId;
   }
 
