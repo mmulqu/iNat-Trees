@@ -23,6 +23,9 @@ function showTab(tabId) {
   const selectedNavLink = document.getElementById(tabId + '-tab');
   if (selectedNavLink) selectedNavLink.classList.add('active');
 
+  // Add body class flag for CSS gates
+  document.body.classList.toggle('in-pvp', tabId === 'pvpPane');
+
   // ---- NEW: toggle which results UI is visible ----
   const resultsCard = document.getElementById('resultsCard');
   const pvpCard = document.getElementById('pvpResultsCard');

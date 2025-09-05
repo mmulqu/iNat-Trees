@@ -356,6 +356,11 @@
       display: flex; gap: .5rem; align-items: center;
     }
     .mm-toolbar .form-select, .mm-toolbar .btn { padding: .25rem .5rem; }
+
+    /* Hide the global results when in PvP, and hide the PvP mirror elsewhere. 
+       !important beats any inline style set by JS. */
+    body.in-pvp #resultsCard { display: none !important; }
+    body:not(.in-pvp) #pvpResultsCard { display: none !important; }
   </style>
 </head>
 <body>
@@ -673,7 +678,9 @@
       // Check if we need to keep the results card visible
       if (window.treeManager && window.treeManager.trees && window.treeManager.trees.length > 0) {
         const resultsCard = document.getElementById('resultsCard');
-        if (resultsCard) {
+        const inPvp = document.body.classList.contains('in-pvp');   // <— add this
+
+        if (resultsCard && !inPvp) {                                // <— and gate it
           console.log('Making results card visible - trees exist');
           resultsCard.style.display = 'block';
 
