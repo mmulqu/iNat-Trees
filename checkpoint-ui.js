@@ -15,6 +15,98 @@ const PRE_CACHE_COUNT = 8; // number of quantized dates to prefetch per taxon
 const preCacheDatesByTaxon = Object.create(null); // taxonId -> iso[]
 const preCacheInFlight = Object.create(null); // key -> Promise
 
+// ----- Timeline color helpers (palette + painters) -----
+let cpTimelineState = null; // { taxonId, dates: string[], colors: string[], eraIndexByTaxonId: { [taxonId:number]: number } }
+
+function buildTimelinePalette(n) {
+  // Smooth, intuitive left→right progression:
+  // blue → cyan → green → lime → yellow → orange → red → purple
+  const base = ['#2563eb', '#06b6d4', '#10b981', '#84cc16', '#eab308', '#f59e0b', '#ef4444', '#a855f7'];
+  if (n <= base.length) return base.slice(0, n);
+  // If we need more, interpolate in HSL across 0..n-1
+  const cols = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / Math.max(1, n - 1);
+    // hue 210°→330°; sat=80%; light=55%
+    const h = 210 + (330 - 210) * t;
+    cols.push(`hsl(${h} 80% 55%)`);
+  }
+  return cols;
+}
+
+function paintSliderGradient(slider, colors) {
+  if (!slider || !colors?.length) return;
+  const n = colors.length;
+  const stops = [];
+  for (let i = 0; i < n; i++) {
+    const p1 = (i / n) * 100;
+    const p2 = ((i + 1) / n) * 100;
+    stops.push(`${colors[i]} ${p1}%`, `${colors[i]} ${p2}%`);
+  }
+  slider.style.background = `linear-gradient(to right, ${stops.join(',')})`;
+  slider.style.height = slider.style.height || '6px'; // make the band visible if the UA renders it thin
+}
+
+function paintTickDots(container, dates, colors) {
+  if (!container) return;
+  const dots = Array.from(container.children);
+  const n = Math.min(dots.length, dates?.length || 0, colors?.length || 0);
+  for (let i = 0; i < n; i++) {
+    const dot = dots[i];
+    dot.style.background = colors[i];
+    dot.title = dates[i]; // hover shows the quantized date
+    dot.style.boxShadow = '0 0 0 1px rgba(0,0,0,.2) inset';
+  }
+  // Dark theme tweak
+  if (document.body.classList.contains('dark-theme')) {
+    dots.forEach(d => d.style.boxShadow = '0 0 0 1px rgba(255,255,255,.25) inset');
+  }
+}
+
+// After a Markmap render/update, paint links/connectors/labels with era colors.
+// We infer the taxon id from the label's <a class="taxon-link" href=".../taxa/ID">.
+function paintMarkmapByEra(svg, state = cpTimelineState) {
+  if (!svg || !state?.colors?.length || !state.eraIndexByTaxonId) return;
+
+  // Build data-path → color map by scanning node labels
+  const colorByPath = new Map();
+  svg.querySelectorAll('g.markmap-node').forEach(g => {
+    const f = g.querySelector('foreignObject');
+    if (!f) return;
+    const a = f.querySelector('a.taxon-link[href*="/taxa/"]');
+    if (!a) return;
+    const m = a.getAttribute('href').match(/\/taxa\/(\d+)/);
+    if (!m) return;
+    const tid = Number(m[1]);
+    const eraIdx = state.eraIndexByTaxonId[tid];
+    if (eraIdx == null) return;
+    const color = state.colors[eraIdx];
+    if (!color) return;
+
+    // Remember for the curved link
+    const key = g.getAttribute('data-path');
+    if (key) colorByPath.set(key, color);
+
+    // Color the short connector + label
+    const line = g.querySelector('line');
+    if (line) { line.setAttribute('stroke', color); line.style.stroke = color; }
+    // Brighten the label text (HTML labels): color only the anchor so badges stay readable
+    try { a.style.color = color; } catch (_) {}
+  });
+
+  // Paint the curved links (edges)
+  svg.querySelectorAll('path.markmap-link').forEach(path => {
+    let key = path.getAttribute('data-path');
+    if (!key && path.__data__?.target?.path) key = path.__data__.target.path;
+    const color = key && colorByPath.get(key);
+    if (!color) return;
+    path.setAttribute('stroke', color);
+    path.style.stroke = color;
+    path.style.strokeOpacity = '1';
+    path.style.fill = 'none';
+  });
+}
+
 function fmtDate(iso) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
@@ -116,13 +208,34 @@ function renderMarkdownToTab(tabId, markdown) {
       cpMarkmaps[tabId].setData(root);
     } else {
       svg.innerHTML = '';
-      cpMarkmaps[tabId] = Markmap.create(svg, null, root);
+      cpMarkmaps[tabId] = Markmap.create(svg, {
+        htmlLabels: true,
+        duration: 500,
+        autoFit: true,
+        fitRatio: 0.98,
+        initialExpandLevel: -1,
+        pan: true,
+        zoom: true,
+        scrollForPan: false
+      }, root);
     }
   } catch (_) {
     // Fallback to full re-render if update fails
     svg.innerHTML = '';
     cpMarkmaps[tabId] = Markmap.create(svg, null, root);
   }
+
+  // Defer paint until Markmap has laid out nodes & links
+  setTimeout(() => {
+    try { paintMarkmapByEra(svg, cpTimelineState); } catch(_) {}
+  }, 120);
+
+  // Re-apply after user expands/collapses
+  svg.addEventListener('click', () => {
+    setTimeout(() => {
+      try { paintMarkmapByEra(svg, cpTimelineState); } catch(_) {}
+    }, 120);
+  }, { passive: true });
 }
 
 async function fetchCheckpoints(userLogin) {
@@ -327,10 +440,50 @@ async function initTimelineForTaxon(taxonId, taxonName) {
       dot.style.width = '8px';
       dot.style.height = '8px';
       dot.style.borderRadius = '50%';
-      dot.style.background = '#6c757d';
       ticks.appendChild(dot);
     }
   }
+  // Build + apply the color system for this taxon's timeline
+  const palette = buildTimelinePalette(qDates.length);
+  const slider = document.getElementById('checkpointSlider');
+  paintSliderGradient(slider, palette);
+  paintTickDots(ticks, qDates, palette);
+
+  // Fetch/cache first-seen map (species taxon id → ISO date)
+  const cacheKey = `${CURRENT_USER}:${taxonId}`;
+  let firstSeenMap = firstSeenCacheByTaxon[cacheKey];
+  if (!firstSeenMap) {
+    try {
+      const tResp = await fetch(firstSeenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ username: CURRENT_USER, taxonId })
+      });
+      const tData = await tResp.json();
+      if (tResp.ok && tData && tData.firstSeen) {
+        firstSeenMap = tData.firstSeen; // { [speciesTaxonId]: 'YYYY-MM-DD' }
+        firstSeenCacheByTaxon[cacheKey] = firstSeenMap;
+      } else {
+        firstSeenMap = {};
+      }
+    } catch (_) { firstSeenMap = {}; }
+  }
+
+  // Map each species → era index (which quantized bucket it lands in)
+  const eraIndexByTaxonId = {};
+  const dateToIdx = (d) => {
+    if (!d) return 0;
+    // find the first quantized date >= d
+    for (let i = 0; i < qDates.length; i++) if (d <= qDates[i]) return i;
+    return qDates.length - 1;
+  };
+  for (const [tid, iso] of Object.entries(firstSeenMap)) {
+    eraIndexByTaxonId[Number(tid)] = dateToIdx(iso);
+  }
+
+  // Save state so the Markmap painter can use it for every render/update
+  cpTimelineState = { taxonId: Number(taxonId), dates: qDates, colors: palette, eraIndexByTaxonId };
+
   ensurePreCachedDates(CURRENT_USER, taxonId);
 
   // Render latest using pre-cached if available (or fetch once if missing)
