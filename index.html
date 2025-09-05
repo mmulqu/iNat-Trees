@@ -353,8 +353,10 @@
     }
     .mm-toolbar .form-select, .mm-toolbar .btn { padding: .25rem .5rem; }
 
-    /* Hide the global results when in PvP, and hide the PvP mirror elsewhere. 
-       !important beats any inline style set by JS. */
+    /* Only show Explore's global results on Explore */
+    body:not(.in-home) #resultsCard { display: none !important; }
+
+    /* Existing rules stay */
     body.in-pvp #resultsCard { display: none !important; }
     body:not(.in-pvp) #pvpResultsCard { display: none !important; }
   </style>
@@ -694,9 +696,8 @@
       // Check if we need to keep the results card visible
       if (window.treeManager && window.treeManager.trees && window.treeManager.trees.length > 0) {
         const resultsCard = document.getElementById('resultsCard');
-        const inPvp = document.body.classList.contains('in-pvp');   // <— add this
-
-        if (resultsCard && !inPvp) {                                // <— and gate it
+        const inHome = document.body.classList.contains('in-home'); // <— new
+        if (resultsCard && inHome) {                                // <— only on Explore
           console.log('Making results card visible - trees exist');
           resultsCard.style.display = 'block';
 

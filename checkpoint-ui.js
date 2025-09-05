@@ -445,8 +445,8 @@ async function initTimelineForTaxon(taxonId, taxonName) {
   }
   // Build + apply the color system for this taxon's timeline
   const palette = buildTimelinePalette(qDates.length);
-  const slider = document.getElementById('checkpointSlider');
-  paintSliderGradient(slider, palette);
+  const sliderEl = document.getElementById('checkpointSlider');
+  paintSliderGradient(sliderEl, palette);
   paintTickDots(ticks, qDates, palette);
 
   // Fetch/cache first-seen map (species taxon id → ISO date)
@@ -495,7 +495,6 @@ async function initTimelineForTaxon(taxonId, taxonName) {
     await drawTreeAtDate(latest);
   }
 
-  const slider = document.getElementById('checkpointSlider');
   const handleSliderInput = (e) => {
     const idx = Number(e.target.value);
     const snapped = (preCacheDatesByTaxon[taxonId] || [])[idx];
@@ -509,8 +508,8 @@ async function initTimelineForTaxon(taxonId, taxonName) {
     ensurePreCachedDates(CURRENT_USER, taxonId);
   };
   // Bind cross-browser events
-  slider.oninput = handleSliderInput;
-  slider.addEventListener('change', handleSliderInput);
+  sliderEl.oninput = handleSliderInput;
+  sliderEl.addEventListener('change', handleSliderInput);
 }
 
 async function drawTreeAtDate(isoDate) {
@@ -635,6 +634,15 @@ function renderCheckpointSummary(group, idx) {
 }
 
 async function initCheckpointsUI() {
+  if (!CURRENT_USER) {
+    try {
+      const u = await fetchCurrentUser();
+      if (u?.login) {
+        CURRENT_USER = u.login;
+        localStorage.setItem('inat_username', CURRENT_USER);
+      }
+    } catch {}
+  }
   const btn = document.getElementById('saveCheckpointBtn');
   if (btn) {
     btn.addEventListener('click', async () => {

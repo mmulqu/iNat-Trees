@@ -20,7 +20,9 @@ function showTab(tabId) {
   if (selectedNavLink) selectedNavLink.classList.add('active');
 
   // Flag current mode for CSS gates
-  document.body.classList.toggle('in-pvp', tabId === 'pvpPane');
+  document.body.classList.toggle('in-home',        tabId === 'home');
+  document.body.classList.toggle('in-pvp',         tabId === 'pvpPane');
+  document.body.classList.toggle('in-checkpoints', tabId === 'checkpointsPane');
 
   // Explicitly toggle cards so inline styles are correct, not just CSS gates
   const hasExploreTrees = !!(window.treeManager?.trees?.length);
@@ -42,4 +44,6 @@ function showTab(tabId) {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => showTab('home'));
+document.addEventListener('DOMContentLoaded', function() {
+  showTab('home'); // sets .in-home on first load
+});
