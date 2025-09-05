@@ -282,18 +282,18 @@ function selectTaxonGroup(group) {
   window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
   title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
-  const slider = document.getElementById('checkpointSlider');
-  slider.disabled = false;
-  slider.min = 0;
-  slider.max = Math.max(0, group.items.length - 1);
-  slider.value = slider.max;
-  slider.step = 1;
+  const cpSlider = document.getElementById('checkpointSlider');
+  cpSlider.disabled = false;
+  cpSlider.min = 0;
+  cpSlider.max = Math.max(0, group.items.length - 1);
+  cpSlider.value = cpSlider.max;
+  cpSlider.step = 1;
   document.getElementById('checkpointStart').textContent = fmtDate(group.items[0]?.created_at);
   document.getElementById('checkpointEnd').textContent = fmtDate(group.items[group.items.length - 1]?.created_at);
   document.getElementById('requeryCompareBtn').disabled = false;
-  renderCheckpointSummary(group, Number(slider.value));
+  renderCheckpointSummary(group, Number(cpSlider.value));
   // Immediately render the selected checkpoint tree
-  renderCheckpointTree(group, Number(slider.value)).catch(console.error);
+  renderCheckpointTree(group, Number(cpSlider.value)).catch(console.error);
   // Initialize real-date timeline for this taxon as well (after base tab exists)
   initTimelineForTaxon(group.taxonId, group.taxonName || `Taxon ${group.taxonId}`).catch(console.error);
   // Ensure the visualization card is visible alongside the timeline
@@ -306,7 +306,7 @@ function selectTaxonGroup(group) {
   } catch (_) {}
   // Slider events for timeline are handled by initTimelineForTaxon (quantized dates)
   document.getElementById('requeryCompareBtn').onclick = async () => {
-    const sel = group.items[Number(slider.value)];
+    const sel = group.items[Number(cpSlider.value)];
     const btn = document.getElementById('requeryCompareBtn');
     const spn = document.getElementById('requerySpinner');
     btn.disabled = true; if (spn) spn.classList.remove('d-none');
@@ -385,11 +385,11 @@ async function ensurePreCachedDates(username, taxonId) {
   }
 }
 function setSliderEnabled(enabled, min=0, max=0, value=0) {
-  const slider = document.getElementById('checkpointSlider');
-  slider.disabled = !enabled;
-  slider.min = String(min);
-  slider.max = String(max);
-  slider.value = String(value);
+  const cpSlider = document.getElementById('checkpointSlider');
+  cpSlider.disabled = !enabled;
+  cpSlider.min = String(min);
+  cpSlider.max = String(max);
+  cpSlider.value = String(value);
 }
 
 async function initTimelineForTaxon(taxonId, taxonName) {
@@ -562,8 +562,8 @@ async function renderCheckpointTree(group, idx) {
   const username = localStorage.getItem('inat_username') || '';
   const species = JSON.parse(sel.species_ids_json || '[]');
   // If the slider has a data-date threshold, filter by first-seen timeline
-  const slider = document.getElementById('checkpointSlider');
-  const threshold = slider && slider.dataset && slider.dataset.thresholdDate ? slider.dataset.thresholdDate : null;
+  const cpSlider = document.getElementById('checkpointSlider');
+  const threshold = cpSlider && cpSlider.dataset && cpSlider.dataset.thresholdDate ? cpSlider.dataset.thresholdDate : null;
   let filtered = species;
   if (threshold) {
     try {

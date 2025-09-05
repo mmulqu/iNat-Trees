@@ -144,8 +144,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Outside click close (bubble phase) and ignore clicks on chips
     document.addEventListener('click', e=>{
-      if (e.target && e.target.closest && e.target.closest('a.first-obs-trigger')) return;
-      if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(e.target)) {
+      const t = e && e.target;
+      if (!t || typeof t.closest !== 'function') return; // bail safely
+      if (t.closest('a.first-obs-trigger')) return;
+      if (previewEl && previewEl.style.display!=='none' && !previewEl.contains(t)) {
         previewEl.style.display='none';
       }
     });
@@ -222,7 +224,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Hover prefetch (kept from your original)
   let t=null;
   document.addEventListener('mouseenter', e=>{
-    const a=e.target.closest('a.first-obs-trigger');
+    const t = e && e.target;
+    if (!t || typeof t.closest !== 'function') return; // bail safely
+    const a = t.closest('a.first-obs-trigger');
     if(!a) return;
     const pane=closestPane(a);
     const username=a.dataset.username||pane?.dataset.username;
@@ -242,7 +246,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Click to open
   document.addEventListener('click', async e=>{
-    const a=e.target.closest('a.first-obs-trigger');
+    const t = e && e.target;
+    if (!t || typeof t.closest !== 'function') return; // bail safely
+    const a = t.closest('a.first-obs-trigger');
     if(!a) return;
     e.preventDefault();
     if (e.stopPropagation) e.stopPropagation();
