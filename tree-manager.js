@@ -1,5 +1,20 @@
 // tree-manager.js
 
+// ---- Taxon name resolver ----
+async function resolveTaxonTitle(taxonId) {
+  const cache = (resolveTaxonTitle._cache ||= new Map());
+  if (cache.has(taxonId)) return cache.get(taxonId);
+  let title = `Taxon ${taxonId}`;
+  try {
+    const r = await fetch(`https://api.inaturalist.org/v1/taxa/${taxonId}`);
+    const j = await r.json();
+    const t = j?.results?.[0];
+    if (t?.name) title = t.name; // scientific name only
+  } catch {}
+  cache.set(taxonId, title);
+  return title;
+}
+
 // ---- Markmap mini-map + scroll gutters (global styles) ----
 (() => {
   if (document.getElementById('mm-ux-styles')) return;
@@ -331,6 +346,15 @@ class TreeManager {
     });
     if (this.trees.length === 1) {
       new bootstrap.Tab(tabTrigger).show();
+    }
+
+    // Resolve taxon name if missing or generic
+    const span = tabHeader.querySelector('.tab-title');
+    if (span && (!tree.taxonName || /^Taxon \d+$/.test(span.textContent))) {
+      resolveTaxonTitle(tree.taxonId).then(title => {
+        span.textContent = title;
+        tree.taxonName = title;
+      });
     }
   }
 

@@ -1,6 +1,21 @@
 // compare-users.js
 // (Note: TreeManager is defined only in tree-manager.js.)
 
+// ---- Taxon name resolver ----
+async function resolveTaxonTitle(taxonId) {
+  const cache = (resolveTaxonTitle._cache ||= new Map());
+  if (cache.has(taxonId)) return cache.get(taxonId);
+  let title = `Taxon ${taxonId}`;
+  try {
+    const r = await fetch(`https://api.inaturalist.org/v1/taxa/${taxonId}`);
+    const j = await r.json();
+    const t = j?.results?.[0];
+    if (t?.name) title = t.name; // scientific name only
+  } catch {}
+  cache.set(taxonId, title);
+  return title;
+}
+
 function showCompareLoadingSpinner() {
   const spinnerContainer = document.getElementById("compareLoadingSpinner");
   const loadingText = document.getElementById("compareLoadingText");
@@ -257,6 +272,16 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId, pl
       // Make sure the tab is active first
       const tabTrigger = document.getElementById(`${treeId}-tab`);
       const tabContent = document.getElementById(`${treeId}-content`);
+
+      // Resolve taxon name if missing or generic
+      const titleSpan = tabTrigger?.querySelector('.tab-title');
+      if (titleSpan && /^Taxon \d+$/.test(titleSpan.textContent)) {
+        resolveTaxonTitle(taxonId).then(title => {
+          titleSpan.textContent = title;
+          // also stash on your comparison tree object if you keep one
+          tree.taxonName = title;
+        });
+      }
 
       if (tabTrigger && tabContent) {
         // Activate the tab

@@ -1,5 +1,20 @@
 import { getAuthHeaders, fetchCurrentUser } from './auth.js';
 let CURRENT_USER = localStorage.getItem('inat_username') || null;
+
+// ---- Taxon name resolver ----
+async function resolveTaxonTitle(taxonId) {
+  const cache = (resolveTaxonTitle._cache ||= new Map());
+  if (cache.has(taxonId)) return cache.get(taxonId);
+  let title = `Taxon ${taxonId}`;
+  try {
+    const r = await fetch(`https://api.inaturalist.org/v1/taxa/${taxonId}`);
+    const j = await r.json();
+    const t = j?.results?.[0];
+    if (t?.name) title = t.name; // scientific name only
+  } catch {}
+  cache.set(taxonId, title);
+  return title;
+}
 let currentTaxonId = null, currentDates = [], debounceTimer = null;
 let currentCpTabId = null; // active checkpoint tab to render into
 const cpMarkmaps = Object.create(null); // tabId -> Markmap instance
@@ -190,6 +205,14 @@ function ensureCpTab(tabId, title) {
   }
   // update title if changed
   try { link.querySelector('.tab-title').textContent = title; } catch {}
+  
+  // Resolve taxon name if missing or generic
+  const span = link.querySelector('.tab-title');
+  if (span && /^Taxon \d+$/.test(title)) {
+    const id = Number(title.replace('Taxon ', '')) || null;
+    if (id) resolveTaxonTitle(id).then(n => { span.textContent = n; });
+  }
+  
   // activate
   try { new bootstrap.Tab(link).show(); } catch {}
   currentCpTabId = tabId;
