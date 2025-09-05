@@ -808,31 +808,31 @@
 
       // Register event handlers for Bootstrap tab events
       document.addEventListener('shown.bs.tab', function(event) {
-        const targetId = event.target.getAttribute('href') || 
-                         event.target.getAttribute('data-bs-target');
-        if (targetId && targetId.includes('-content')) {
-          // This is a tree tab being shown
-          const treeId = targetId.replace('#', '').replace('-content', '');
-          console.log('Tree tab shown:', treeId);
+        const targetId = event.target.getAttribute('href') || event.target.getAttribute('data-bs-target');
+        if (!(targetId && targetId.includes('-content'))) return;
 
-          const tree = window.treeManager?.trees.find(t => t.id === treeId);
-          if (tree) {
-            // Clear any existing svg content first
-            const svg = document.getElementById(`${treeId}-svg`);
-            if (svg) {
-              svg.innerHTML = '';
-              // Force reflow
-              void svg.offsetWidth;
+        const paneId = targetId.replace('#', '');
+        const treeId = paneId.replace('-content', '');
 
-              setTimeout(() => {
-                if (tree.isComparison) {
-                  window.treeManager.renderComparisonTree(tree);
-                } else {
-                  window.treeManager.renderTree(tree);
-                }
-              }, 100);
-            }
-          }
+        // Try Explore manager first
+        let mgr = window.treeManager;
+        let tree = mgr?.trees.find(t => t.id === treeId);
+
+        // If not found, try PvP manager
+        if (!tree && window.pvpManager) {
+          mgr = window.pvpManager;
+          tree = mgr.trees.find(t => t.id === treeId);
+        }
+        if (!tree || !mgr) return;
+
+        const svg = document.getElementById(`${treeId}-svg`);
+        if (svg) {
+          svg.innerHTML = '';
+          void svg.offsetWidth; // reflow
+          setTimeout(() => {
+            if (tree.isComparison) mgr.renderComparisonTree(tree);
+            else mgr.renderTree(tree);
+          }, 100);
         }
       });
     });

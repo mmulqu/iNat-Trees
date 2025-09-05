@@ -141,19 +141,21 @@ class TreeManager {
     this.trees = [];
     this.currentId = 0;
 
-    // Containers (defaults = global Results card)
+    // NEW: unique ID prefix so PvP and Explore never collide
+    this.idPrefix = opts.idPrefix || 'tree';
+
+    // Containers
     this.resultsCardId       = opts.resultsCardId       || 'resultsCard';
     this.tabsContainer       = document.getElementById(opts.tabsId      || 'treeTabs');
     this.tabContentContainer = document.getElementById(opts.contentId   || 'treeTabContent');
     this.deleteBtnId         = opts.deleteBtnId         || 'deleteAllTrees';
 
-    // Bind clear button if present
     const delBtn = document.getElementById(this.deleteBtnId);
     if (delBtn) delBtn.addEventListener('click', () => this.clearAllTrees());
   }
 
   generateTreeId() {
-    return `tree-${++this.currentId}`;
+    return `${this.idPrefix}-${++this.currentId}`;
   }
 
   addTree(username, taxonName, taxonId, markdown) {
@@ -1623,16 +1625,18 @@ _ensureMiniMap(treeId, svg) {
 }
 
 
-// Individual trees (global Results card)
+// Individual trees (Explore)
 window.treeManager = new TreeManager({
+  idPrefix: 'tree',
   resultsCardId: 'resultsCard',
   tabsId: 'treeTabs',
   contentId: 'treeTabContent',
   deleteBtnId: 'deleteAllTrees'
 });
 
-// PvP comparison trees (PvP Results card)
+// PvP comparison trees (PvP tab)
 window.pvpManager = new TreeManager({
+  idPrefix: 'pvp',
   resultsCardId: 'pvpResultsCard',
   tabsId: 'pvpTreeTabs',
   contentId: 'pvpTreeTabContent',
