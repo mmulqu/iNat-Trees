@@ -215,6 +215,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const markdown = result.markdown;
         const plainMarkdown = result.plainMarkdown;
+        // If taxonName is still "Taxon 12345" (ID mode), resolve it
+        if (!taxonName || /^Taxon \d+$/.test(taxonName)) {
+          try { taxonName = await resolveTaxonTitle(taxonId); } catch {}
+        }
         if (!markdown || markdown.trim() === "" || markdown.includes("No observations found")) {
           showError("No observations found for at least one of the users under the selected taxon.");
           return;

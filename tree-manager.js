@@ -316,7 +316,7 @@ class TreeManager {
     treeInfo.innerHTML = `
       <small class="text-muted">
         Username: <strong>${tree.username}</strong> | 
-        Taxon: <strong>${tree.taxonName || tree.taxonId}</strong> | 
+        Taxon: <strong class="js-taxon-label">${tree.taxonName || tree.taxonId}</strong> | 
         Generated: <strong>${tree.timestamp.toLocaleTimeString()}</strong>
       </small>
     `;
@@ -350,9 +350,11 @@ class TreeManager {
 
     // Resolve taxon name if missing or generic
     const span = tabHeader.querySelector('.tab-title');
+    const taxonInfoEl = tabContent.querySelector('.tree-info .js-taxon-label');
     if (span && (!tree.taxonName || /^Taxon \d+$/.test(span.textContent))) {
       resolveTaxonTitle(tree.taxonId).then(title => {
         span.textContent = title;
+        if (taxonInfoEl) taxonInfoEl.textContent = title;
         tree.taxonName = title;
       });
     }
