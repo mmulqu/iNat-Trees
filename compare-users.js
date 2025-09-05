@@ -305,14 +305,19 @@ function showError(message) {
 
 function showResults() {
   const resultsCard = document.getElementById("resultsCard");
-  resultsCard.style.display = "block";
-
-  // Also surface the PvP mirror card
   const pvpCard = document.getElementById("pvpResultsCard");
-  if (pvpCard) pvpCard.style.display = "block";
-
-  // Scroll to whichever pane is active
   const pvpPane = document.getElementById('pvpPane');
   const isPvpActive = pvpPane && pvpPane.classList.contains('show') && pvpPane.classList.contains('active');
-  (isPvpActive ? pvpCard : resultsCard)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  if (isPvpActive) {
+    // PvP view: show only the mirror, hide the global
+    if (resultsCard) resultsCard.style.display = "none";
+    if (pvpCard) pvpCard.style.display = "block";
+    pvpCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    // Explore/other: show only the global, hide the mirror
+    if (resultsCard) resultsCard.style.display = "block";
+    if (pvpCard) pvpCard.style.display = "none";
+    resultsCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }

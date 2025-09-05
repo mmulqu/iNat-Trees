@@ -23,10 +23,26 @@ function showTab(tabId) {
   const selectedNavLink = document.getElementById(tabId + '-tab');
   if (selectedNavLink) selectedNavLink.classList.add('active');
 
-  // If switching to PvP, mirror whatever comparison tab is active
+  // ---- NEW: toggle which results UI is visible ----
+  const resultsCard = document.getElementById('resultsCard');
+  const pvpCard = document.getElementById('pvpResultsCard');
+  const hasAnyTrees = !!(window.treeManager && Array.isArray(window.treeManager.trees) && window.treeManager.trees.length);
+
   if (tabId === 'pvpPane') {
-    try { window.pvpMirror?.refreshActive(); } catch(_){}
+    // On PvP: only show the mirror
+    if (resultsCard) resultsCard.style.display = 'none';
+    if (pvpCard) {
+      // show mirror only if there is a comparison tab to mirror; else keep hidden
+      const hasCompareActive = document.querySelector('#treeTabs .nav-link.active');
+      pvpCard.style.display = hasCompareActive ? 'block' : 'none';
+    }
+    try { window.pvpMirror?.refreshActive(); } catch(_) {}
+  } else {
+    // On Explore/Checkpoints: show the global results (if any trees), hide the PvP mirror
+    if (resultsCard) resultsCard.style.display = hasAnyTrees ? 'block' : 'none';
+    if (pvpCard) pvpCard.style.display = 'none';
   }
+  // -----------------------------------------------
 
   // After layout settles, ask TreeManager to re-render the active tree
   if (window.treeManager && typeof window.treeManager.reRenderActiveTab === 'function') {
