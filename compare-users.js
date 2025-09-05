@@ -229,7 +229,7 @@ function toPlain(md) {
 }
 
 function renderComparison(markdown, username1, username2, taxonName, taxonId, plainMarkdown) {
-  document.getElementById("markdownResult").textContent = (window.lastComparePlainMarkdown || markdown);
+  document.getElementById("pvpMarkdownResult").textContent = (window.lastComparePlainMarkdown || markdown);
 
   // Calculate statistics before adding the tree
   let stats = null;
@@ -242,12 +242,12 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId, pl
   }
 
   // Add the tree
-  const treeId = window.treeManager.addComparisonTree(username1, username2, taxonName, taxonId, markdown, stats);
+  const treeId = window.pvpManager.addComparisonTree(username1, username2, taxonName, taxonId, markdown, stats);
   showResults();
 
   // Force render the tree immediately since we're on the Compare tab
   setTimeout(() => {
-    const tree = window.treeManager.trees.find(t => t.id === treeId);
+    const tree = window.pvpManager.trees.find(t => t.id === treeId);
     if (tree && tree.isComparison) {
       console.log("Force rendering comparison tree immediately", treeId);
 
@@ -262,21 +262,20 @@ function renderComparison(markdown, username1, username2, taxonName, taxonId, pl
         tabContent.classList.add('show', 'active');
 
         // Deactivate other tabs
-        document.querySelectorAll('#treeTabs .nav-link.active').forEach(tab => {
+        document.querySelectorAll('#pvpTreeTabs .nav-link.active').forEach(tab => {
           if (tab.id !== `${treeId}-tab`) {
             tab.classList.remove('active');
             tab.setAttribute('aria-selected', 'false');
           }
         });
-        document.querySelectorAll('#treeTabContent .tab-pane.active').forEach(pane => {
+        document.querySelectorAll('#pvpTreeTabContent .tab-pane.active').forEach(pane => {
           if (pane.id !== `${treeId}-content`) {
             pane.classList.remove('show', 'active');
           }
         });
 
         // Now render the tree
-        window.treeManager.renderComparisonTree(tree);
-        try { window.pvpMirror?.attachToTree(tree); } catch(_){}
+        window.pvpManager.renderComparisonTree(tree);
       }
     }
   }, 300);
@@ -304,20 +303,7 @@ function showError(message) {
 }
 
 function showResults() {
-  const resultsCard = document.getElementById("resultsCard");
   const pvpCard = document.getElementById("pvpResultsCard");
-  const pvpPane = document.getElementById('pvpPane');
-  const isPvpActive = pvpPane && pvpPane.classList.contains('show') && pvpPane.classList.contains('active');
-
-  if (isPvpActive) {
-    // PvP view: show only the mirror, hide the global
-    if (resultsCard) resultsCard.style.display = "none";
-    if (pvpCard) pvpCard.style.display = "block";
-    pvpCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } else {
-    // Explore/other: show only the global, hide the mirror
-    if (resultsCard) resultsCard.style.display = "block";
-    if (pvpCard) pvpCard.style.display = "none";
-    resultsCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  if (pvpCard) pvpCard.style.display = "block";
+  pvpCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

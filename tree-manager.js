@@ -137,12 +137,19 @@
 
 
 class TreeManager {
-  constructor() {
+  constructor(opts = {}) {
     this.trees = [];
     this.currentId = 0;
-    this.tabsContainer = document.getElementById('treeTabs');
-    this.tabContentContainer = document.getElementById('treeTabContent');
-    document.getElementById('deleteAllTrees').addEventListener('click', () => this.clearAllTrees());
+
+    // Containers (defaults = global Results card)
+    this.resultsCardId       = opts.resultsCardId       || 'resultsCard';
+    this.tabsContainer       = document.getElementById(opts.tabsId      || 'treeTabs');
+    this.tabContentContainer = document.getElementById(opts.contentId   || 'treeTabContent');
+    this.deleteBtnId         = opts.deleteBtnId         || 'deleteAllTrees';
+
+    // Bind clear button if present
+    const delBtn = document.getElementById(this.deleteBtnId);
+    if (delBtn) delBtn.addEventListener('click', () => this.clearAllTrees());
   }
 
   generateTreeId() {
@@ -490,9 +497,9 @@ class TreeManager {
       }
     }
     if (this.trees.length === 0) {
-      document.getElementById('resultsCard').style.display = 'none';
+      const card = document.getElementById(this.resultsCardId);
+      if (card) card.style.display = 'none';
     }
-    try { window.pvpMirror?.refreshActive(); } catch(_){}
   }
 
   clearAllTrees() {
@@ -501,8 +508,8 @@ class TreeManager {
     this.tabsContainer.innerHTML = '';
     this.tabContentContainer.innerHTML = '';
     this.currentId = 0;
-    document.getElementById('resultsCard').style.display = 'none';
-    try { window.pvpMirror?.hide(); } catch(_){}
+    const card = document.getElementById(this.resultsCardId);
+    if (card) card.style.display = 'none';
   }
 
   // Updated: For comparison trees, we now only create one tab.
@@ -584,7 +591,6 @@ class TreeManager {
 
       setTimeout(() => {
         this.renderComparisonTree(tree);
-        try { window.pvpMirror?.attachToTree(tree); } catch(_){}
       }, 100);
     });
     if (this.trees.length === 1) {
@@ -701,8 +707,6 @@ class TreeManager {
     this._ensureScrollGutters(svg.closest('.markmap-container'));
     this._ensureMiniMap(tree.id, svg);
 
-    // Keep PvP mirror in sync with the latest comparison render
-    try { window.pvpMirror?.attachToTree(tree); } catch(_){}
   }
   
 
@@ -1618,90 +1622,19 @@ _ensureMiniMap(treeId, svg) {
   }
 }
 
-// ---- PvP Mirror: clone the active comparison tab into the PvP pane ----
-class PvpMirror {
-  constructor(treeManager){
-    this.tm = treeManager;
-    this._obs = null;
-    this._lastTreeId = null;
-    this._debounce = null;
-  }
-  _mounts(){
-    return {
-      card: document.getElementById('pvpResultsCard'),
-      host: document.getElementById('pvpMirror')
-    };
-  }
-  _srcFor(treeId){
-    return document.getElementById(`${treeId}-content`);
-  }
-  _disconnect(){
-    if (this._obs){
-      try { this._obs.disconnect(); } catch(_) {}
-      this._obs = null;
-    }
-    if (this._debounce){
-      clearTimeout(this._debounce);
-      this._debounce = null;
-    }
-  }
-  _sanitizeClone(node){
-    // remove all id= to avoid duplicate IDs in DOM
-    node.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
-    // remove toolbar (buttons won't work in the mirror)
-    node.querySelectorAll('.mm-toolbar').forEach(el => el.remove());
-    // optional: collapse the markdown accordion (mirror only shows tree + stats)
-    node.querySelectorAll('.accordion, #markdownContent, #markdownResult, pre').forEach(el => el.remove());
-    return node;
-  }
-  _doClone(){
-    const { card, host } = this._mounts();
-    if (!host) return;
-    if (!this._lastTreeId) { this.hide(); return; }
-    const src = this._srcFor(this._lastTreeId);
-    const tree = this.tm.trees.find(t => t.id === this._lastTreeId);
-    if (!src || !tree || !tree.isComparison) { this.hide(); return; }
 
-    // Deep clone, sanitize, swap in
-    const clone = src.cloneNode(true);
-    this._sanitizeClone(clone);
-    host.innerHTML = '';
-    host.appendChild(clone);
+// Individual trees (global Results card)
+window.treeManager = new TreeManager({
+  resultsCardId: 'resultsCard',
+  tabsId: 'treeTabs',
+  contentId: 'treeTabContent',
+  deleteBtnId: 'deleteAllTrees'
+});
 
-    if (card) card.style.display = 'block';
-  }
-  _observe(){
-    const src = this._srcFor(this._lastTreeId);
-    if (!src) return;
-    this._disconnect();
-    this._obs = new MutationObserver(() => {
-      if (this._debounce) clearTimeout(this._debounce);
-      this._debounce = setTimeout(() => this._doClone(), 80);
-    });
-    this._obs.observe(src, { subtree: true, childList: true, attributes: true });
-  }
-  attachToTree(tree){
-    if (!tree || !tree.isComparison) { this.hide(); return; }
-    this._lastTreeId = tree.id;
-    this._doClone();
-    this._observe();
-  }
-  refreshActive(){
-    const activeLink = document.querySelector('#treeTabs .nav-link.active');
-    if (!activeLink) { this.hide(); return; }
-    const treeId = activeLink.id.replace('-tab', '');
-    const tree = this.tm.trees.find(t => t.id === treeId);
-    this.attachToTree(tree);
-  }
-  hide(){
-    const { card, host } = this._mounts();
-    if (host) host.innerHTML = '';
-    if (card) card.style.display = 'none';
-    this._lastTreeId = null;
-    this._disconnect();
-  }
-}
-
-// Initialize as a global variable
-window.treeManager = new TreeManager();
-window.pvpMirror = new PvpMirror(window.treeManager);
+// PvP comparison trees (PvP Results card)
+window.pvpManager = new TreeManager({
+  resultsCardId: 'pvpResultsCard',
+  tabsId: 'pvpTreeTabs',
+  contentId: 'pvpTreeTabContent',
+  deleteBtnId: 'pvpDeleteAllTrees'
+});
