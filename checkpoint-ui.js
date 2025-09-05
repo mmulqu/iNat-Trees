@@ -310,13 +310,13 @@ function renderTaxaList(groups) {
 function selectTaxonGroup(group) {
   window.__cpSelectedGroup = group;
   const title = document.getElementById('checkpointSelectedTitle');
-  title.textContent = `${group.taxonName} — ${group.items.length} checkpoints`;
+  title.textContent = `${group.taxonName} — ${group.items.length} timelines`;
   // If the name is still "Taxon ####", resolve it and update header and group
   if (/^Taxon \d+$/.test(group.taxonName)) {
     resolveTaxonTitle(group.taxonId).then(name => {
       group.taxonName = name;
       const head = document.getElementById('checkpointSelectedTitle');
-      if (head) head.textContent = `${name} — ${group.items.length} checkpoints`;
+      if (head) head.textContent = `${name} — ${group.items.length} timelines`;
     }).catch(() => {});
   }
   const cpSlider = document.getElementById('checkpointSlider');
@@ -568,7 +568,7 @@ async function drawTreeAtDate(isoDate) {
     if (pre) pre.textContent = plain;
   } catch(_) { if (pre) pre.textContent = data.markdown; }
   const tabId = currentCpTabId || `cp-live-${currentTaxonId}`;
-  if (!currentCpTabId) ensureCpTab(tabId, 'Checkpoint');
+  if (!currentCpTabId) ensureCpTab(tabId, 'Timeline');
   renderMarkdownToTab(tabId, data.markdown);
   // cache
   cpCacheSet(cpCacheKeyForDate(currentTaxonId, CURRENT_USER, isoDate), data.markdown);
@@ -680,12 +680,22 @@ async function initCheckpointsUI() {
       }
     } catch {}
   }
+  
+  // Rename the card header from "Saved Checkpoints" → "Saved Timelines" (handles common markup)
+  const header =
+    document.querySelector('#cpResultsCard .card-header .card-title') ||
+    document.querySelector('#cpResultsCard .card-header h5') ||
+    document.querySelector('#cpResultsCard .card-title');
+  if (header) header.textContent = 'Saved Timelines';
+  
   const btn = document.getElementById('saveCheckpointBtn');
   if (btn) {
+    // Front-facing label
+    btn.textContent = 'Save Timeline';
     btn.addEventListener('click', async () => {
       const payload = window.__lastBuild;
       if (!payload || !payload.taxonId) {
-        alert('Build a tree first before saving a checkpoint.');
+        alert('Build a tree first before saving a timeline.');
         return;
       }
       const spinner = document.getElementById('saveCpSpinner');
@@ -705,11 +715,11 @@ async function initCheckpointsUI() {
       });
       if (!r.ok) {
         const t = await r.text();
-        alert('Failed to save checkpoint: ' + t);
+        alert('Failed to save timeline: ' + t);
         return;
       }
       await loadAndRenderList();
-      alert('Checkpoint saved.');
+      alert('Timeline saved.');
       try { if (spinner) spinner.classList.add('d-none'); btn.disabled = false; } catch(_) {}
     });
   }
@@ -717,13 +727,15 @@ async function initCheckpointsUI() {
   // Hook up cp clear button
   const cpClearBtn = document.getElementById('cpClearBtn');
   if (cpClearBtn) {
+    // Front-facing label
+    cpClearBtn.textContent = 'Delete Timeline';
     cpClearBtn.addEventListener('click', async () => {
       const group = window.__cpSelectedGroup;
       const slider = document.getElementById('checkpointSlider');
       const idx = Number(slider?.value || 0);
       const cp = group?.items?.[idx];
       if (!cp) return;
-      if (!confirm('Delete this checkpoint?')) return;
+      if (!confirm('Delete this timeline?')) return;
       const r = await fetch(deleteUrl, { method:'POST', headers:{ 'Content-Type':'application/json', ...getAuthHeaders() }, body: JSON.stringify({ id: cp.id }) });
       if (r.ok) {
         await loadAndRenderList();
@@ -763,7 +775,7 @@ async function loadAndRenderList() {
         if (cur) {
           window.__cpSelectedGroup = cur;
           const head = document.getElementById('checkpointSelectedTitle');
-          if (head) head.textContent = `${cur.taxonName} — ${cur.items.length} checkpoints`;
+          if (head) head.textContent = `${cur.taxonName} — ${cur.items.length} timelines`;
         }
       }
     });
@@ -771,6 +783,20 @@ async function loadAndRenderList() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Optional: sweep any remaining static HTML text nodes
+  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const swaps = [
+    [/\bCheckpoints\b/g, 'Timelines'],
+    [/\bcheckpoints\b/g, 'timelines'],
+    [/\bCheckpoint\b/g,  'Timeline'],
+    [/\bcheckpoint\b/g,  'timeline'],
+  ];
+  let n; while ((n = w.nextNode())) {
+    let t = n.nodeValue; if (!t) continue;
+    swaps.forEach(([re, to]) => { t = t.replace(re, to); });
+    if (t !== n.nodeValue) n.nodeValue = t;
+  }
+  
   initCheckpointsUI().catch(err => console.error('init checkpoints ui', err));
 });
 
