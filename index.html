@@ -441,128 +441,83 @@
           </div>
         </div>
 
-        <div class="alert alert-secondary mt-4">
-          Want to compare users? Open the <a href="#" onclick="showTab('pvpPane')">PvP</a> tab.
-        </div>
-
-    <!-- Results card (outside the tab content) -->
-    <div class="card" id="resultsCard" style="display: none;">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <div>Markmap Visualization</div>
-        <div class="d-flex gap-2">
-          <button id="mmFullscreenBtn" class="btn btn-sm btn-outline-light" title="Fullscreen">
-            <i class="bi bi-arrows-fullscreen"></i>
-          </button>
-          <button id="saveCheckpointBtn" class="btn btn-sm btn-outline-light d-flex align-items-center gap-1" title="Save current tree as a checkpoint" disabled>
-            <span class="spinner-border spinner-border-sm d-none" id="saveCpSpinner"></span>
-            <i class="bi bi-bookmark"></i> Save checkpoint
-          </button>
-          <button id="deleteAllTrees" class="btn btn-sm btn-outline-light">
-            <i class="bi bi-trash"></i> Clear All
-          </button>
-        </div>
-      </div>
-
-      <div class="card-body">
-        <!-- Tabs navigation -->
-        <ul class="nav nav-tabs mb-3" id="treeTabs" role="tablist">
-          <!-- Tab headers will be dynamically inserted here -->
-        </ul>
-
-        <!-- Tab content container -->
-        <div class="tab-content" id="treeTabContent">
-          <!-- Tab panes will be dynamically inserted here -->
-        </div>
-
-        <div class="accordion mt-4" id="markdownAccordion">
-          <div class="accordion-item">
-            <h2 class="accordion-header" id="headingOne">
-              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
-                Show Generated Markdown
-              </button>
-            </h2>
-            <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#markdownAccordion">
-              <div class="accordion-body">
-                <pre id="markdownResult"></pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        <!-- Where the shared Results card will "teleport" when Explore is active -->
+        <div id="resultsMountHome" class="mt-4"></div>
   </div>
 
   <!-- PvP (Compare Users) pane -->
-  <div class="card mt-4 tab-pane main-pane" id="pvpPane" style="display:none;">
-    <div class="card-header">Tree PVP Mode: Compare Two Users</div>
-    <div class="card-body">
-      <form id="compareForm">
-        <div class="row mb-3">
-          <div class="col-md-6">
-            <label for="username1" class="form-label">First iNaturalist Username:</label>
-            <input type="text" id="username1" name="username1" required class="form-control" placeholder="Enter first username">
-            <div class="d-flex align-items-center mt-1">
-              <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #ff6b6b; border-radius: 4px;"></div>
-              <p class="info-text mb-0">User 1's unique observations</p>
+  <div id="pvpPane" class="tab-pane main-pane" style="display:none;">
+    <div class="card mt-4">
+      <div class="card-header">Tree PVP Mode: Compare Two Users</div>
+      <div class="card-body">
+        <form id="compareForm">
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="username1" class="form-label">First iNaturalist Username:</label>
+              <input type="text" id="username1" name="username1" required class="form-control" placeholder="Enter first username">
+              <div class="d-flex align-items-center mt-1">
+                <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #ff6b6b; border-radius: 4px;"></div>
+                <p class="info-text mb-0">User 1's unique observations</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label for="username2" class="form-label">Second iNaturalist Username:</label>
+              <input type="text" id="username2" name="username2" required class="form-control" placeholder="Enter second username">
+              <div class="d-flex align-items-center mt-1">
+                <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #4dabf7; border-radius: 4px;"></div>
+                <p class="info-text mb-0">User 2's unique observations</p>
+              </div>
             </div>
           </div>
-          <div class="col-md-6">
-            <label for="username2" class="form-label">Second iNaturalist Username:</label>
-            <input type="text" id="username2" name="username2" required class="form-control" placeholder="Enter second username">
-            <div class="d-flex align-items-center mt-1">
-              <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #4dabf7; border-radius: 4px;"></div>
-              <p class="info-text mb-0">User 2's unique observations</p>
+
+          <div class="d-flex align-items-center mb-3">
+            <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #cc5de8; border-radius: 4px;"></div>
+            <p class="info-text mb-0">Shared observations (both users)</p>
+          </div>
+
+          <!-- Search type toggle -->
+          <div class="toggle-container mb-4">
+            <label class="form-label">Search by:</label>
+            <div class="btn-group w-100" role="group">
+              <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchName" autocomplete="off" checked>
+              <label class="btn btn-outline-primary" for="compareSearchName">Name (Common or Scientific)</label>
+
+              <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchId" autocomplete="off">
+              <label class="btn btn-outline-primary" for="compareSearchId">Taxon ID</label>
             </div>
           </div>
-        </div>
 
-        <div class="d-flex align-items-center mb-3">
-          <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #cc5de8; border-radius: 4px;"></div>
-          <p class="info-text mb-0">Shared observations (both users)</p>
-        </div>
-
-        <!-- Search type toggle -->
-        <div class="toggle-container mb-4">
-          <label class="form-label">Search by:</label>
-          <div class="btn-group w-100" role="group">
-            <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchName" autocomplete="off" checked>
-            <label class="btn btn-outline-primary" for="compareSearchName">Name (Common or Scientific)</label>
-
-            <input type="radio" class="btn-check" name="compareSearchType" id="compareSearchId" autocomplete="off">
-            <label class="btn btn-outline-primary" for="compareSearchId">Taxon ID</label>
+          <!-- Search by name -->
+          <div id="compareNameSearch" class="search-option active">
+            <label for="compareTaxonName" class="form-label">Taxon Name:</label>
+            <div class="autocomplete-container">
+              <input type="text" id="compareTaxonName" name="compareTaxonName" class="form-control" placeholder="Start typing common or scientific name...">
+              <div id="compareAutocompleteResults" class="autocomplete-results"></div>
+              <input type="hidden" id="compareSelectedTaxonId" name="compareSelectedTaxonId">
+            </div>
+            <p class="info-text">Pick a suggestion to lock in the ID.</p>
           </div>
-        </div>
 
-        <!-- Search by name -->
-        <div id="compareNameSearch" class="search-option active">
-          <label for="compareTaxonName" class="form-label">Taxon Name:</label>
-          <input type="text" id="compareTaxonName" name="compareTaxonName" class="form-control" placeholder="e.g., Insects or Quercus">
-          <input type="hidden" id="compareSelectedTaxonId" value="">
-          <div id="compareAutocompleteResults" class="autocomplete-results" style="display:none;"></div>
-          <p class="info-text">Start typing to search iNaturalist taxa. Pick one to lock in the ID.</p>
-        </div>
+          <!-- Search by ID -->
+          <div id="compareIdSearch" class="search-option">
+            <label for="compareTaxonId" class="form-label">Taxon ID:</label>
+            <input type="number" id="compareTaxonId" name="compareTaxonId" class="form-control" placeholder="e.g., 47115 for Mollusca">
+            <p class="info-text">Paste a taxon ID from the iNaturalist URL (e.g., https://www.inaturalist.org/taxa/47158-Insecta).</p>
+          </div>
 
-        <!-- Search by ID -->
-        <div id="compareIdSearch" class="search-option">
-          <label for="compareTaxonId" class="form-label">Taxon ID:</label>
-          <input type="number" id="compareTaxonId" name="compareTaxonId" class="form-control" placeholder="e.g., 47158 for Insects">
-          <p class="info-text">Paste a taxon ID from the iNaturalist URL (e.g., https://www.inaturalist.org/taxa/47158-Insecta).</p>
-        </div>
+          <button type="submit" class="btn btn-primary">Battle of the Naturalists!</button>
+        </form>
 
-        <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-primary">
-            🔥 Battle!
-          </button>
-          <button type="button" id="swapUsersBtn" class="btn btn-outline-secondary">Swap users</button>
+        <!-- PvP loading spinner -->
+        <div class="spinner-container" id="compareLoadingSpinner" style="display:none;">
+          <div class="spinner"></div>
+          <div class="spinner-text" id="compareLoadingText">Building the battle map...</div>
         </div>
-      </form>
-
-      <!-- PvP loading spinner -->
-      <div class="spinner-container" id="compareLoadingSpinner" style="display:none;">
-        <div class="spinner"></div>
-        <div class="spinner-text" id="compareLoadingText">Building the battle map...</div>
       </div>
     </div>
+
+    <!-- Where the shared Results card will "teleport" when PvP is active -->
+    <div id="resultsMountPvP" class="mt-4"></div>
   </div>
 
   <!-- Saved Checkpoints / Timeline (separate pane) -->
@@ -620,6 +575,52 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teleportable Results card container (do not remove this wrapper) -->
+  <div id="resultsCardContainer">
+    <div class="card" id="resultsCard" style="display: none;">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>Markmap Visualization</div>
+        <div class="d-flex gap-2">
+          <button id="mmFullscreenBtn" class="btn btn-sm btn-outline-light" title="Fullscreen">
+            <i class="bi bi-arrows-fullscreen"></i>
+          </button>
+          <button id="saveCheckpointBtn" class="btn btn-sm btn-outline-light d-inline-flex align-items-center gap-1" title="Save current tree as a checkpoint" disabled>
+            <span class="spinner-border spinner-border-sm d-none" id="saveCpSpinner"></span>
+            <i class="bi bi-bookmark"></i> Save checkpoint
+          </button>
+          <button id="deleteAllTrees" class="btn btn-sm btn-outline-light">
+            <i class="bi bi-trash"></i> Clear All
+          </button>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <!-- Tabs navigation -->
+        <ul class="nav nav-tabs mb-3" id="treeTabs" role="tablist"></ul>
+        <!-- Tab content container -->
+        <div class="tab-content" id="treeTabContent"></div>
+
+        <!-- Markdown accordion -->
+        <div class="accordion mt-4" id="markdownAccordion">
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="headingMarkdown">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseMarkdown" aria-expanded="false" aria-controls="collapseMarkdown">
+                Show Generated Markdown
+              </button>
+            </h2>
+            <div id="collapseMarkdown" class="accordion-collapse collapse" aria-labelledby="headingMarkdown">
+              <div class="accordion-body" id="markdownContent"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats dashboard -->
+        <div id="statsDashboard" class="mt-4"></div>
+        <div id="chartsDashboard" class="mt-3"></div>
       </div>
     </div>
   </div>
