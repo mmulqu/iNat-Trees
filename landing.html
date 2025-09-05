@@ -11,12 +11,13 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
-  <!-- Preload your video poster (static image) for fast first paint -->
-  <!-- Replace with your actual asset paths -->
-  <link rel="preload" as="image" href="assets/ferns-poster.jpg">
-  <!-- Optional: Preload the lightweight WebM – keep small (<6–10MB ideally) -->
-  <!-- Preload your chosen MP4 if desired -->
-  <link rel="preload" as="video" href="assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
+  <!-- Preload background poster/video -->
+  <link rel="preload" as="image" href="/assets/ferns-poster.jpg">
+  <link rel="preload" as="video" href="/assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
+  <!-- Preload feature assets -->
+  <link rel="preload" as="image" href="/assets/battle_img.jpg">
+  <link rel="preload" as="image" href="/assets/battle_stats.jpg">
+  <link rel="preload" as="image" href="/assets/timeline_gif.gif">
 
   <style>
     :root{
@@ -35,18 +36,15 @@
     }
 
     /* Fullscreen background video */
-    .bg-video-wrap{
-      position: fixed; inset: 0; z-index: -2; overflow: hidden;
-    }
+    .bg-video-wrap{ position: fixed; inset: 0; z-index: -2; overflow: hidden; }
     .bg-video{
       position: absolute; inset: 0; width: 100%; height: 100%;
       object-fit: cover; object-position: center;
       filter: blur(6px) saturate(1.1);
-      transform: scale(1.06); /* hide blur edges */
+      transform: scale(1.06);
       will-change: transform, filter;
       pointer-events: none;
     }
-    /* Darken / soften text contrast */
     .bg-scrim{
       position: fixed; inset: 0; z-index:-1;
       background:
@@ -85,28 +83,17 @@
       background: rgba(63,172,140,.14); color: var(--text);
       border: 1px solid rgba(63,172,140,.36);
     }
-    .hero h1{
-      font-weight: 800; letter-spacing:-.02em; line-height:1.05;
-      margin: 14px 0 10px;
-    }
-    .lead{
-      font-size: clamp(1.0rem, 1.7vw, 1.15rem);
-      color: rgba(255,255,255,.92);
-    }
-    @media (prefers-color-scheme: light){
-      .lead{ color:#1f2a37; }
-    }
+    .hero h1{ font-weight: 800; letter-spacing:-.02em; line-height:1.05; margin: 14px 0 10px; }
+    .lead{ font-size: clamp(1.0rem, 1.7vw, 1.15rem); color: rgba(255,255,255,.92); }
+    @media (prefers-color-scheme: light){ .lead{ color:#1f2a37; } }
 
     /* CTA */
-    .cta{
-      display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px;
-    }
+    .cta{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px; }
     .btn-inat{
       font-weight:800; font-size: clamp(1.0rem, 1.5vw, 1.15rem);
       padding:1rem 1.4rem; border-radius:14px;
       display:inline-flex; align-items:center; gap:.55rem;
-      background: var(--brand); color:#fff; border:none;
-      white-space: nowrap;
+      background: var(--brand); color:#fff; border:none; white-space: nowrap;
     }
     .btn-inat:hover{ background: var(--brand-2); }
     .btn-ghost{
@@ -117,23 +104,17 @@
     @media (prefers-color-scheme: light){
       .btn-ghost{ color:#0f172a; border-color: rgba(15,23,42,.25); }
     }
-    /* Match app button icon behavior: background favicon with left padding */
     .inat-favicon{
       background-image: url('https://www.inaturalist.org/favicon.ico');
-      background-repeat: no-repeat;
-      background-position: 14px center;
-      background-size: 20px 20px;
+      background-repeat: no-repeat; background-position: 14px center; background-size: 20px 20px;
       padding-left: 42px;
     }
 
-    .why{
-      text-align:left; margin-top:16px;
-      color: rgba(255,255,255,.9);
-    }
+    .why{ text-align:left; margin-top:16px; color: rgba(255,255,255,.9); }
     @media (prefers-color-scheme: light){ .why{ color:#374151; } }
     .why li{ margin:.25rem 0; }
 
-    /* Features scroller */
+    /* Features */
     .features{
       position: relative; z-index: 1;
       padding: 40px clamp(16px, 4vw, 40px) 70px;
@@ -156,25 +137,18 @@
       background:#0b1512;
     }
 
-    footer{
-      color: rgba(255,255,255,.8); padding: 18px; text-align:center;
-    }
+    footer{ color: rgba(255,255,255,.8); padding: 18px; text-align:center; }
     @media (prefers-color-scheme: light){ footer{ color:#334155; } }
 
-    /* Respect users who prefer reduced motion */
-    @media (prefers-reduced-motion: reduce){
-      .bg-video{ display:none !important; }
-    }
+    @media (prefers-reduced-motion: reduce){ .bg-video{ display:none !important; } }
   </style>
 </head>
 <body>
 
   <!-- Background -->
   <div class="bg-video-wrap" aria-hidden="true">
-    <!-- Replace with your video sources; keep it short (6–12s), loopable -->
-    <video id="bgVideo" class="bg-video" playsinline muted loop autoplay preload="metadata" poster="assets/ferns-poster.jpg">
-      <source src="assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
-      <!-- If neither source can play, poster shows behind. -->
+    <video id="bgVideo" class="bg-video" playsinline muted loop autoplay preload="metadata" poster="/assets/ferns-poster.jpg">
+      <source src="/assets/5049502-hd_1920_1080_24fps.mp4" type="video/mp4">
     </video>
   </div>
   <div class="bg-scrim" aria-hidden="true"></div>
@@ -189,19 +163,14 @@
       <p class="lead mb-1">
         Build and compare taxonomic trees from your iNaturalist observations, save checkpoints, and replay your first-seen timeline.
       </p>
-      <p class="lead mb-2">
-        <strong>Step 1:</strong> Connect your iNaturalist account.
-      </p>
+      <p class="lead mb-2"><strong>Step 1:</strong> Connect your iNaturalist account.</p>
 
       <div class="cta">
-        <!-- Primary CTA: your existing login hook -->
         <button id="inatLogin" class="btn btn-inat">
           <span class="inat-favicon" aria-hidden="true"></span>
           Connect my iNaturalist account
         </button>
-
-        <!-- Visible once connected -->
-        <a id="enterApp" href="index.html" class="btn btn-ghost d-none">
+        <a id="enterApp" href="/index.html" class="btn btn-ghost d-none">
           <i class="bi bi-arrow-right-circle"></i> Enter the app
         </a>
       </div>
@@ -216,7 +185,7 @@
     </div>
   </main>
 
-  <!-- Features / “scroll to learn more” section -->
+  <!-- Features -->
   <section class="features">
     <div class="container">
       <div class="text-center mb-4">
@@ -224,28 +193,49 @@
           <i class="bi bi-chevron-double-down"></i> Learn more
         </a>
       </div>
+
       <div id="features" class="row g-3">
+        <!-- LEFT: battle_img.jpg -->
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="assets/battle_img.jpg" alt="Screenshot: Build your taxonomic tree" loading="lazy">
+            <img class="feature-img"
+                 src="/assets/battle_img.jpg?v=1"
+                 alt="Screenshot: Build your taxonomic tree"
+                 loading="lazy"
+                 decoding="async"
+                 onerror="this.onerror=null; this.src='/assets/ferns-poster.jpg';">
             <div class="p-3">
               <h5 class="mb-1">Build your tree</h5>
               <p class="mb-0">Pick a high-rank taxon (e.g., Plants, Birds) and we map your observations into a browsable tree.</p>
             </div>
           </div>
         </div>
+
+        <!-- MIDDLE: battle_stats.jpg -->
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="assets/battle_stats.jpg" alt="Screenshot: Compare two users (Tree PVP)" loading="lazy">
+            <img class="feature-img"
+                 src="/assets/battle_stats.jpg?v=1"
+                 alt="Screenshot: Compare two users (Tree PVP)"
+                 loading="lazy"
+                 decoding="async"
+                 onerror="this.onerror=null; this.src='/assets/ferns-poster.jpg';">
             <div class="p-3">
               <h5 class="mb-1">Compare users</h5>
               <p class="mb-0">Red vs Blue, with purple for shared taxa. Battle animations included ✨</p>
             </div>
           </div>
         </div>
+
+        <!-- RIGHT: timeline_gif.gif -->
         <div class="col-12 col-md-4">
           <div class="feature-card h-100">
-            <img class="feature-img" src="assets/timeline_gif.gif" alt="Screenshot: Checkpoints & first-seen timeline" loading="lazy">
+            <img class="feature-img"
+                 src="/assets/timeline_gif.gif?v=1"
+                 alt="Screenshot: Checkpoints & first-seen timeline"
+                 loading="lazy"
+                 decoding="async"
+                 onerror="this.onerror=null; this.src='/assets/ferns-poster.jpg';">
             <div class="p-3">
               <h5 class="mb-1">Checkpoints & timeline</h5>
               <p class="mb-0">Save snapshots, replay your first-seen species over time, and compare growth.</p>
@@ -255,7 +245,7 @@
       </div>
 
       <div class="text-center mt-4">
-        <a id="enterAppBottom" href="index.html" class="btn btn-outline-light d-none">
+        <a id="enterAppBottom" href="/index.html" class="btn btn-outline-light d-none">
           <i class="bi bi-arrow-right"></i> I’m connected — take me to the app
         </a>
       </div>
@@ -269,17 +259,13 @@
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" defer></script>
   <script>
-    // If you need your worker base here (some pages may read it later)
     window.CF_API_BASE = 'https://inat-trees-worker.intrinsic3141.workers.dev';
   </script>
-  <!-- Your existing auth UI logic (renders the button state) -->
-  <script type="module" src="ui-auth.js"></script>
+  <script type="module" src="/ui-auth.js"></script>
   <script type="module">
-    // Post-auth UX: reveal “Enter the app” once token/username is present
-    import { fetchCurrentUser } from './auth.js';
+    import { fetchCurrentUser } from '/auth.js';
 
     async function syncAuthUI(){
-      // Ensure we have username if token just landed
       if (!localStorage.getItem('inat_username') && localStorage.getItem('inat_token')) {
         try { await fetchCurrentUser(); } catch {}
       }
@@ -288,25 +274,16 @@
       document.getElementById('enterAppBottom')?.classList.toggle('d-none', !hasToken);
     }
 
-    // Respect reduced motion & data saver by disabling the video
     function maybeDisableVideo(){
       const v = document.getElementById('bgVideo');
       if (!v) return;
       const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const saveData = navigator.connection && navigator.connection.saveData;
-      if (reduce || saveData){
-        // Hide video; poster still shows via CSS background of page
-        v.pause(); v.removeAttribute('autoplay'); v.style.display = 'none';
-      } else {
-        // Try to play (required on some iOS versions)
-        v.play().catch(()=>{/* ignore */});
-      }
+      if (reduce || saveData){ v.pause(); v.removeAttribute('autoplay'); v.style.display = 'none'; }
+      else { v.play().catch(()=>{}); }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      syncAuthUI();
-      maybeDisableVideo();
-    });
+    document.addEventListener('DOMContentLoaded', () => { syncAuthUI(); maybeDisableVideo(); });
     window.addEventListener('storage', (e) => {
       if (e.key === 'inat_token' || e.key === 'inat_username') syncAuthUI();
     });
