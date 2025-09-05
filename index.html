@@ -341,10 +341,6 @@
       border-radius: 0;
     }
 
-    /* Give the tree real vertical room. dvh works better on mobile browsers */
-    .markmap-container {
-      height: calc(100dvh - 64px); /* ~ navbar height; tweak if needed */
-    }
 
     /* When in Fullscreen, let the canvas own the screen */
     :fullscreen .markmap-container { height: 100dvh; }
@@ -512,7 +508,6 @@
 
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary">🔥 Battle!</button>
-            <button type="button" id="swapUsersBtn" class="btn btn-outline-secondary">Swap users</button>
           </div>
         </form>
 

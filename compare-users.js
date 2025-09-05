@@ -45,6 +45,9 @@ if (!API_BASE) {
 const compareUsersUrl = `${API_BASE}/compare-taxa`;
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Clean up any leftover swap users button
+  document.getElementById('swapUsersBtn')?.remove();
+  
   document.getElementById("compareSearchName").addEventListener("change", function() {
     document.getElementById("compareNameSearch").classList.add("active");
     document.getElementById("compareIdSearch").classList.remove("active");

@@ -6,31 +6,43 @@
   const s = document.createElement('style');
   s.id = 'mm-ux-styles';
   s.textContent = `
+    :root{
+      --mm-minimap-w: 180px;
+      --mm-minimap-h: 120px;
+      /* canvas height you prefer overall; page CSS can override if needed */
+      --mm-canvas-h: clamp(420px, 62vh, 900px);
+    }
+
     /* Markmap window frame */
     .markmap-container{
       position: relative;
       border: 1px solid rgba(0,0,0,.12);
       border-radius: 12px;
       background: #ffffff;
-      overflow: hidden;                 /* clip gutters/minimap inside frame */
+      overflow: hidden;
       box-shadow: 0 2px 12px rgba(0,0,0,.06);
+      /* NEW: only keep a small ledge equal to minimap height + 6px */
+      padding-bottom: calc(var(--mm-minimap-h) + 6px);
+      /* NEW: kill any page-level fixed heights */
+      height: auto !important;
+      min-height: clamp(420px, 50vh, 900px);
     }
     body.dark-theme .markmap-container{
-      background: #111827;              /* slate-900 */
-      border-color: #3a3f42;            /* subtle frame in dark */
+      background: #111827;
+      border-color: #3a3f42;
       box-shadow: 0 2px 12px rgba(0,0,0,.35);
     }
 
-    /* Mini-map box */
+    /* Mini-map box now uses vars */
     .mm-minimap {
       position: absolute; right: 12px; bottom: 12px;
-      width: 180px; height: 120px;
+      width: var(--mm-minimap-w); height: var(--mm-minimap-h);
       border-radius: 10px;
       background: rgba(255,255,255,.82);
       border: 1px solid rgba(0,0,0,.15);
       box-shadow: 0 8px 24px rgba(0,0,0,.25);
       z-index: 5;
-      pointer-events: none; /* visual-only */
+      pointer-events: none;
     }
     body.dark-theme .mm-minimap {
       background: rgba(0,0,0,.52);
@@ -282,7 +294,7 @@ class TreeManager {
     tabContent.setAttribute('aria-labelledby', `${tree.id}-tab`);
     const svgContainer = document.createElement('div');
     svgContainer.className = 'markmap-container';
-    svgContainer.innerHTML = `<svg id="${tree.id}-svg" style="width: 100%; height: 700px;"></svg>`;
+    svgContainer.innerHTML = `<svg id="${tree.id}-svg" style="width:100%; height: var(--mm-canvas-h, 700px);"></svg>`;
     tabContent.appendChild(svgContainer);
     const treeInfo = document.createElement('div');
     treeInfo.className = 'tree-info mt-3 p-2 bg-light rounded';
@@ -599,7 +611,7 @@ class TreeManager {
     tabContent.dataset.username2 = tree.username2;
     const svgContainer = document.createElement('div');
     svgContainer.className = 'markmap-container';
-    svgContainer.innerHTML = `<svg id="${tree.id}-svg" style="width: 100%; height: 700px;"></svg>`;
+    svgContainer.innerHTML = `<svg id="${tree.id}-svg" style="width:100%; height: var(--mm-canvas-h, 700px);"></svg>`;
     tabContent.appendChild(svgContainer);
     this.tabsContainer.appendChild(tabHeader);
     this.tabContentContainer.appendChild(tabContent);
