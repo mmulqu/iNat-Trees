@@ -46,20 +46,26 @@ async function filterIdsPresentInTaxa(env, ids) {
 
 // All species in a region that are descendants of baseTaxonId
 async function listRegionSpeciesUnder(env, regionCode, baseTaxonId) {
+  const region = String(regionCode || '').trim();
+  const baseId = Number(baseTaxonId);
+  if (!Number.isFinite(baseId) || baseId <= 0) return [];
+
+  // IMPORTANT: embed baseId as a literal (safe after Number() guard).
   const sql = `
     SELECT rc.species_id
     FROM region_checklist rc
     JOIN taxa t ON t.taxon_id = rc.species_id
     WHERE rc.region_code = ?
-      AND lower(COALESCE(t.rank,'')) IN ('species','subspecies','variety','form')
+      AND t.rank = 'species'
       AND (
-        t.taxon_id = ?
+        t.taxon_id = ${baseId}
         OR instr(
               ',' || replace(replace(replace(COALESCE(t.ancestor_ids,''),'{',''),'}',''),' ','') || ',',
-              ',' || CAST(? AS TEXT) || ','
+              ',${baseId},'
             ) > 0
       )`;
-  const { results } = await env.DB.prepare(sql).bind(regionCode, baseTaxonId, baseTaxonId).all();
+
+  const { results } = await env.DB.prepare(sql).bind(region).all();
   return (results || []).map(r => r.species_id);
 }
 
@@ -140,6 +146,63 @@ async function regionDebug(env, regionCode, baseId) {
     regionWithNullAnc: rowC?.n ?? 0,
     subsetJoinCount: rowD?.n ?? 0
   };
+}
+
+async function checklistDebug(request, env) {
+  const b = await request.json().catch(()=>({}));
+  const region = String(b.region_code || '').trim();
+  const baseId = Number(b.baseTaxonId || 0);
+  if (!region || !Number.isFinite(baseId) || baseId <= 0) {
+    return json({ error: 'region_code and baseTaxonId required' }, 400, request);
+  }
+
+  const rowA = await env.DB
+    .prepare(`SELECT COUNT(*) AS n FROM region_checklist WHERE region_code=?`)
+    .bind(region).first();
+
+  const rowB = await env.DB
+    .prepare(`SELECT COUNT(*) AS n
+              FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+              WHERE rc.region_code=?`)
+    .bind(region).first();
+
+  const rowC = await env.DB
+    .prepare(`SELECT COUNT(*) AS n
+              FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+              WHERE rc.region_code=? AND (t.ancestor_ids IS NULL OR TRIM(t.ancestor_ids)='')`)
+    .bind(region).first();
+
+  // literal-embedded baseId (same as listRegionSpeciesUnder)
+  const subsetSQL = `
+    SELECT COUNT(*) AS n
+    FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+    WHERE rc.region_code='${region.replace(/'/g,"''")}'
+      AND t.rank='species'
+      AND (
+        t.taxon_id=${baseId}
+        OR instr(',' || replace(replace(replace(COALESCE(t.ancestor_ids,''),'{',''),'}',''),' ','') || ',', ',${baseId},') > 0
+      )`;
+  const rowD = await env.DB.prepare(subsetSQL).first();
+
+  const sampleSQL = `
+    SELECT t.taxon_id, t.name, t.rank, t.ancestor_ids
+    FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+    WHERE rc.region_code='${region.replace(/'/g,"''")}'
+      AND t.rank='species'
+      AND (
+        t.taxon_id=${baseId}
+        OR instr(',' || replace(replace(replace(COALESCE(t.ancestor_ids,''),'{',''),'}',''),' ','') || ',', ',${baseId},') > 0
+      )
+    LIMIT 5`;
+  const sample = await env.DB.prepare(sampleSQL).all();
+
+  return json({
+    regionRows: rowA?.n ?? 0,
+    regionWithTaxa: rowB?.n ?? 0,
+    regionWithNullAnc: rowC?.n ?? 0,
+    subsetJoinCount: rowD?.n ?? 0,
+    subsetSample: sample?.results || []
+  }, 200, request);
 }
 
 
@@ -288,6 +351,11 @@ export default {
       // Ensure taxa table contains all species + ancestors for a region
       if (pathname === '/checklist/hydrate' && request.method === 'POST') {
         return hydrateRegionTaxa(request, env);
+      }
+
+      // Debug endpoint for checklist diagnostics
+      if (pathname === '/checklist/debug' && request.method === 'POST') {
+        return checklistDebug(request, env);
       }
 
       return json({ error: "Not found" }, 404, request);
