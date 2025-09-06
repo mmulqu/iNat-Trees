@@ -248,6 +248,49 @@
       display: block;
     }
 
+    /* Autocomplete styles for checklist */
+    .autocomplete-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ccc;
+      border-top: none;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .autocomplete-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+
+    .autocomplete-item:hover {
+      background-color: #f5f5f5;
+    }
+
+    .autocomplete-item:last-child {
+      border-bottom: none;
+    }
+
+    body.dark-theme .autocomplete-results {
+      background: #2a2d2f;
+      border-color: #444;
+    }
+
+    body.dark-theme .autocomplete-item {
+      color: #e6e6e6;
+      border-bottom-color: #444;
+    }
+
+    body.dark-theme .autocomplete-item:hover {
+      background-color: #3a3d3f;
+    }
+
     .autocomplete-container {
       position: relative;
     }
@@ -555,6 +598,43 @@
     </div>
   </div>
 
+  <!-- Region Checklist (Targets) -->
+  <div class="card mt-4">
+    <div class="card-header">Region Checklist (Targets)</div>
+    <div class="card-body">
+      <form id="checklistForm">
+        <div class="row mb-3">
+          <div class="col-md-4">
+            <label class="form-label">iNaturalist Username</label>
+            <input type="text" id="clUsername" class="form-control" placeholder="your iNat username" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Region</label>
+            <select id="clRegion" class="form-select" required>
+              <option value="">Loading regions...</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Base taxon (name or ID)</label>
+            <div class="input-group">
+              <input type="text" id="clTaxonName" class="form-control" placeholder="e.g., Birds, Plants" autocomplete="off">
+              <input type="hidden" id="clSelectedTaxonId">
+              <button class="btn btn-outline-secondary" type="button" id="clUseIdBtn" title="Use ID from box">ID</button>
+            </div>
+            <div id="clAutocomplete" class="autocomplete-results"></div>
+            <div class="form-text">Pick a high-rank group to scope the tree (optional but recommended).</div>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Build Checklist Tree</button>
+      </form>
+
+      <div class="spinner-container" id="clSpinner" style="display:none;">
+        <div class="spinner"></div>
+        <div class="spinner-text">Building targets tree…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Saved Checkpoints / Timeline (separate pane) -->
   <div class="card mt-4 tab-pane main-pane" id="checkpointsPane" style="display:none;">
     <div class="card-header">📈 Saved Timelines</div>
@@ -675,6 +755,7 @@
   <script type="module" src="markmap-integration.js"></script>
   <script type="module" src="battle-animation.js"></script>
   <script type="module" src="theme-toggle.js"></script>
+  <script src="checklist.js"></script>
 
   <script>
     // Initialize TreeManager after DOM is loaded

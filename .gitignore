@@ -3,6 +3,9 @@ node_modules/
 chunks/
 chunks_sql/
 chunks_sql_full/
+out/
+csvs/
+
 *.db
 *.db-journal
 # Large exports and generated schemas

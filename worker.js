@@ -27,6 +27,8 @@ async function acquireLimiter(env, key, minGapMs = 1000) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+function chunk(arr, n) { const out=[]; for (let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; }
+
 // Normalize observation date to YYYY-MM-DD
 function toISODateOnly(v) {
   if (!v) return null;
@@ -52,10 +54,8 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname.replace(/\/+$/, "");
 
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders(request) });
-    }
+    // CORS preflight for your frontend(s)
+    if (request.method === 'OPTIONS') return handleOptions(request);
 
     try {
       if (pathname === '/search-taxa' && request.method === 'GET') {
@@ -114,6 +114,31 @@ export default {
         return timelinePrecache(request, env);
       }
 
+      // -- Regions list for UI picker --
+      if (pathname === '/regions' && request.method === 'GET') {
+        await ensureRegionTables(env);
+        const { results } = await env.DB
+          .prepare(`SELECT code, name, country, type FROM regions ORDER BY country, name`)
+          .all();
+        return json({ regions: results || [] }, 200, request);
+      }
+
+      // -- Bulk resolve scientific names -> taxon_id from your local D1 (no external calls) --
+      if (pathname === '/taxa/resolve' && request.method === 'POST') {
+        return resolveTaxaNames(request, env);
+      }
+
+      // -- Build a region checklist "targets" tree (green = seen, gray = missing) --
+      if (pathname === '/checklist/tree' && request.method === 'POST') {
+        await ensureRegionTables(env);
+        return checklistTree(request, env);
+      }
+
+      // Ensure taxa table contains all species + ancestors for a region
+      if (pathname === '/checklist/hydrate' && request.method === 'POST') {
+        return hydrateRegionTaxa(request, env);
+      }
+
       return json({ error: 'Not found' }, 404, request);
     } catch (err) {
       return json({ error: err?.message || String(err) }, 500, request);
@@ -130,6 +155,10 @@ function corsHeaders(request) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Expose-Headers': 'X-Auth-Received, X-Auth-UsableJWT',
   };
+}
+
+function handleOptions(request) {
+  return new Response(null, { headers: corsHeaders(request) });
 }
 
 function json(data, status = 200, request, extraHeaders) {
@@ -500,6 +529,270 @@ async function ensureCheckpointTables(env) {
   const idxPrecache = `CREATE INDEX IF NOT EXISTS idx_precache_user_taxon ON timeline_precache(user_login, taxon_id, checkpoint_id)`;
   await env.DB.prepare(createPrecache).run();
   await env.DB.prepare(idxPrecache).run();
+}
+
+// Table creator for regions and checklist tables
+async function ensureRegionTables(env) {
+  const createRegions = `CREATE TABLE IF NOT EXISTS regions (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    country TEXT NOT NULL,
+    type TEXT NOT NULL
+  )`;
+  const createChecklist = `CREATE TABLE IF NOT EXISTS region_checklist (
+    region_code TEXT NOT NULL,
+    species_id INTEGER NOT NULL,
+    occurrence_status TEXT NULL,
+    establishment_means TEXT NULL,
+    first_obs_url TEXT NULL,
+    last_obs_url TEXT NULL,
+    listed_taxa_url TEXT NULL,
+    created_at TEXT NULL,
+    updated_at TEXT NULL,
+    PRIMARY KEY (region_code, species_id)
+  )`;
+  const idx1 = `CREATE INDEX IF NOT EXISTS idx_region_checklist_region ON region_checklist(region_code)`;
+  const idx2 = `CREATE INDEX IF NOT EXISTS idx_region_checklist_species ON region_checklist(species_id)`;
+
+  await env.DB.prepare(createRegions).run();
+  await env.DB.prepare(createChecklist).run();
+  await env.DB.prepare(idx1).run();
+  await env.DB.prepare(idx2).run();
+}
+
+// Bulk name→ID resolver (uses your D1 taxa table)
+async function resolveTaxaNames(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const names = Array.isArray(body?.names) ? body.names.filter(Boolean) : [];
+  const ranks = Array.isArray(body?.ranks) && body.ranks.length
+    ? body.ranks.map(r => String(r).toLowerCase())
+    : ['species','subspecies','variety','form'];
+  if (!names.length) return json({ results: {} }, 200, request);
+
+  const map = {};
+  for (const part of chunk(names, 500)) {
+    const lowers = part.map(n => String(n).toLowerCase());
+    const placeholdersNames = lowers.map(() => '?').join(',');
+    const placeholdersRanks = ranks.map(() => '?').join(',');
+
+    const sql = `SELECT taxon_id, name, rank
+                 FROM taxa
+                 WHERE lower(name) IN (${placeholdersNames})
+                   AND lower(rank) IN (${placeholdersRanks})`;
+
+    const { results } = await env.DB.prepare(sql).bind(...lowers, ...ranks).all();
+    for (const row of results || []) {
+      map[String(row.name).toLowerCase()] = row.taxon_id;
+    }
+  }
+  return json({ results: map }, 200, request);
+}
+
+// Checklist tree endpoint
+async function checklistTree(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { username, region_code, baseTaxonId } = body || {};
+  if (!username || !region_code || !baseTaxonId) {
+    return json({ error: 'Missing parameters: username, region_code, baseTaxonId' }, 400, request);
+  }
+
+  // Optional auth (same pattern you use in /build-taxonomy)
+  const rawAuth = request.headers.get('Authorization') || '';
+  const hadAuthHeader = !!rawAuth;
+  const jwt = await processAuthHeader?.(rawAuth);
+  const authHeader = jwt ? `Bearer ${jwt}` : undefined;
+
+  // 1) Region species set
+  const rs = await env.DB.prepare(
+    `SELECT species_id FROM region_checklist WHERE region_code = ?`
+  ).bind(region_code).all();
+  let regionSpecies = (rs.results || []).map(r => r.species_id);
+  if (regionSpecies.length === 0) {
+    return json({ error: `No checklist species for region ${region_code}` }, 404, request);
+  }
+
+  // 2) User "seen" species under base taxon (prefer your timeline cache; fall back to live fetch)
+  let seenSet = new Set();
+  try {
+    const sum = await env.DB.prepare(
+      `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+    ).bind(username, parseInt(baseTaxonId, 10)).all();
+    if (sum.results?.length) {
+      seenSet = new Set(sum.results.map(r => r.species_id));
+    } else {
+      // Fallback: fetch and map to species-level IDs
+      const obs = await getCachedOrFetch(env, username, baseTaxonId, authHeader)  // or your fetchUserObservations()
+                  || [];
+      const uniqueTaxonIds = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
+      const speciesIds = [];
+      for (const id of uniqueTaxonIds) {
+        const sid = await resolveSpeciesIdFromAny(env, id);
+        if (sid) speciesIds.push(sid);
+      }
+      seenSet = new Set(speciesIds);
+    }
+  } catch (_) {}
+
+  // 3) Build a tree from the CHECKLIST set (not the user's set)
+  const root = await buildTreeFromDatabase(env, regionSpecies, baseTaxonId);
+
+  // 4) Annotate leaves/branches as seen vs missing and tally counts
+  annotateSeenMissing(root, seenSet);
+
+  // 5) Emit markdown + totals
+  const markdown = treeToMarkdown(root, 0, { mode: 'checklist', username });
+  const plainMarkdown = toPlainMarkdown(markdown) || markdown;
+
+  const regionSet = new Set(regionSpecies);
+  let seenInRegion = 0;
+  for (const sid of seenSet) if (regionSet.has(sid)) seenInRegion += 1;
+
+  return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: regionSpecies.length } }, 200, request);
+}
+
+// Map any taxon id (species or infra) to its species-level id using local taxa table
+async function resolveSpeciesIdFromAny(env, taxonId) {
+  const row = await fetchTaxonById(env, taxonId);
+  if (!row) return taxonId;
+  const r = String(row.rank || '').toLowerCase();
+  if (r === 'species') return row.taxon_id;
+
+  const anc = parseAncestorIds(row.ancestor_ids);
+  if (!anc?.length) return row.taxon_id;
+  const taxa = await fetchTaxaByIds(env, anc);
+  const species = taxa.find(t => String(t.rank || '').toLowerCase() === 'species');
+  return species?.taxon_id || row.taxon_id;
+}
+
+// Color leaves and compute sppSeen/sppCount for chips
+function annotateSeenMissing(node, seenSet) {
+  const isLeafSpecies = String(node.rank || '').toLowerCase() === 'species';
+
+  if (!node.children || Object.keys(node.children).length === 0) {
+    node.sppCount = isLeafSpecies ? 1 : 0;
+    node.sppSeen  = isLeafSpecies && seenSet.has(node.id) ? 1 : 0;
+    if (isLeafSpecies) node.color = seenSet.has(node.id) ? '#22c55e' : '#9ca3af';
+    return { count: node.sppCount, seen: node.sppSeen };
+  }
+
+  let count = 0, seen = 0;
+  for (const child of Object.values(node.children)) {
+    const r = annotateSeenMissing(child, seenSet);
+    count += r.count; seen += r.seen;
+  }
+  node.sppCount = count;
+  node.sppSeen  = seen;
+  if (seen === 0) node.color = '#9ca3af';
+  return { count, seen };
+}
+
+// Hydrate taxa for a region (fills in missing ancestors)
+async function hydrateRegionTaxa(request, env) {
+  try {
+    const { region_code } = await request.json().catch(() => ({}));
+    if (!region_code) return json({ error: 'Missing region_code' }, 400, request);
+
+  // 1) All species IDs in the region (limit to first 100 for testing)
+  const rs = await env.DB.prepare(
+    `SELECT species_id FROM region_checklist WHERE region_code = ? LIMIT 100`
+  ).bind(region_code).all();
+  const species = new Set((rs.results || []).map(r => r.species_id));
+
+  // 2) Which species are missing in taxa OR missing ancestor_ids?
+  const missing = new Set();
+  const rows = await env.DB.prepare(
+    `SELECT rc.species_id, t.taxon_id AS has_row, t.ancestor_ids
+     FROM region_checklist rc
+     LEFT JOIN taxa t ON t.taxon_id = rc.species_id
+     WHERE rc.region_code = ? LIMIT 100`
+  ).bind(region_code).all();
+
+  for (const r of rows.results || []) {
+    if (!r.has_row || !r.ancestor_ids) missing.add(r.species_id);
+  }
+
+  // 3) Upsert those species from iNat
+  const inserted = await fetchAndUpsertTaxa(env, [...missing]);
+
+  // 4) Recursively ensure all ancestors exist
+  //    Collect ancestors from everything we have now
+  const neededAnc = new Set();
+  const speciesRows = await fetchTaxaByIds(env, [...species]); // existing helper
+  for (const t of speciesRows) {
+    const anc = parseAncestorIds(t.ancestor_ids);
+    for (const a of anc) neededAnc.add(a);
+  }
+
+  // Which ancestors are missing?
+  let missingAnc = [];
+  if (neededAnc.size) {
+    const ancList = [...neededAnc];
+    const ancPlaceholders = ancList.map(() => '?').join(',');
+    const miss = await env.DB.prepare(
+      `SELECT v.id AS taxon_id
+       FROM (SELECT ${ancPlaceholders}) AS v(id)
+       LEFT JOIN taxa t ON t.taxon_id = v.id
+       WHERE t.taxon_id IS NULL`
+    ).bind(...ancList).all();
+    missingAnc = (miss.results || []).map(r => r.taxon_id);
+  }
+
+  // 5) Upsert any missing ancestors
+  const insertedAnc = await fetchAndUpsertTaxa(env, missingAnc);
+
+  return json({
+    ok: true,
+    region_code,
+    species_in_region: species.size,
+    hydrated_species_rows: inserted,
+    hydrated_ancestor_rows: insertedAnc
+  }, 200, request);
+  } catch (error) {
+    return json({ error: error.message, stack: error.stack }, 500, request);
+  }
+}
+
+// ---- fetch & upsert helpers ----
+// You already have DB helpers; these are minimal add-ons.
+
+async function fetchAndUpsertTaxa(env, ids) {
+  if (!ids || !ids.length) return 0;
+  let total = 0;
+  const chunks = chunk(ids, 50);
+  for (const part of chunks) {
+    const list = part.join(',');
+    const url = `https://api.inaturalist.org/v1/taxa?ids=${encodeURIComponent(list)}&per_page=${part.length}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) continue;
+    const j = await r.json().catch(() => ({}));
+    const rows = Array.isArray(j.results) ? j.results : [];
+    if (!rows.length) continue;
+    total += await upsertTaxaRows(env, rows);
+  }
+  return total;
+}
+
+async function upsertTaxaRows(env, taxa) {
+  if (!Array.isArray(taxa) || !taxa.length) return 0;
+  const sql = `INSERT INTO taxa (taxon_id, name, rank, common_name, parent_id, ancestor_ids, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(taxon_id) DO UPDATE SET
+                 name=excluded.name, rank=excluded.rank, common_name=excluded.common_name,
+                 parent_id=excluded.parent_id, ancestor_ids=excluded.ancestor_ids`;
+  let n = 0;
+  for (const t of taxa) {
+    const id = t.id;
+    const name = t.name || null;
+    const rank = t.rank || null;
+    const common = t.preferred_common_name || t.common_name || null;
+    const parent = t.parent_id || null;
+    // Store ancestor_ids in "{1,2,3}" format expected by your code
+    const ancArr = Array.isArray(t.ancestor_ids) ? t.ancestor_ids : [];
+    const ancestor_ids = ancArr.length ? `{${ancArr.join(',')}}` : null;
+    await env.DB.prepare(sql).bind(id, name, rank, common, parent, ancestor_ids).run();
+    n++;
+  }
+  return n;
 }
 
 function uuidv4() {
@@ -1182,7 +1475,14 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
   const common = node.common_name ? ` <span class="mm-common">(${escapeHtml(node.common_name)})</span>` : '';
   const shortRank = shortRankCode(node.rank);
   const rankChip = shortRank ? ` <span class="mm-badge mm-rank" title="${escapeHtml(node.rank)}">${shortRank}</span>` : '';
-  const countChip = Number.isFinite(node.sppCount) ? ` <span class="mm-badge mm-count" title="Distinct species in this branch">${node.sppCount} spp</span>` : '';
+  let countChip = '';
+  if (Number.isFinite(node.sppCount)) {
+    if (ctx.mode === 'checklist' && Number.isFinite(node.sppSeen)) {
+      countChip = ` <span class="mm-badge mm-count" title="Species seen in this branch">${node.sppSeen}/${node.sppCount} seen</span>`;
+    } else {
+      countChip = ` <span class="mm-badge mm-count" title="Distinct species in this branch">${node.sppCount} spp</span>`;
+    }
+  }
   const isSpecies = (node.rank || '').toLowerCase() === 'species';
   let photoChips = '';
   if (isSpecies) {
