@@ -29,6 +29,21 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function chunk(arr, n) { const out=[]; for (let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; }
 
+async function filterIdsPresentInTaxa(env, ids) {
+  if (!ids?.length) return [];
+  const CHUNK = 500;
+  const present = new Set();
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    const ph = part.map(() => "?").join(",");
+    const { results } = await env.DB
+      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
+      .bind(...part).all();
+    for (const r of results || []) present.add(r.taxon_id);
+  }
+  return [...present];
+}
+
 // Normalize observation date to YYYY-MM-DD
 function toISODateOnly(v) {
   if (!v) return null;
@@ -49,15 +64,52 @@ function isSpeciesRank(rank) {
   return r === 'species' || r === 'subspecies' || r === 'variety' || r === 'form';
 }
 
+// --- CORS helpers ---
+const ALLOWED_ORIGINS = new Set([
+  "https://inat-trees.replit.app",
+  "http://localhost:8787",
+  "http://127.0.0.1:8787",
+]);
+
+function corsHeaders(origin) {
+  const allow = ALLOWED_ORIGINS.has(origin) ? origin : "*"; // '*' is fine since we don't use cookies
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function withCORS(resp, origin) {
+  const h = new Headers(resp.headers || {});
+  Object.entries(corsHeaders(origin)).forEach(([k, v]) => h.set(k, v));
+  return new Response(resp.body, { status: resp.status, headers: h });
+}
+
+function json(obj, status = 200, request) {
+  const origin = request?.headers?.get?.("Origin") || "*";
+  const base = new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+  return withCORS(base, origin);
+}
+
+function handleOptions(request) {
+  const origin = request.headers.get("Origin") || "*";
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
+}
+
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const pathname = url.pathname.replace(/\/+$/, "");
-
-    // CORS preflight for your frontend(s)
-    if (request.method === 'OPTIONS') return handleOptions(request);
-
+  async fetch(request, env, ctx) {
     try {
+      const url = new URL(request.url);
+      const { pathname } = url;
+
+      if (request.method === "OPTIONS") return handleOptions(request);
+
+      // ... all your route if/else blocks here ...
       if (pathname === '/search-taxa' && request.method === 'GET') {
         return searchTaxa(request, env);
       }
@@ -139,38 +191,14 @@ export default {
         return hydrateRegionTaxa(request, env);
       }
 
-      return json({ error: 'Not found' }, 404, request);
+      return json({ error: "Not found" }, 404, request);
     } catch (err) {
-      return json({ error: err?.message || String(err) }, 500, request);
+      // Always return JSON with CORS on exceptions
+      return json({ error: "Internal Server Error", detail: String(err) }, 500, request);
     }
-  }
+  },
 }
 
-function corsHeaders(request) {
-  const origin = request.headers.get('Origin') || '*';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Expose-Headers': 'X-Auth-Received, X-Auth-UsableJWT',
-  };
-}
-
-function handleOptions(request) {
-  return new Response(null, { headers: corsHeaders(request) });
-}
-
-function json(data, status = 200, request, extraHeaders) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(request ? corsHeaders(request) : { 'Access-Control-Allow-Origin': '*' }),
-      ...(extraHeaders || {})
-    }
-  });
-}
 
 const VALID_HIGHER_RANKS = new Set([
   'genus', 'family', 'subfamily', 'tribe', 'subtribe', 'order', 'suborder',
@@ -608,12 +636,13 @@ async function checklistTree(request, env) {
   ).bind(region_code).all();
   let regionSpecies = (rs.results || []).map(r => r.species_id);
 
-  // NEW: drop ids not in taxa (avoid 500) and surface a warning count
+  // NEW: drop ids not present in taxa to avoid 500s
   const present = await filterIdsPresentInTaxa(env, regionSpecies);
   const missingCount = regionSpecies.length - present.length;
   regionSpecies = present;
+
   if (regionSpecies.length === 0) {
-    return json({ error: `No species for ${region_code} are hydrated in taxa. Run /checklist/hydrate first.` }, 409, request);
+    return json({ error: `No hydrated taxa for ${region_code}. Use /checklist/hydrate first.` }, 409, request);
   }
 
   // 2) User "seen" species under base taxon (prefer your timeline cache; fall back to live fetch)
@@ -660,21 +689,6 @@ async function checklistTree(request, env) {
   }, 200, request);
 }
 
-// helper: filter ids to those present in taxa
-async function filterIdsPresentInTaxa(env, ids) {
-  if (!ids?.length) return [];
-  const CHUNK = 500;
-  const present = new Set();
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const part = ids.slice(i, i + CHUNK);
-    const ph = part.map(() => '?').join(',');
-    const { results } = await env.DB
-      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
-      .bind(...part).all();
-    for (const r of results || []) present.add(r.taxon_id);
-  }
-  return [...present];
-}
 
 // Map any taxon id (species or infra) to its species-level id using local taxa table
 async function resolveSpeciesIdFromAny(env, taxonId) {
@@ -714,86 +728,90 @@ function annotateSeenMissing(node, seenSet) {
 
 // Hydrate taxa for a region (fills in missing ancestors)
 async function hydrateRegionTaxa(request, env) {
-  try {
-    const { region_code } = await request.json().catch(() => ({}));
-    if (!region_code) return json({ error: 'Missing region_code' }, 400, request);
+  const body = await request.json().catch(() => ({}));
+  const region_code = body?.region_code;
+  if (!region_code) return json({ error: "Missing region_code" }, 400, request);
 
-  // 1) All species IDs in the region
+  // Forward user's Authorization (if logged in) to iNat API
+  const authHeader = request.headers.get("Authorization") || "";
+
+  // 1) All species in region
   const rs = await env.DB.prepare(
     `SELECT species_id FROM region_checklist WHERE region_code = ?`
   ).bind(region_code).all();
-  const species = new Set((rs.results || []).map(r => r.species_id));
+  const speciesIds = [...new Set((rs.results || []).map(r => r.species_id))];
 
-  // 2) Which species are missing in taxa OR missing ancestor_ids?
-  const missing = new Set();
-  const rows = await env.DB.prepare(
-    `SELECT rc.species_id, t.taxon_id AS has_row, t.ancestor_ids
-     FROM region_checklist rc
-     LEFT JOIN taxa t ON t.taxon_id = rc.species_id
-     WHERE rc.region_code = ?`
-  ).bind(region_code).all();
+  // 2) Which species missing (or missing ancestor_ids)?
+  const ph = speciesIds.map(() => "?").join(",");
+  const existing = ph
+    ? await env.DB.prepare(
+        `SELECT taxon_id, ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`
+      ).bind(...speciesIds).all()
+    : { results: [] };
 
-  for (const r of rows.results || []) {
-    if (!r.has_row || !r.ancestor_ids) missing.add(r.species_id);
-  }
+  const has = new Map();
+  for (const r of existing.results || []) has.set(r.taxon_id, !!r.ancestor_ids);
 
-  // 3) Upsert those species from iNat
-  const inserted = await fetchAndUpsertTaxa(env, [...missing]);
+  const missingSpecies = speciesIds.filter(id => !has.has(id));
+  const needAncestors = speciesIds.filter(id => has.get(id) === false); // rows without ancestor_ids
+  const toFetchSpecies = new Set([...missingSpecies, ...needAncestors]);
 
-  // 4) Recursively ensure all ancestors exist
-  //    Collect ancestors from everything we have now
+  // 3) Upsert any missing species rows (and fill ancestor_ids)
+  const up1 = await fetchAndUpsertTaxa(env, [...toFetchSpecies], authHeader);
+
+  // 4) Collect all ancestor IDs we now know we need
+  const speciesRows = await fetchTaxaByIds(env, speciesIds);
   const neededAnc = new Set();
-  const speciesRows = await fetchTaxaByIds(env, [...species]); // existing helper
   for (const t of speciesRows) {
     const anc = parseAncestorIds(t.ancestor_ids);
     for (const a of anc) neededAnc.add(a);
   }
 
-  // Which ancestors are missing?
+  // 5) Which ancestors are missing?
+  const ancIds = [...neededAnc];
   let missingAnc = [];
-  if (neededAnc.size) {
-    const ancList = [...neededAnc];
-    const ancPlaceholders = ancList.map(() => '?').join(',');
-    const miss = await env.DB.prepare(
-      `SELECT v.id AS taxon_id
-       FROM (SELECT ${ancPlaceholders}) AS v(id)
-       LEFT JOIN taxa t ON t.taxon_id = v.id
-       WHERE t.taxon_id IS NULL`
-    ).bind(...ancList).all();
-    missingAnc = (miss.results || []).map(r => r.taxon_id);
+  if (ancIds.length) {
+    const ph2 = ancIds.map(() => "?").join(",");
+    const exAnc = await env.DB.prepare(
+      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph2})`
+    ).bind(...ancIds).all();
+    const have = new Set((exAnc.results || []).map(r => r.taxon_id));
+    missingAnc = ancIds.filter(id => !have.has(id));
   }
 
-  // 5) Upsert any missing ancestors
-  const insertedAnc = await fetchAndUpsertTaxa(env, missingAnc);
+  // 6) Upsert missing ancestors
+  const up2 = await fetchAndUpsertTaxa(env, missingAnc, authHeader);
 
   return json({
     ok: true,
     region_code,
-    species_in_region: species.size,
-    hydrated_species_rows: inserted,
-    hydrated_ancestor_rows: insertedAnc
+    species_in_region: speciesIds.length,
+    hydrated_species_rows: up1,
+    hydrated_ancestor_rows: up2
   }, 200, request);
-  } catch (error) {
-    return json({ error: error.message, stack: error.stack }, 500, request);
-  }
 }
 
 // ---- fetch & upsert helpers ----
 // You already have DB helpers; these are minimal add-ons.
 
-async function fetchAndUpsertTaxa(env, ids) {
-  if (!ids || !ids.length) return 0;
-  let total = 0;
+async function fetchAndUpsertTaxa(env, ids, authHeader = "") {
+  if (!ids?.length) return 0;
   const chunks = chunk(ids, 50);
+  let total = 0;
   for (const part of chunks) {
-    const list = part.join(',');
-    const url = `https://api.inaturalist.org/v1/taxa?ids=${encodeURIComponent(list)}&per_page=${part.length}`;
-    const r = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!r.ok) continue;
+    const url = `https://api.inaturalist.org/v1/taxa?ids=${encodeURIComponent(part.join(","))}&per_page=${part.length}`;
+    const headers = { Accept: "application/json" };
+    if (authHeader) headers["Authorization"] = authHeader;
+
+    const r = await fetch(url, { headers }).catch(() => null);
+    if (!r || !r.ok) continue;
+
     const j = await r.json().catch(() => ({}));
     const rows = Array.isArray(j.results) ? j.results : [];
-    if (!rows.length) continue;
     total += await upsertTaxaRows(env, rows);
+
+    // small delay to be nice
+    await new Promise(res => setTimeout(res, 150));
   }
   return total;
 }
