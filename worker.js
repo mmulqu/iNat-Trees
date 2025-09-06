@@ -607,8 +607,13 @@ async function checklistTree(request, env) {
     `SELECT species_id FROM region_checklist WHERE region_code = ?`
   ).bind(region_code).all();
   let regionSpecies = (rs.results || []).map(r => r.species_id);
+
+  // NEW: drop ids not in taxa (avoid 500) and surface a warning count
+  const present = await filterIdsPresentInTaxa(env, regionSpecies);
+  const missingCount = regionSpecies.length - present.length;
+  regionSpecies = present;
   if (regionSpecies.length === 0) {
-    return json({ error: `No checklist species for region ${region_code}` }, 404, request);
+    return json({ error: `No species for ${region_code} are hydrated in taxa. Run /checklist/hydrate first.` }, 409, request);
   }
 
   // 2) User "seen" species under base taxon (prefer your timeline cache; fall back to live fetch)
@@ -647,7 +652,28 @@ async function checklistTree(request, env) {
   let seenInRegion = 0;
   for (const sid of seenSet) if (regionSet.has(sid)) seenInRegion += 1;
 
-  return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: regionSpecies.length } }, 200, request);
+  return json({ 
+    markdown, 
+    plainMarkdown, 
+    totals: { seen: seenInRegion, total: regionSpecies.length },
+    missingSpecies: missingCount > 0 ? missingCount : 0
+  }, 200, request);
+}
+
+// helper: filter ids to those present in taxa
+async function filterIdsPresentInTaxa(env, ids) {
+  if (!ids?.length) return [];
+  const CHUNK = 500;
+  const present = new Set();
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    const ph = part.map(() => '?').join(',');
+    const { results } = await env.DB
+      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
+      .bind(...part).all();
+    for (const r of results || []) present.add(r.taxon_id);
+  }
+  return [...present];
 }
 
 // Map any taxon id (species or infra) to its species-level id using local taxa table
@@ -692,9 +718,9 @@ async function hydrateRegionTaxa(request, env) {
     const { region_code } = await request.json().catch(() => ({}));
     if (!region_code) return json({ error: 'Missing region_code' }, 400, request);
 
-  // 1) All species IDs in the region (limit to first 100 for testing)
+  // 1) All species IDs in the region
   const rs = await env.DB.prepare(
-    `SELECT species_id FROM region_checklist WHERE region_code = ? LIMIT 100`
+    `SELECT species_id FROM region_checklist WHERE region_code = ?`
   ).bind(region_code).all();
   const species = new Set((rs.results || []).map(r => r.species_id));
 
@@ -704,7 +730,7 @@ async function hydrateRegionTaxa(request, env) {
     `SELECT rc.species_id, t.taxon_id AS has_row, t.ancestor_ids
      FROM region_checklist rc
      LEFT JOIN taxa t ON t.taxon_id = rc.species_id
-     WHERE rc.region_code = ? LIMIT 100`
+     WHERE rc.region_code = ?`
   ).bind(region_code).all();
 
   for (const r of rows.results || []) {
