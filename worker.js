@@ -44,6 +44,57 @@ async function filterIdsPresentInTaxa(env, ids) {
   return [...present];
 }
 
+// All species in a region that are descendants of baseTaxonId
+async function listRegionSpeciesUnder(env, regionCode, baseTaxonId) {
+  const sql = `
+    SELECT rc.species_id
+    FROM region_checklist rc
+    JOIN taxa t ON t.taxon_id = rc.species_id
+    WHERE rc.region_code = ?
+      AND t.rank = 'species'
+      AND (
+        t.taxon_id = ?
+        OR instr(
+              ',' || replace(replace(t.ancestor_ids,'{',''),'}','') || ',',
+              ',' || ? || ','
+            ) > 0
+      )`;
+  const { results } = await env.DB
+    .prepare(sql)
+    .bind(regionCode, baseTaxonId, baseTaxonId)
+    .all();
+  return (results || []).map(r => r.species_id);
+}
+
+async function listMissingTaxaIds(env, ids, sz=400) {
+  const missing = new Set(ids);
+  for (const part of chunk(ids, sz)) {
+    const ph = part.map(()=>'?').join(',');
+    const { results } = await env.DB
+      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
+      .bind(...part)
+      .all();
+    for (const r of results || []) missing.delete(r.taxon_id);
+  }
+  return [...missing];
+}
+
+async function collectAncestorIds(env, speciesIds, sz=400) {
+  const anc = new Set();
+  for (const part of chunk(speciesIds, sz)) {
+    const ph = part.map(()=>'?').join(',');
+    const { results } = await env.DB
+      .prepare(`SELECT ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`)
+      .bind(...part)
+      .all();
+    for (const row of results || []) {
+      const arr = parseAncestorIds(row.ancestor_ids);
+      for (const a of arr) anc.add(a);
+    }
+  }
+  return [...anc];
+}
+
 // Normalize observation date to YYYY-MM-DD
 function toISODateOnly(v) {
   if (!v) return null;
@@ -630,32 +681,25 @@ async function checklistTree(request, env) {
   const jwt = await processAuthHeader?.(rawAuth);
   const authHeader = jwt ? `Bearer ${jwt}` : undefined;
 
-  // 1) Region species set
-  const rs = await env.DB.prepare(
-    `SELECT species_id FROM region_checklist WHERE region_code = ?`
-  ).bind(region_code).all();
-  let regionSpecies = (rs.results || []).map(r => r.species_id);
+  const baseId = Number(baseTaxonId);
 
-  // NEW: drop ids not present in taxa to avoid 500s
-  const present = await filterIdsPresentInTaxa(env, regionSpecies);
-  const missingCount = regionSpecies.length - present.length;
-  regionSpecies = present;
-
-  if (regionSpecies.length === 0) {
-    return json({ error: `No hydrated taxa for ${region_code}. Use /checklist/hydrate first.` }, 409, request);
+  // 1) region ∩ descendants(baseId)  ← small set (e.g., 39 for Parulidae in MA)
+  const leafIds = await listRegionSpeciesUnder(env, region_code, baseId);
+  if (!leafIds.length) {
+    return json({ error: `No checklist species for ${region_code} under taxon ${baseId}` }, 404, request);
   }
 
-  // 2) User "seen" species under base taxon (prefer your timeline cache; fall back to live fetch)
+  // 2) seen set (keep your existing summary/cached path)
   let seenSet = new Set();
   try {
     const sum = await env.DB.prepare(
       `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
-    ).bind(username, parseInt(baseTaxonId, 10)).all();
+    ).bind(username, baseId).all();
     if (sum.results?.length) {
       seenSet = new Set(sum.results.map(r => r.species_id));
     } else {
       // Fallback: fetch and map to species-level IDs
-      const obs = await getCachedOrFetch(env, username, baseTaxonId, authHeader)  // or your fetchUserObservations()
+      const obs = await getCachedOrFetch(env, username, baseId, authHeader)  // or your fetchUserObservations()
                   || [];
       const uniqueTaxonIds = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
       const speciesIds = [];
@@ -667,26 +711,17 @@ async function checklistTree(request, env) {
     }
   } catch (_) {}
 
-  // 3) Build a tree from the CHECKLIST set (not the user's set)
-  const root = await buildTreeFromDatabase(env, regionSpecies, baseTaxonId);
-
-  // 4) Annotate leaves/branches as seen vs missing and tally counts
+  // 3) build tree from canonical taxa table
+  const root = await buildTreeFromDatabase(env, leafIds, baseId);
   annotateSeenMissing(root, seenSet);
 
-  // 5) Emit markdown + totals
   const markdown = treeToMarkdown(root, 0, { mode: 'checklist', username });
-  const plainMarkdown = toPlainMarkdown(markdown) || markdown;
+  const plainMarkdown = toPlainMarkdown?.(markdown) || markdown;
 
-  const regionSet = new Set(regionSpecies);
   let seenInRegion = 0;
-  for (const sid of seenSet) if (regionSet.has(sid)) seenInRegion += 1;
+  for (const sid of leafIds) if (seenSet.has(sid)) seenInRegion++;
 
-  return json({ 
-    markdown, 
-    plainMarkdown, 
-    totals: { seen: seenInRegion, total: regionSpecies.length },
-    missingSpecies: missingCount > 0 ? missingCount : 0
-  }, 200, request);
+  return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: leafIds.length } }, 200, request);
 }
 
 
@@ -728,66 +763,41 @@ function annotateSeenMissing(node, seenSet) {
 
 // Hydrate taxa for a region (fills in missing ancestors)
 async function hydrateRegionTaxa(request, env) {
-  const body = await request.json().catch(() => ({}));
+  const body = await request.json().catch(()=>({}));
   const region_code = body?.region_code;
-  if (!region_code) return json({ error: "Missing region_code" }, 400, request);
+  const baseTaxonId = body?.baseTaxonId ? Number(body.baseTaxonId) : null;
+  if (!region_code) return json({ error: 'Missing region_code' }, 400, request);
 
-  // Forward user's Authorization (if logged in) to iNat API
-  const authHeader = request.headers.get("Authorization") || "";
+  const authHeader = request.headers.get('Authorization') || '';
 
-  // 1) All species in region
-  const rs = await env.DB.prepare(
-    `SELECT species_id FROM region_checklist WHERE region_code = ?`
-  ).bind(region_code).all();
-  const speciesIds = [...new Set((rs.results || []).map(r => r.species_id))];
-
-  // 2) Which species missing (or missing ancestor_ids)?
-  const ph = speciesIds.map(() => "?").join(",");
-  const existing = ph
-    ? await env.DB.prepare(
-        `SELECT taxon_id, ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`
-      ).bind(...speciesIds).all()
-    : { results: [] };
-
-  const has = new Map();
-  for (const r of existing.results || []) has.set(r.taxon_id, !!r.ancestor_ids);
-
-  const missingSpecies = speciesIds.filter(id => !has.has(id));
-  const needAncestors = speciesIds.filter(id => has.get(id) === false); // rows without ancestor_ids
-  const toFetchSpecies = new Set([...missingSpecies, ...needAncestors]);
-
-  // 3) Upsert any missing species rows (and fill ancestor_ids)
-  const up1 = await fetchAndUpsertTaxa(env, [...toFetchSpecies], authHeader);
-
-  // 4) Collect all ancestor IDs we now know we need
-  const speciesRows = await fetchTaxaByIds(env, speciesIds);
-  const neededAnc = new Set();
-  for (const t of speciesRows) {
-    const anc = parseAncestorIds(t.ancestor_ids);
-    for (const a of anc) neededAnc.add(a);
+  // Choose subset: region∩descendants(base) if provided, else whole region (but we'll process in chunks)
+  let speciesIds;
+  if (baseTaxonId) {
+    speciesIds = await listRegionSpeciesUnder(env, region_code, baseTaxonId);
+  } else {
+    const { results } = await env.DB
+      .prepare(`SELECT species_id FROM region_checklist WHERE region_code = ?`)
+      .bind(region_code)
+      .all();
+    speciesIds = (results || []).map(r => r.species_id);
   }
 
-  // 5) Which ancestors are missing?
-  const ancIds = [...neededAnc];
-  let missingAnc = [];
-  if (ancIds.length) {
-    const ph2 = ancIds.map(() => "?").join(",");
-    const exAnc = await env.DB.prepare(
-      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph2})`
-    ).bind(...ancIds).all();
-    const have = new Set((exAnc.results || []).map(r => r.taxon_id));
-    missingAnc = ancIds.filter(id => !have.has(id));
-  }
+  // Upsert missing species rows
+  const missingSpecies = await listMissingTaxaIds(env, speciesIds, 400);
+  const upSpp = await fetchAndUpsertTaxa(env, missingSpecies, authHeader);
 
-  // 6) Upsert missing ancestors
-  const up2 = await fetchAndUpsertTaxa(env, missingAnc, authHeader);
+  // Upsert missing ancestors (of the subset we care about)
+  const ancIds = await collectAncestorIds(env, speciesIds, 400);
+  const missingAnc = await listMissingTaxaIds(env, ancIds, 400);
+  const upAnc = await fetchAndUpsertTaxa(env, missingAnc, authHeader);
 
   return json({
     ok: true,
     region_code,
-    species_in_region: speciesIds.length,
-    hydrated_species_rows: up1,
-    hydrated_ancestor_rows: up2
+    baseTaxonId: baseTaxonId ?? null,
+    species_in_subset: speciesIds.length,
+    hydrated_species_rows: upSpp,
+    hydrated_ancestor_rows: upAnc
   }, 200, request);
 }
 
