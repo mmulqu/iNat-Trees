@@ -1,4 +1,40 @@
 // markmap-integration.js
+
+// Turn {color:#hex}…{/color} into HTML spans Markmap will render.
+// We inline the style so it works in both SVG <text> and foreignObject modes.
+window.mmPreprocessColors = function mmPreprocessColors(md) {
+  if (!md) return md;
+  return String(md)
+    .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
+    .replace(/\{\/color\}/g, '</span>');
+};
+
+// Color edges based on their target node's label color
+window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
+  try {
+    const links = svgRoot.querySelectorAll('.markmap-link');
+    const nodes = svgRoot.querySelectorAll('.markmap-node');
+    // Map index → node element (Markmap keeps corresponding data-index)
+    const byIndex = new Map();
+    nodes.forEach(n => {
+      const idx = n.getAttribute('data-index');
+      if (idx) byIndex.set(idx, n);
+    });
+    links.forEach(link => {
+      const to = link.getAttribute('data-to'); // Markmap sets data-to = child index
+      const node = byIndex.get(to);
+      if (!node) return;
+      // find a colored span within the label
+      const colored = node.querySelector('.mm-color');
+      if (!colored) return;
+      const color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1];
+      if (!color) return;
+      if (color.toLowerCase() === '#22c55e') link.classList.add('seen-edge');
+      else if (color.toLowerCase() === '#9ca3af') link.classList.add('missing-edge');
+    });
+  } catch {}
+};
+
 document.addEventListener('DOMContentLoaded', function() {
   const style = document.createElement('style');
   style.textContent = `
@@ -45,6 +81,11 @@ document.addEventListener('DOMContentLoaded', function() {
   body.dark-theme .mm-badge.mm-count{background:#123524; color:#a7f3d0}
   body.dark-theme .mm-badge.mm-photo::before{background:#e5e7eb}
   .mm-common{opacity:.7}
+
+  /* Color preprocessing for checklist seen/missing */
+  .mm-color { font-weight: 600; }
+  .markmap-container svg path.seen-edge { stroke: #22c55e !important; }
+  .markmap-container svg path.missing-edge { stroke: #9ca3af !important; }
 
   /* Draggable first-observation popup */
   .first-obs-preview{

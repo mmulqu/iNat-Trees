@@ -375,9 +375,13 @@ class TreeManager {
     // Clear the SVG container before rendering
     svg.innerHTML = '';
   
+    // Preprocess markdown for color tokens
+    let md = tree.markdown || tree.md || '';
+    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+  
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
-    const { root } = transformer.transform(tree.markdown);
+    const { root } = transformer.transform(md);
   
     const mm = Markmap.create(svg, {
       htmlLabels: true,
@@ -397,6 +401,12 @@ class TreeManager {
     tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
+
+    // Color edges based on label colors
+    if (svg && window.mmColorEdgesFromLabels) {
+      // slight delay to let layout settle
+      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
+    }
   
     // Color links and tag classes (single-user too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
@@ -692,7 +702,10 @@ class TreeManager {
     if (!svg) return;
     svg.innerHTML = '';
   
-    const processedMarkdown = this.processComparisonMarkdown(tree.markdown);
+    // Preprocess markdown for color tokens
+    let md = tree.markdown || tree.md || '';
+    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+    const processedMarkdown = this.processComparisonMarkdown(md);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
@@ -726,6 +739,12 @@ class TreeManager {
     tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
+
+    // Color edges based on label colors
+    if (svg && window.mmColorEdgesFromLabels) {
+      // slight delay to let layout settle
+      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
+    }
   
     // Color links and tag classes (comparison too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
