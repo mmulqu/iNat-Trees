@@ -51,20 +51,18 @@ async function listRegionSpeciesUnder(env, regionCode, baseTaxonId) {
     FROM region_checklist rc
     JOIN taxa t ON t.taxon_id = rc.species_id
     WHERE rc.region_code = ?
-      AND t.rank = 'species'
+      AND lower(COALESCE(t.rank,'')) IN ('species','subspecies','variety','form')
       AND (
         t.taxon_id = ?
         OR instr(
-              ',' || replace(replace(t.ancestor_ids,'{',''),'}','') || ',',
-              ',' || ? || ','
+              ',' || replace(replace(replace(COALESCE(t.ancestor_ids,''),'{',''),'}',''),' ','') || ',',
+              ',' || CAST(? AS TEXT) || ','
             ) > 0
       )`;
-  const { results } = await env.DB
-    .prepare(sql)
-    .bind(regionCode, baseTaxonId, baseTaxonId)
-    .all();
+  const { results } = await env.DB.prepare(sql).bind(regionCode, baseTaxonId, baseTaxonId).all();
   return (results || []).map(r => r.species_id);
 }
+
 
 async function listMissingTaxaIds(env, ids, sz=400) {
   const missing = new Set(ids);
@@ -94,6 +92,56 @@ async function collectAncestorIds(env, speciesIds, sz=400) {
   }
   return [...anc];
 }
+
+async function hydrateNullAncestorsForRegion(env, regionCode, authHeader = "", maxToFix = 2000) {
+  const q = await env.DB.prepare(`
+    SELECT rc.species_id
+    FROM region_checklist rc
+    JOIN taxa t ON t.taxon_id = rc.species_id
+    WHERE rc.region_code = ?
+      AND (t.ancestor_ids IS NULL OR TRIM(t.ancestor_ids) = '')
+    LIMIT ?`).bind(regionCode, maxToFix).all();
+  const ids = (q.results || []).map(r => r.species_id);
+  if (!ids.length) return 0;
+  const up = await fetchAndUpsertTaxa(env, ids, authHeader);
+  const ancIds = await collectAncestorIds(env, ids, 400);
+  const missingAnc = await listMissingTaxaIds(env, ancIds, 400);
+  const upAnc = await fetchAndUpsertTaxa(env, missingAnc, authHeader);
+  return up + upAnc;
+}
+
+async function regionDebug(env, regionCode, baseId) {
+  const rowA = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM region_checklist WHERE region_code=?`
+  ).bind(regionCode).first();
+
+  const rowB = await env.DB.prepare(
+    `SELECT COUNT(*) AS n
+     FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+     WHERE rc.region_code=?`
+  ).bind(regionCode).first();
+
+  const rowC = await env.DB.prepare(
+    `SELECT COUNT(*) AS n
+     FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+     WHERE rc.region_code=? AND (t.ancestor_ids IS NULL OR TRIM(t.ancestor_ids)='')`
+  ).bind(regionCode).first();
+
+  const rowD = await env.DB.prepare(
+    `SELECT COUNT(*) AS n
+     FROM region_checklist rc JOIN taxa t ON t.taxon_id=rc.species_id
+     WHERE rc.region_code=? AND lower(COALESCE(t.rank,'')) IN ('species','subspecies','variety','form')
+       AND (t.taxon_id=? OR instr(','||replace(replace(replace(COALESCE(t.ancestor_ids,''),'{',''),'}',''),' ','')||',', ','||CAST(? AS TEXT)||',')>0)`
+  ).bind(regionCode, baseId, baseId).first();
+
+  return {
+    regionRows: rowA?.n ?? 0,
+    regionWithTaxa: rowB?.n ?? 0,
+    regionWithNullAnc: rowC?.n ?? 0,
+    subsetJoinCount: rowD?.n ?? 0
+  };
+}
+
 
 // Normalize observation date to YYYY-MM-DD
 function toISODateOnly(v) {
@@ -684,9 +732,19 @@ async function checklistTree(request, env) {
   const baseId = Number(baseTaxonId);
 
   // 1) region ∩ descendants(baseId)  ← small set (e.g., 39 for Parulidae in MA)
-  const leafIds = await listRegionSpeciesUnder(env, region_code, baseId);
+  let leafIds = await listRegionSpeciesUnder(env, region_code, baseId);
+  if (!leafIds.length) {
+    await hydrateNullAncestorsForRegion(env, region_code, authHeader, 4000);
+    leafIds = await listRegionSpeciesUnder(env, region_code, baseId);
+  }
   if (!leafIds.length) {
     return json({ error: `No checklist species for ${region_code} under taxon ${baseId}` }, 404, request);
+  }
+
+  // Debug support
+  if (body?.debug) {
+    const dbg = await regionDebug(env, region_code, Number(baseTaxonId));
+    return json({ debug: dbg, leafIds }, 200, request);
   }
 
   // 2) seen set (keep your existing summary/cached path)
@@ -774,6 +832,10 @@ async function hydrateRegionTaxa(request, env) {
   let speciesIds;
   if (baseTaxonId) {
     speciesIds = await listRegionSpeciesUnder(env, region_code, baseTaxonId);
+    if (!speciesIds.length) {
+      await hydrateNullAncestorsForRegion(env, region_code, authHeader, 4000);
+      speciesIds = await listRegionSpeciesUnder(env, region_code, baseTaxonId);
+    }
   } else {
     const { results } = await env.DB
       .prepare(`SELECT species_id FROM region_checklist WHERE region_code = ?`)
