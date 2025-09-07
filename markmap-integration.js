@@ -301,17 +301,17 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Hover prefetch (kept from your original)
-  let t=null;
+  let hoverTimer=null;
   document.addEventListener('mouseenter', e=>{
-    const t = e && e.target;
-    if (!t || typeof t.closest !== 'function') return; // bail safely
-    const a = t.closest('a.first-obs-trigger');
+    const el = e && e.target;
+    if (!el || typeof el.closest !== 'function') return; // bail safely
+    const a = el.closest('a.first-obs-trigger');
     if(!a) return;
     const pane=closestPane(a);
     const username=a.dataset.username||pane?.dataset.username;
     const taxonId=a.dataset.taxonId||a.getAttribute('data-taxon-id');
     if(!username||!taxonId) return;
-    t=setTimeout(async ()=>{
+    hoverTimer=setTimeout(async ()=>{
       try{
         const payload=await fetchFirstObs(username, taxonId);
         if(!payload||payload.notFound||!payload.image_urls){ a.remove(); }
@@ -320,7 +320,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }, true);
 
   document.addEventListener('mouseleave', e=>{
-    if(t){clearTimeout(t); t=null;}
+    if(hoverTimer){clearTimeout(hoverTimer); hoverTimer=null;}
   }, true);
 
   // Click to open
