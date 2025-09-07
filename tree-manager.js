@@ -158,6 +158,14 @@ async function resolveTaxonTitle(taxonId) {
       color:#e5e7eb;
       border-color:#3a3f42;
     }
+
+    /* Checklist coloring */
+    .seen-node   { color:#22c55e; }                 /* green */
+    .unseen-node { color:#9ca3af; opacity:.9; }      /* gray */
+
+    /* Mini-map edge classes for checklist */
+    .mm-minimap .seen-edge   { stroke:#22c55e !important; stroke-opacity:.95; }
+    .mm-minimap .unseen-edge { stroke:#9ca3af !important; stroke-opacity:.95; }
   `;
   document.head.appendChild(s);
 })();
@@ -213,7 +221,7 @@ class TreeManager {
     if (card) card.style.display = 'block';
   }
 
-  addTree(username, taxonName, taxonId, markdown) {
+  addTree(username, taxonName, taxonId, markdown, opts = {}) {
     const treeId = this.generateTreeId();
 
     // Process markdown to extract statistics if not already provided
@@ -233,6 +241,7 @@ class TreeManager {
       taxonId,
       markdown,
       stats, // Store the calculated statistics (might be null)
+      isChecklist: opts.mode === 'checklist',   // <-- NEW
       timestamp: new Date()
     };
     this.trees.push(tree);
@@ -378,6 +387,9 @@ class TreeManager {
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+
+    // Simple heuristic: explicit flag or labels created by our preprocessor
+    const isChecklist = !!tree.isChecklist || md.includes('seen-node') || md.includes('unseen-node');
   
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
@@ -391,7 +403,17 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
-      scrollForPan: false   // wheel = zoom; gutters = page scroll
+      scrollForPan: false,   // wheel = zoom; gutters = page scroll
+
+      // NEW: binary node color for checklist (PvP has its own in renderComparisonTree)
+      color: isChecklist ? (node) => {
+        const s = (node.v || node.content || node.payload?.content || '');
+        if (typeof s === 'string') {
+          if (s.includes('seen-node'))   return '#22c55e'; // green
+          if (s.includes('unseen-node')) return '#9ca3af'; // gray
+        }
+        return undefined;
+      } : undefined
     }, root);
   
     // Keep a handle + keep fitting
@@ -415,7 +437,8 @@ class TreeManager {
       setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
 
-    // ---------- NEW: rank-based edge coloring for single-user trees ----------
+    // ---------- rank-based edge coloring for single-user trees ----------
+    if (!isChecklist) {
     // Palette per rank (tweak as you like)
     const RANK_COLOR = {
       species:    '#22c55e',
@@ -498,6 +521,7 @@ class TreeManager {
     svg.addEventListener('click', () => {
       setTimeout(() => requestAnimationFrame(colorByRank), 250);
     });
+    } // end if (!isChecklist)
     // ------------------------------------------------------------------------
   
     // Install/update the floating toolbar
@@ -1222,6 +1246,8 @@ _ensureMiniMap(treeId, svg) {
       if (c === '#dc2626') miniLine.classList.add('user1-edge');
       else if (c === '#2563eb') miniLine.classList.add('user2-edge');
       else if (c === '#9333ea') miniLine.classList.add('shared-edge');
+      else if (c === '#22c55e') miniLine.classList.add('seen-edge');     // NEW
+      else if (c === '#9ca3af') miniLine.classList.add('unseen-edge');   // NEW
 
       connsLayer.appendChild(miniLine);
     });
@@ -1650,9 +1676,13 @@ _ensureMiniMap(treeId, svg) {
     if (!g) return null;
     const f = g.querySelector('foreignObject');
     if (!f) return null;
+    // PvP
     if (f.querySelector('.shared-node')) return '#9333ea';
     if (f.querySelector('.user1-node'))  return '#dc2626';
     if (f.querySelector('.user2-node'))  return '#2563eb';
+    // Checklist
+    if (f.querySelector('.seen-node'))   return '#22c55e';
+    if (f.querySelector('.unseen-node')) return '#9ca3af';
     return null;
   }
 
@@ -1702,10 +1732,12 @@ _ensureMiniMap(treeId, svg) {
       linkEl.style.strokeOpacity = '1';
       linkEl.style.fill = 'none';
 
-      linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+      linkEl.classList.remove('user1-edge','user2-edge','shared-edge','seen-edge','unseen-edge');
       if (c === '#dc2626') linkEl.classList.add('user1-edge');
       else if (c === '#2563eb') linkEl.classList.add('user2-edge');
       else if (c === '#9333ea') linkEl.classList.add('shared-edge');
+      else if (c === '#22c55e') linkEl.classList.add('seen-edge');     // NEW
+      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge');   // NEW
     });
   }
 }
