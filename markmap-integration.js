@@ -9,31 +9,63 @@ window.mmPreprocessColors = function mmPreprocessColors(md) {
     .replace(/\{\/color\}/g, '</span>');
 };
 
-// Color edges based on their target node's label color
+// Color edges based on their target node's label color (robust across Markmap builds)
 window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
+  const toHex = (c) => {
+    if (!c) return '';
+    c = String(c).trim().toLowerCase();
+    if (c.startsWith('#')) {
+      if (c.length === 4) return '#' + c.slice(1).split('').map(x => x + x).join('');
+      return c;
+    }
+    const m = c.match(/rgb\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/);
+    if (m) {
+      const [r,g,b] = m.slice(1).map(n => parseInt(n,10));
+      return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+    }
+    return c;
+  };
+
   try {
-    const links = svgRoot.querySelectorAll('.markmap-link');
-    const nodes = svgRoot.querySelectorAll('.markmap-node');
-    // Map index → node element (Markmap keeps corresponding data-index)
+    // Handle both old/new Markmap class/attr names
+    const links = svgRoot.querySelectorAll('path.markmap-link, path.link, .markmap-link, .link');
+    const nodes = svgRoot.querySelectorAll('g.markmap-node, g.node, .markmap-node, .node');
+
+    // Build index → node map
     const byIndex = new Map();
-    nodes.forEach(n => {
-      const idx = n.getAttribute('data-index');
-      if (idx) byIndex.set(idx, n);
+    nodes.forEach((n, i) => {
+      const idx = n.getAttribute('data-index') || n.dataset?.index || n.getAttribute('data-i') || String(i);
+      if (idx != null) byIndex.set(idx, n);
     });
+
     links.forEach(link => {
-      const to = link.getAttribute('data-to'); // Markmap sets data-to = child index
-      const node = byIndex.get(to);
+      const to = link.getAttribute('data-to') || link.dataset?.to || link.getAttribute('data-target') || link.dataset?.target;
+      const node = to != null ? byIndex.get(String(to)) : null;
       if (!node) return;
-      // find a colored span within the label
-      const colored = node.querySelector('.mm-color');
-      if (!colored) return;
-      const color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1];
-      if (!color) return;
-      if (color.toLowerCase() === '#22c55e') link.classList.add('seen-edge');
-      else if (color.toLowerCase() === '#9ca3af') link.classList.add('missing-edge');
+
+      // Prefer explicit colored span; otherwise use any styled element / text fill
+      const colored = node.querySelector('.mm-color') ||
+                      node.querySelector('[style*="color"]') ||
+                      node.querySelector('foreignObject *') ||
+                      node.querySelector('text');
+
+      let color = '';
+      if (colored) {
+        color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1] ||
+                colored.getAttribute('fill') ||
+                getComputedStyle(colored).color || '';
+      }
+      const hex = toHex(color);
+      if (!hex) return;
+
+      // Reset & tag
+      link.classList.remove('seen-edge','missing-edge','user1-edge','user2-edge','shared-edge');
+      if (hex === '#22c55e') link.classList.add('seen-edge');
+      else if (hex === '#9ca3af') link.classList.add('missing-edge');
     });
   } catch {}
 };
+
 
 document.addEventListener('DOMContentLoaded', function() {
   const style = document.createElement('style');

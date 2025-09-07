@@ -12,30 +12,6 @@ function authHeaders(){
   return headers;
 }
 
-function mmRender(svg, markdown){
-  // Use shared color preprocessor so label colors map to edge colors
-  const preprocess = window.mmPreprocessColors || ((s)=>s);
-  const md = preprocess(markdown);
-
-  const { Transformer, Markmap } = window.markmap;
-  const transformer = new Transformer();
-  const { root } = transformer.transform(md);
-  const mm = Markmap.create(svg, null, root);
-
-  // Paint edges to match label colors, then fit.
-  const paint = () => {
-    if (typeof window.mmColorEdgesFromLabels === 'function') {
-      window.mmColorEdgesFromLabels(svg);
-    }
-  };
-  setTimeout(() => { paint(); mm.fit(); }, 80);
-
-  // Repaint after expand/collapse interactions
-  svg.addEventListener('click', () => setTimeout(paint, 250));
-
-  return mm;
-}
-
 function uid(){ return 'cl' + Math.random().toString(36).slice(2,9); }
 
 async function loadRegions(){
@@ -48,9 +24,49 @@ function setSpinner(on){ document.getElementById('clSpinner').style.display = on
 function showResultsCard(){ document.getElementById('clResultsCard').style.display = 'block'; }
 
 function activateTab(tabId){
-  // Bootstrap tab show
   const tab = document.getElementById(`${tabId}-tab`);
   if (tab && window.bootstrap?.Tab) new bootstrap.Tab(tab).show();
+}
+
+// --- Checklist-only Markmap render with robust color pass ---
+function mmRender(svg, markdown){
+  // 1) Start with shared preprocessor so {color:#hex} → <span class="mm-color" style="color:#hex">
+  const preprocess = window.mmPreprocessColors || ((s)=>s);
+  let md = preprocess(markdown || '');
+
+  // 2) Upgrade our two checklist colors to semantic classes (only in this tab)
+  md = md
+    .replace(/<span class="mm-color" style="color:\s*#22c55e">/gi, '<span class="mm-color seen-node" style="color:#22c55e">')
+    .replace(/<span class="mm-color" style="color:\s*#9ca3af">/gi, '<span class="mm-color unseen-node" style="color:#9ca3af">');
+
+  // 3) Build Markmap
+  const { Transformer, Markmap } = window.markmap;
+  const transformer = new Transformer();
+  const { root } = transformer.transform(md);
+  const mm = Markmap.create(svg, null, root);
+  svg.dataset.mode = 'checklist';
+
+  // 4) Paint edges so their strokes mirror label color (green/gray)
+  const paint = () => {
+    if (typeof window.mmColorEdgesFromLabels === 'function') {
+      window.mmColorEdgesFromLabels(svg);
+    }
+  };
+
+  // Initial fit + multiple delayed paints to catch async layout
+  const schedulePaints = () => {
+    setTimeout(paint, 80);
+    setTimeout(paint, 180);
+    setTimeout(() => { paint(); mm.fit(); }, 360);
+  };
+  schedulePaints();
+
+  // Repaint on expand/collapse clicks and on DOM mutations within this SVG only
+  svg.addEventListener('click', () => setTimeout(paint, 250));
+  const obs = new MutationObserver(() => setTimeout(paint, 120));
+  obs.observe(svg, { subtree: true, childList: true, attributes: true });
+
+  return mm;
 }
 
 function addChecklistTreeTab(title, markdown){
@@ -73,7 +89,7 @@ function addChecklistTreeTab(title, markdown){
   pane.setAttribute('role','tabpanel');
   pane.innerHTML = `
     <div class="markmap-container">
-      <svg id="${id}-svg" width="100%" height="700"></svg>
+      <svg id="${id}-svg" data-mode="checklist" width="100%" height="700"></svg>
     </div>
   `;
   content.appendChild(pane);
@@ -82,7 +98,7 @@ function addChecklistTreeTab(title, markdown){
   const mdOut = document.getElementById('clMarkdownResult');
   mdOut.textContent = markdown;
 
-  // activate and render
+  // activate and render in THIS Checklist tab (do NOT call treeManager.addTree)
   activateTab(id);
   setTimeout(() => {
     const svg = document.getElementById(`${id}-svg`);
@@ -222,7 +238,7 @@ async function initChecklistUI(){
 
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
-      addChecklistTreeTab(title, j.markdown);
+      addChecklistTreeTab(title, j.markdown); // stays in Checklist tab
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);
