@@ -8,11 +8,11 @@ window.mmPreprocessColors = (function(prev){
     if (typeof prev === 'function') md = prev(md); // keep existing behavior (PvP, etc.)
 
     // Checklist: seen/unseen hex colors from the Worker → semantic spans
-    md = md.replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/g, '<span class="seen-node">$1</span>');
-    md = md.replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/g, '<span class="unseen-node">$1</span>');
+    md = md.replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/g, '<span class="seen-node mm-color" style="color:#22c55e">$1<\/span>');
+    md = md.replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/g, '<span class="unseen-node mm-color" style="color:#9ca3af">$1<\/span>');
 
     // Fallback: any other {color:...} → inline style so nothing breaks
-    md = md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, '<span style="color:$1">$2</span>');
+    md = md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, '<span class="mm-color" style="color:$1">$2<\/span>');
     return md;
   };
 })(window.mmPreprocessColors);
@@ -33,12 +33,18 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
       const node = byIndex.get(to);
       if (!node) return;
       // find a colored span within the label
-      const colored = node.querySelector('.mm-color');
+      const colored = node.querySelector('.seen-node, .unseen-node, .mm-color');
       if (!colored) return;
-      const color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1];
+      let color = null;
+      if (colored.classList.contains('seen-node')) color = '#22c55e';
+      else if (colored.classList.contains('unseen-node')) color = '#9ca3af';
+      else color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1];
       if (!color) return;
       if (color.toLowerCase() === '#22c55e') link.classList.add('seen-edge');
       else if (color.toLowerCase() === '#9ca3af') link.classList.add('missing-edge');
+      // inline so it wins over default gray
+      link.style.stroke = color;
+      link.style.strokeOpacity = '1';
     });
   } catch {}
 };

@@ -12,19 +12,27 @@ function authHeaders(){
   return headers;
 }
 
-// very small preprocessor so {color:#hex}label{/color} survives Markmap (HTML)
-function colorizeMarkdown(md){
-  return md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, (_m, c, txt) => `<span style="color:${c}">${txt}</span>`);
-}
-
 function mmRender(svg, markdown){
-  const md = colorizeMarkdown(markdown);
+  const md = (window.mmPreprocessColors ? window.mmPreprocessColors(markdown) : String(markdown||''));
   const { Transformer, Markmap } = window.markmap;
   const transformer = new Transformer();
   const { root } = transformer.transform(md);
-  const mm = Markmap.create(svg, null, root);
-  // fit after layout
-  setTimeout(() => mm.fit(), 50);
+  const mm = Markmap.create(svg, {
+    htmlLabels: true,
+    color: (node) => {
+      const s = (node.v || node.content || node.payload?.content || '');
+      if (typeof s === 'string') {
+        if (s.includes('seen-node'))   return '#22c55e';
+        if (s.includes('unseen-node')) return '#9ca3af';
+      }
+      return undefined;
+    }
+  }, root);
+  // fit + color edges after layout
+  setTimeout(() => {
+    try { mm.fit(); } catch {}
+    try { window.mmColorEdgesFromLabels && window.mmColorEdgesFromLabels(svg); } catch {}
+  }, 60);
   return mm;
 }
 
@@ -215,8 +223,6 @@ async function initChecklistUI(){
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
       addChecklistTreeTab(title, j.markdown);
-      // Use main tree manager with checklist mode
-      window.treeManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);
