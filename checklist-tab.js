@@ -182,7 +182,11 @@ async function initChecklistUI(){
       const title = `Targets: ${region} — ${taxonLabel}`;
 
       // ✅ add to the Checklist manager only
-      window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
+      const newId = window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
+      // Explicitly activate the new tab to ensure first render
+      if (newId && typeof window.checklistManager.activateTab === 'function') {
+        window.checklistManager.activateTab(newId);
+      }
 
       // optionally, show markdown
       const mdOut = document.getElementById('clMarkdownResult');
