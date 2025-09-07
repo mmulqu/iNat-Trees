@@ -14,7 +14,7 @@ import { parse } from "csv-parse/sync";
 const JWT_TOKEN = "eyJhbGciOiJIUzUxMiJ9.eyJ1c2VyX2lkIjozODQ3MTgsImV4cCI6MTc1NzIwMDYyM30.C4B_QLxOaqIa3FqIg02UOX38_kt8gZzDuAZexYIqBOo_brp7bFJU1TZlcGiqPqTOphfY4VlUu9f1FC5ReVvySA";
 // If you’ve added the Worker helper route /taxa/resolve, put its base URL here.
 // Leave empty "" to skip Worker-assisted lookups.
-const WORKER_URL = ""; // e.g., "https://inat-trees-worker.yourdomain.workers.dev"
+const WORKER_URL = "https://inat-trees-worker.intrinsic3141.workers.dev";
 
 // ================== CLI ARGS & PATHS ==================
 const INPUT = process.argv[2] || "./csvs";
