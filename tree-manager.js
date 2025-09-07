@@ -86,6 +86,14 @@ async function resolveTaxonTitle(taxonId) {
     .mm-minimap .user1-edge { stroke: #dc2626 !important; stroke-opacity: .95; }
     .mm-minimap .user2-edge { stroke: #2563eb !important; stroke-opacity: .95; }
     .mm-minimap .shared-edge { stroke: #9333ea !important; stroke-opacity: .95; }
+    /* Checklist: labels + edges */
+    .seen-node   { color:#22c55e; font-weight:600; }
+    .unseen-node { color:#9ca3af; opacity:.95; }
+    .markmap-container svg path.seen-edge   { stroke:#22c55e !important; stroke-opacity:.98; }
+    .markmap-container svg path.unseen-edge,
+    .markmap-container svg path.missing-edge{ stroke:#9ca3af !important; stroke-opacity:.9; }
+    .mm-minimap .seen-edge   { stroke:#22c55e !important; stroke-opacity:.95; }
+    .mm-minimap .unseen-edge { stroke:#9ca3af !important; stroke-opacity:.95; }
 
     /* Hide labels in the mini-map */
     .mm-minimap text, .mm-minimap foreignObject { display: none !important; }
@@ -376,9 +384,15 @@ class TreeManager {
     // Clear the SVG container before rendering
     svg.innerHTML = '';
   
-    // Preprocess markdown for color tokens
+    // Preprocess markdown
     let md = tree.markdown || tree.md || '';
-    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+    if (tree.isChecklist) {
+      // Checklist uses semantic spans like PvP does (skip generic preprocessor)
+      md = this.processChecklistMarkdown(md);
+    } else {
+      // Explore keeps generic {color:...} → .mm-color spans
+      if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+    }
   
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
@@ -392,10 +406,21 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
-      scrollForPan: false   // wheel = zoom; gutters = page scroll
+      scrollForPan: false,   // wheel = zoom; gutters = page scroll
+      // Checklist-only node label color (like PvP does for users)
+      color: tree.isChecklist ? (node) => {
+        const hay = [node.v, node.content, node.payload?.content];
+        for (const s of hay) {
+          if (s && typeof s === 'string') {
+            if (s.includes('seen-node'))   return '#22c55e';
+            if (s.includes('unseen-node')) return '#9ca3af';
+          }
+        }
+        return undefined;
+      } : undefined
     }, root);
 
-    // Checklist-specific edge painting
+    // Checklist-specific edge painting (mirror PvP timing)
     if (tree.isChecklist) {
       const paint = () => { window.mmColorEdgesFromLabels && window.mmColorEdgesFromLabels(svg); };
       setTimeout(paint, 80);
@@ -427,9 +452,10 @@ class TreeManager {
       setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
 
-    // ---------- NEW: rank-based edge coloring for single-user trees ----------
-    // Palette per rank (tweak as you like)
-    const RANK_COLOR = {
+    // ---------- rank-based edge coloring for single-user trees ----------
+    if (!tree.isChecklist) {
+      // Palette per rank (tweak as you like)
+      const RANK_COLOR = {
       species:    '#22c55e',
       subspecies: '#22c55e',
       variety:    '#22c55e',
@@ -504,12 +530,13 @@ class TreeManager {
       });
     };
   
-    // Initial paint (after layout settles)
-    setTimeout(() => requestAnimationFrame(colorByRank), 400);
-    // Re-apply after expand/collapse
-    svg.addEventListener('click', () => {
-      setTimeout(() => requestAnimationFrame(colorByRank), 250);
-    });
+      // Initial paint (after layout settles)
+      setTimeout(() => requestAnimationFrame(colorByRank), 400);
+      // Re-apply after expand/collapse
+      svg.addEventListener('click', () => {
+        setTimeout(() => requestAnimationFrame(colorByRank), 250);
+      });
+    } // end if (!tree.isChecklist)
     // ------------------------------------------------------------------------
   
     // Install/update the floating toolbar
@@ -706,6 +733,13 @@ class TreeManager {
       .replace(/\{color:red\}([\s\S]*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
       .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
+  }
+
+  // Checklist: mirror PvP approach with semantic classes (seen/unseen)
+  processChecklistMarkdown(markdown) {
+    return String(markdown)
+      .replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/gi, '<span class="seen-node">$1</span>')
+      .replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/gi, '<span class="unseen-node">$1</span>');
   }
   
 
@@ -1665,6 +1699,9 @@ _ensureMiniMap(treeId, svg) {
     if (f.querySelector('.shared-node')) return '#9333ea';
     if (f.querySelector('.user1-node'))  return '#dc2626';
     if (f.querySelector('.user2-node'))  return '#2563eb';
+    // Checklist classes
+    if (f.querySelector('.seen-node'))   return '#22c55e';
+    if (f.querySelector('.unseen-node')) return '#9ca3af';
     return null;
   }
 
@@ -1714,10 +1751,12 @@ _ensureMiniMap(treeId, svg) {
       linkEl.style.strokeOpacity = '1';
       linkEl.style.fill = 'none';
 
-      linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
+      linkEl.classList.remove('user1-edge','user2-edge','shared-edge','seen-edge','unseen-edge','missing-edge');
       if (c === '#dc2626') linkEl.classList.add('user1-edge');
       else if (c === '#2563eb') linkEl.classList.add('user2-edge');
       else if (c === '#9333ea') linkEl.classList.add('shared-edge');
+      else if (c === '#22c55e') linkEl.classList.add('seen-edge');
+      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge','missing-edge');
     });
   }
 }
