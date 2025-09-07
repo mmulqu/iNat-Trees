@@ -806,20 +806,9 @@
   <script type="module" src="checklist-tab.js"></script>
 
   <script>
-    // Initialize TreeManager after DOM is loaded
-    document.addEventListener('DOMContentLoaded', function() {
-      // Ensure initialization only happens once
-      if (!window.treeManager) {
-        console.log('Creating treeManager on DOMContentLoaded');
-        window.treeManager = new TreeManager();
-      }
-    });
-
-    // Initialize immediately in case scripts are already loaded
-    if (typeof TreeManager !== 'undefined' && !window.treeManager) {
-      console.log('Creating treeManager immediately');
-      window.treeManager = new TreeManager();
-    }
+    // Managers are created in tree-manager.js with explicit containers for
+    // Explore, PvP and Checklist. Avoid re-initializing here to prevent
+    // overriding configured instances.
 
     function ensureResultsVisible() {
       // Check if we need to keep the results card visible
