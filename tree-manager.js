@@ -158,14 +158,6 @@ async function resolveTaxonTitle(taxonId) {
       color:#e5e7eb;
       border-color:#3a3f42;
     }
-
-    /* Checklist coloring */
-    .seen-node   { color:#22c55e; }
-    .unseen-node { color:#9ca3af; opacity:.9; }
-
-    /* Mini-map edge classes for checklist */
-    .mm-minimap .seen-edge   { stroke:#22c55e !important; stroke-opacity:.95; }
-    .mm-minimap .unseen-edge { stroke:#9ca3af !important; stroke-opacity:.95; }
   `;
   document.head.appendChild(s);
 })();
@@ -221,7 +213,7 @@ class TreeManager {
     if (card) card.style.display = 'block';
   }
 
-  addTree(username, taxonName, taxonId, markdown, opts = {}) {
+  addTree(username, taxonName, taxonId, markdown) {
     const treeId = this.generateTreeId();
 
     // Process markdown to extract statistics if not already provided
@@ -241,7 +233,6 @@ class TreeManager {
       taxonId,
       markdown,
       stats, // Store the calculated statistics (might be null)
-      isChecklist: opts.mode === 'checklist',
       timestamp: new Date()
     };
     this.trees.push(tree);
@@ -387,8 +378,6 @@ class TreeManager {
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-    // Heuristic to detect checklist trees
-    const isChecklist = !!tree.isChecklist || md.includes('seen-node') || md.includes('unseen-node');
   
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
@@ -402,16 +391,7 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
-      scrollForPan: false,   // wheel = zoom; gutters = page scroll
-      // Binary node color for checklist
-      color: isChecklist ? (node) => {
-        const s = (node.v || node.content || node.payload?.content || '');
-        if (typeof s === 'string') {
-          if (s.includes('seen-node'))   return '#22c55e';
-          if (s.includes('unseen-node')) return '#9ca3af';
-        }
-        return undefined;
-      } : undefined
+      scrollForPan: false   // wheel = zoom; gutters = page scroll
     }, root);
   
     // Keep a handle + keep fitting
@@ -435,8 +415,7 @@ class TreeManager {
       setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
 
-    // ---------- rank-based edge coloring for single-user trees ----------
-    if (!isChecklist) {
+    // ---------- NEW: rank-based edge coloring for single-user trees ----------
     // Palette per rank (tweak as you like)
     const RANK_COLOR = {
       species:    '#22c55e',
@@ -519,7 +498,6 @@ class TreeManager {
     svg.addEventListener('click', () => {
       setTimeout(() => requestAnimationFrame(colorByRank), 250);
     });
-    }
     // ------------------------------------------------------------------------
   
     // Install/update the floating toolbar
@@ -725,11 +703,9 @@ class TreeManager {
     svg.innerHTML = '';
   
     // Preprocess markdown for color tokens
-    const raw = tree.markdown || tree.md || '';
-    // First map PvP user tokens to classes
-    let processedMarkdown = this.processComparisonMarkdown(raw);
-    // Then run shared preprocessor for other color tokens
-    if (window.mmPreprocessColors) processedMarkdown = window.mmPreprocessColors(processedMarkdown);
+    let md = tree.markdown || tree.md || '';
+    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+    const processedMarkdown = this.processComparisonMarkdown(md);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
@@ -1246,8 +1222,6 @@ _ensureMiniMap(treeId, svg) {
       if (c === '#dc2626') miniLine.classList.add('user1-edge');
       else if (c === '#2563eb') miniLine.classList.add('user2-edge');
       else if (c === '#9333ea') miniLine.classList.add('shared-edge');
-      else if (c === '#22c55e') miniLine.classList.add('seen-edge');
-      else if (c === '#9ca3af') miniLine.classList.add('unseen-edge');
 
       connsLayer.appendChild(miniLine);
     });
@@ -1679,8 +1653,6 @@ _ensureMiniMap(treeId, svg) {
     if (f.querySelector('.shared-node')) return '#9333ea';
     if (f.querySelector('.user1-node'))  return '#dc2626';
     if (f.querySelector('.user2-node'))  return '#2563eb';
-    if (f.querySelector('.seen-node'))   return '#22c55e';
-    if (f.querySelector('.unseen-node')) return '#9ca3af';
     return null;
   }
 
@@ -1730,12 +1702,10 @@ _ensureMiniMap(treeId, svg) {
       linkEl.style.strokeOpacity = '1';
       linkEl.style.fill = 'none';
 
-      linkEl.classList.remove('user1-edge','user2-edge','shared-edge','seen-edge','unseen-edge');
+      linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
       if (c === '#dc2626') linkEl.classList.add('user1-edge');
       else if (c === '#2563eb') linkEl.classList.add('user2-edge');
       else if (c === '#9333ea') linkEl.classList.add('shared-edge');
-      else if (c === '#22c55e') linkEl.classList.add('seen-edge');
-      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge','missing-edge');
     });
   }
 }
