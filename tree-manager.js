@@ -385,13 +385,15 @@ class TreeManager {
     svg.innerHTML = '';
   
     // Preprocess markdown
-    let md = tree.markdown || tree.md || '';
+    const md0 = String(tree.markdown || tree.md || '');
+    let md = md0;
     if (tree.isChecklist) {
-      // Checklist uses semantic spans like PvP does (skip generic preprocessor)
-      md = this.processChecklistMarkdown(md);
-    } else {
-      // Explore keeps generic {color:...} → .mm-color spans
-      if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+      // Checklist uses semantic spans (do NOT run the generic preprocessor)
+      md = this.processChecklistMarkdown(md0);
+    } else if (window.mmPreprocessColors) {
+      // Explore: run the generic preprocessor, but never pass a falsy result to Markmap
+      const out = window.mmPreprocessColors(md0);
+      md = (typeof out === 'string' && out.length) ? out : md0;
     }
   
     const { Transformer, Markmap } = window.markmap;
@@ -729,9 +731,9 @@ class TreeManager {
   processComparisonMarkdown(markdown) {
     // Turn {color:*}...{/color} into spans Markmap can render as HTML labels
     return String(markdown)
-      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
-      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
-      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
+      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
+      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>');
   }
 
   // Checklist: mirror PvP approach with semantic classes (seen/unseen)
@@ -747,11 +749,10 @@ class TreeManager {
     if (!svg) return;
     svg.innerHTML = '';
   
-    // PvP: turn {color:red|blue|purple} into semantic spans FIRST,
-    // then optionally run the generic color preprocessor on any leftovers.
+    // PvP: turn {color:red|blue|purple} into semantic spans and DO NOT
+    // run the generic color preprocessor (it can strip our classes).
     let md = tree.markdown || tree.md || '';
     md = this.processComparisonMarkdown(md);
-    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(md);
@@ -777,6 +778,15 @@ class TreeManager {
         return undefined;
       }
     }, root);
+
+    // Robust edge coloring (purple/red/blue) — DOM can settle late
+    const repaint = () => this._colorLinksAndTagEdges(svg, mm);
+    setTimeout(repaint, 80);
+    setTimeout(repaint, 180);
+    setTimeout(() => { repaint(); mm.fit(); }, 360);
+    svg.addEventListener('click', () => setTimeout(repaint, 250));
+    new MutationObserver(() => setTimeout(repaint, 120))
+      .observe(svg, { subtree: true, childList: true, attributes: true });
 
     // Keep a handle + keep fitting
     tree._mm = mm;
@@ -1685,6 +1695,24 @@ _ensureMiniMap(treeId, svg) {
     }catch(_){}
   }
 
+  _normalizeColor(c) {
+    if (!c) return null;
+    const s = c.trim().toLowerCase();
+    if (s.startsWith('#')) {
+      if (s.length === 4) { // #rgb → #rrggbb
+        return '#' + s[1]+s[1] + s[2]+s[2] + s[3]+s[3];
+      }
+      return s;
+    }
+    const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) {
+      const [r,g,b] = m.slice(1,4).map(n => Math.max(0, Math.min(255, parseInt(n,10))));
+      const toHex = (n)=> n.toString(16).padStart(2,'0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+    return s; // last resort
+  }
+
   // Infer user color from a node's HTML label, if present
   _inferNodeColorFromG(g) {
     if (!g) return null;
@@ -1696,6 +1724,15 @@ _ensureMiniMap(treeId, svg) {
     // Checklist classes
     if (f.querySelector('.seen-node'))   return '#22c55e';
     if (f.querySelector('.unseen-node')) return '#9ca3af';
+    // Fallback: inline style color produced by Explore preprocessor
+    const styled = f.querySelector('[style*="color"]');
+    if (styled) {
+      try {
+        const col = getComputedStyle(styled).color;
+        const norm = this._normalizeColor(col);
+        return norm || null;
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -1739,6 +1776,7 @@ _ensureMiniMap(treeId, svg) {
       }
 
       if (!c) return;
+      c = this._normalizeColor(c);
 
       linkEl.setAttribute('stroke', c);
       linkEl.style.stroke = c;
