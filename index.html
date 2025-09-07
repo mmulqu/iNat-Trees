@@ -939,16 +939,14 @@
         const paneId = targetId.replace('#', '');
         const treeId = paneId.replace('-content', '');
 
-        // Try Explore manager first
-        let mgr = window.treeManager;
-        let tree = mgr?.trees.find(t => t.id === treeId);
+        const managers = [window.treeManager, window.pvpManager, window.checklistManager].filter(Boolean);
+        let mgr = null, tree = null;
 
-        // If not found, try PvP manager
-        if (!tree && window.pvpManager) {
-          mgr = window.pvpManager;
-          tree = mgr.trees.find(t => t.id === treeId);
+        for (const m of managers) {
+          const hit = m.trees.find(t => t.id === treeId);
+          if (hit) { mgr = m; tree = hit; break; }
         }
-        if (!tree || !mgr) return;
+        if (!mgr || !tree) return;
 
         const svg = document.getElementById(`${treeId}-svg`);
         if (svg) {

@@ -158,10 +158,35 @@ async function initChecklistUI(){
         throw new Error(j?.error || r.statusText);
       }
 
+      // ⬇️ make sure user is on the Checklist pane & card is visible
+      if (typeof showTab === 'function') showTab('checklistPane');
+      document.body.classList.remove('in-home','in-pvp');
+      document.body.classList.add('in-checklist');
+      document.getElementById('checklistResultsCard').style.display = 'block';
+
+      // safety: (re)create manager with the checklist IDs if missing
+      if (!window.checklistManager) {
+        window.checklistManager = new TreeManager({
+          idPrefix: 'checklist',
+          resultsCardId: 'checklistResultsCard',
+          tabsId: 'checklistTreeTabs',
+          contentId: 'checklistTreeTabContent',
+          deleteBtnId: 'checklistDeleteAllTrees'
+        });
+      } else {
+        // force it to bind the right containers in case of race
+        window.checklistManager._resolveContainers?.();
+      }
+
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
-      // Use checklist manager with checklist mode
-      window.checklistManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
+
+      // ✅ add to the Checklist manager only
+      window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
+
+      // optionally, show markdown
+      const mdOut = document.getElementById('clMarkdownResult');
+      if (mdOut) mdOut.textContent = j.markdown || '';
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);

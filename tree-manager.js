@@ -179,14 +179,28 @@ class TreeManager {
     // NEW: unique ID prefix so PvP and Explore never collide
     this.idPrefix = opts.idPrefix || 'tree';
 
-    // Containers
-    this.resultsCardId       = opts.resultsCardId       || 'resultsCard';
-    this.tabsContainer       = document.getElementById(opts.tabsId      || 'treeTabs');
-    this.tabContentContainer = document.getElementById(opts.contentId   || 'treeTabContent');
-    this.deleteBtnId         = opts.deleteBtnId         || 'deleteAllTrees';
+    // keep the IDs so we can bind later
+    this._ids = {
+      resultsCardId: opts.resultsCardId || 'resultsCard',
+      tabsId:        opts.tabsId        || 'treeTabs',
+      contentId:     opts.contentId     || 'treeTabContent',
+      deleteBtnId:   opts.deleteBtnId   || 'deleteAllTrees'
+    };
+
+    this._resolveContainers();
+  }
+
+  _resolveContainers(){
+    this.resultsCardId       = this._ids.resultsCardId;
+    this.tabsContainer       = document.getElementById(this._ids.tabsId);
+    this.tabContentContainer = document.getElementById(this._ids.contentId);
+    this.deleteBtnId         = this._ids.deleteBtnId;
 
     const delBtn = document.getElementById(this.deleteBtnId);
-    if (delBtn) delBtn.addEventListener('click', () => this.clearAllTrees());
+    if (delBtn && !delBtn._tmBound) {
+      delBtn.addEventListener('click', () => this.clearAllTrees());
+      delBtn._tmBound = true;
+    }
   }
 
   generateTreeId() {
@@ -194,6 +208,7 @@ class TreeManager {
   }
 
   activateTab(treeId) {
+    this._resolveContainers();
     const link = document.getElementById(`${treeId}-tab`);
     const pane = document.getElementById(`${treeId}-content`);
     if (!link || !pane) return;
@@ -222,6 +237,7 @@ class TreeManager {
   }
 
   addTree(username, taxonName, taxonId, markdown, opts = {}) {
+    this._resolveContainers();
     const treeId = this.generateTreeId();
 
     // Process markdown to extract statistics if not already provided
@@ -294,6 +310,11 @@ class TreeManager {
   }
 
   createTreeTab(tree) {
+    this._resolveContainers();
+    if (!this.tabsContainer || !this.tabContentContainer) {
+      console.warn('TreeManager: missing containers for', this._ids);
+      return;
+    }
     const tabHeader = document.createElement('li');
     tabHeader.className = 'nav-item';
     tabHeader.innerHTML = `
@@ -646,6 +667,7 @@ class TreeManager {
   }
 
   createComparisonTreeTab(tree) {
+    this._resolveContainers();
     const tabHeader = document.createElement('li');
     tabHeader.className = 'nav-item';
     tabHeader.innerHTML = `
