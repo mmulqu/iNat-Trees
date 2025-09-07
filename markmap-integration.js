@@ -2,20 +2,12 @@
 
 // Turn {color:#hex}…{/color} into HTML spans Markmap will render.
 // We inline the style so it works in both SVG <text> and foreignObject modes.
-window.mmPreprocessColors = (function(prev){
-  return function(md){
-    md = String(md || '');
-    if (typeof prev === 'function') md = prev(md); // keep existing behavior (PvP, etc.)
-
-    // Checklist: seen/unseen hex colors from the Worker → semantic spans
-    md = md.replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/g, '<span class="seen-node">$1</span>');
-    md = md.replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/g, '<span class="unseen-node">$1</span>');
-
-    // Fallback: any other {color:...} → inline style so nothing breaks
-    md = md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, '<span style="color:$1">$2</span>');
-    return md;
-  };
-})(window.mmPreprocessColors);
+window.mmPreprocessColors = function mmPreprocessColors(md) {
+  if (!md) return md;
+  return String(md)
+    .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
+    .replace(/\{\/color\}/g, '</span>');
+};
 
 // Color edges based on their target node's label color
 window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {

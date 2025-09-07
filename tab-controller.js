@@ -23,33 +23,22 @@ function showTab(tabId) {
   document.body.classList.toggle('in-home',        tabId === 'home');
   document.body.classList.toggle('in-pvp',         tabId === 'pvpPane');
   document.body.classList.toggle('in-checkpoints', tabId === 'checkpointsPane');
-  document.body.classList.toggle('in-checklist',   tabId === 'checklistPane');
 
   // Explicitly toggle cards so inline styles are correct, not just CSS gates
-  const hasExploreTrees   = !!(window.treeManager?.trees?.length);
-  const hasPvpTrees       = !!(window.pvpManager?.trees?.length);
-  const hasChecklistTrees = !!(window.checklistManager?.trees?.length);
+  const hasExploreTrees = !!(window.treeManager?.trees?.length);
+  const hasPvpTrees     = !!(window.pvpManager?.trees?.length);
 
-  const exploreCard   = document.getElementById('resultsCard');
-  const pvpCard       = document.getElementById('pvpResultsCard');
-  const checklistCard = document.getElementById('checklistResultsCard');
+  const exploreCard = document.getElementById('resultsCard');
+  const pvpCard     = document.getElementById('pvpResultsCard');
 
   if (tabId === 'pvpPane') {
-    if (pvpCard)       pvpCard.style.display       = hasPvpTrees ? 'block' : 'none';
-    if (exploreCard)   exploreCard.style.display   = 'none';
-    if (checklistCard) checklistCard.style.display = 'none';
+    if (pvpCard)     pvpCard.style.display     = hasPvpTrees ? 'block' : 'none';
+    if (exploreCard) exploreCard.style.display = 'none';
     // Render PvP
     if (window.pvpManager?.reRenderActiveTab) setTimeout(() => window.pvpManager.reRenderActiveTab(), 80);
-  } else if (tabId === 'checklistPane') {
-    if (checklistCard) checklistCard.style.display = hasChecklistTrees ? 'block' : 'none';
-    if (exploreCard)   exploreCard.style.display   = 'none';
-    if (pvpCard)       pvpCard.style.display       = 'none';
-    // Render Checklist
-    if (window.checklistManager?.reRenderActiveTab) setTimeout(() => window.checklistManager.reRenderActiveTab(), 80);
   } else {
-    if (exploreCard)   exploreCard.style.display   = hasExploreTrees ? 'block' : 'none';
-    if (pvpCard)       pvpCard.style.display       = 'none';
-    if (checklistCard) checklistCard.style.display = 'none';
+    if (exploreCard) exploreCard.style.display = hasExploreTrees ? 'block' : 'none';
+    if (pvpCard)     pvpCard.style.display     = 'none';
     // Render Explore
     if (window.treeManager?.reRenderActiveTab) setTimeout(() => window.treeManager.reRenderActiveTab(), 80);
   }

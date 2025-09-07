@@ -659,14 +659,17 @@
     </div>
 
     <!-- Checklists Results (own card & tabs) -->
-    <div class="card mt-4" id="checklistResultsCard" style="display:none;">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <ul class="nav nav-tabs card-header-tabs" id="checklistTreeTabs" role="tablist"></ul>
-        <button class="btn btn-sm btn-outline-danger" id="checklistDeleteAllTrees">Clear</button>
+    <div class="card mt-4" id="clResultsCard" style="display:none;">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>Markmap Visualization — Checklists</div>
+        <div class="d-flex gap-2">
+          <button id="clClearBtn" class="btn btn-sm btn-outline-light"><i class="bi bi-trash"></i> Clear</button>
+        </div>
       </div>
-      <div class="card-body p-0">
-        <div class="tab-content" id="checklistTreeTabContent"></div>
-        
+      <div class="card-body">
+        <ul class="nav nav-tabs mb-3" id="clTreeTabs" role="tablist"></ul>
+        <div class="tab-content" id="clTreeTabContent"></div>
+
         <div class="accordion mt-4" id="clMarkdownAccordion">
           <div class="accordion-item">
             <h2 class="accordion-header" id="clMdHead">
@@ -806,9 +809,20 @@
   <script type="module" src="checklist-tab.js"></script>
 
   <script>
-    // Managers are created in tree-manager.js with explicit containers for
-    // Explore, PvP and Checklist. Avoid re-initializing here to prevent
-    // overriding configured instances.
+    // Initialize TreeManager after DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+      // Ensure initialization only happens once
+      if (!window.treeManager) {
+        console.log('Creating treeManager on DOMContentLoaded');
+        window.treeManager = new TreeManager();
+      }
+    });
+
+    // Initialize immediately in case scripts are already loaded
+    if (typeof TreeManager !== 'undefined' && !window.treeManager) {
+      console.log('Creating treeManager immediately');
+      window.treeManager = new TreeManager();
+    }
 
     function ensureResultsVisible() {
       // Check if we need to keep the results card visible
@@ -928,14 +942,16 @@
         const paneId = targetId.replace('#', '');
         const treeId = paneId.replace('-content', '');
 
-        const managers = [window.treeManager, window.pvpManager, window.checklistManager].filter(Boolean);
-        let mgr = null, tree = null;
+        // Try Explore manager first
+        let mgr = window.treeManager;
+        let tree = mgr?.trees.find(t => t.id === treeId);
 
-        for (const m of managers) {
-          const hit = m.trees.find(t => t.id === treeId);
-          if (hit) { mgr = m; tree = hit; break; }
+        // If not found, try PvP manager
+        if (!tree && window.pvpManager) {
+          mgr = window.pvpManager;
+          tree = mgr.trees.find(t => t.id === treeId);
         }
-        if (!mgr || !tree) return;
+        if (!tree || !mgr) return;
 
         const svg = document.getElementById(`${treeId}-svg`);
         if (svg) {

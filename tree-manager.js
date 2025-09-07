@@ -158,14 +158,6 @@ async function resolveTaxonTitle(taxonId) {
       color:#e5e7eb;
       border-color:#3a3f42;
     }
-
-    /* Checklist coloring */
-    .seen-node   { color:#22c55e; }                 /* green */
-    .unseen-node { color:#9ca3af; opacity:.9; }      /* gray */
-
-    /* Mini-map edge classes for checklist */
-    .mm-minimap .seen-edge   { stroke:#22c55e !important; stroke-opacity:.95; }
-    .mm-minimap .unseen-edge { stroke:#9ca3af !important; stroke-opacity:.95; }
   `;
   document.head.appendChild(s);
 })();
@@ -179,28 +171,14 @@ class TreeManager {
     // NEW: unique ID prefix so PvP and Explore never collide
     this.idPrefix = opts.idPrefix || 'tree';
 
-    // keep the IDs so we can bind later
-    this._ids = {
-      resultsCardId: opts.resultsCardId || 'resultsCard',
-      tabsId:        opts.tabsId        || 'treeTabs',
-      contentId:     opts.contentId     || 'treeTabContent',
-      deleteBtnId:   opts.deleteBtnId   || 'deleteAllTrees'
-    };
-
-    this._resolveContainers();
-  }
-
-  _resolveContainers(){
-    this.resultsCardId       = this._ids.resultsCardId;
-    this.tabsContainer       = document.getElementById(this._ids.tabsId);
-    this.tabContentContainer = document.getElementById(this._ids.contentId);
-    this.deleteBtnId         = this._ids.deleteBtnId;
+    // Containers
+    this.resultsCardId       = opts.resultsCardId       || 'resultsCard';
+    this.tabsContainer       = document.getElementById(opts.tabsId      || 'treeTabs');
+    this.tabContentContainer = document.getElementById(opts.contentId   || 'treeTabContent');
+    this.deleteBtnId         = opts.deleteBtnId         || 'deleteAllTrees';
 
     const delBtn = document.getElementById(this.deleteBtnId);
-    if (delBtn && !delBtn._tmBound) {
-      delBtn.addEventListener('click', () => this.clearAllTrees());
-      delBtn._tmBound = true;
-    }
+    if (delBtn) delBtn.addEventListener('click', () => this.clearAllTrees());
   }
 
   generateTreeId() {
@@ -208,7 +186,6 @@ class TreeManager {
   }
 
   activateTab(treeId) {
-    this._resolveContainers();
     const link = document.getElementById(`${treeId}-tab`);
     const pane = document.getElementById(`${treeId}-content`);
     if (!link || !pane) return;
@@ -236,8 +213,7 @@ class TreeManager {
     if (card) card.style.display = 'block';
   }
 
-  addTree(username, taxonName, taxonId, markdown, opts = {}) {
-    this._resolveContainers();
+  addTree(username, taxonName, taxonId, markdown) {
     const treeId = this.generateTreeId();
 
     // Process markdown to extract statistics if not already provided
@@ -257,7 +233,6 @@ class TreeManager {
       taxonId,
       markdown,
       stats, // Store the calculated statistics (might be null)
-      isChecklist: opts.mode === 'checklist',   // <-- NEW
       timestamp: new Date()
     };
     this.trees.push(tree);
@@ -310,11 +285,6 @@ class TreeManager {
   }
 
   createTreeTab(tree) {
-    this._resolveContainers();
-    if (!this.tabsContainer || !this.tabContentContainer) {
-      console.warn('TreeManager: missing containers for', this._ids);
-      return;
-    }
     const tabHeader = document.createElement('li');
     tabHeader.className = 'nav-item';
     tabHeader.innerHTML = `
@@ -408,9 +378,6 @@ class TreeManager {
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-
-    // Simple heuristic: explicit flag or labels created by our preprocessor
-    const isChecklist = !!tree.isChecklist || md.includes('seen-node') || md.includes('unseen-node');
   
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
@@ -424,17 +391,7 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree immediately
       pan: true,
       zoom: true,
-      scrollForPan: false,   // wheel = zoom; gutters = page scroll
-
-      // NEW: binary node color for checklist (PvP has its own in renderComparisonTree)
-      color: isChecklist ? (node) => {
-        const s = (node.v || node.content || node.payload?.content || '');
-        if (typeof s === 'string') {
-          if (s.includes('seen-node'))   return '#22c55e'; // green
-          if (s.includes('unseen-node')) return '#9ca3af'; // gray
-        }
-        return undefined;
-      } : undefined
+      scrollForPan: false   // wheel = zoom; gutters = page scroll
     }, root);
   
     // Keep a handle + keep fitting
@@ -458,8 +415,7 @@ class TreeManager {
       setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
 
-    // ---------- rank-based edge coloring for single-user trees ----------
-    if (!isChecklist) {
+    // ---------- NEW: rank-based edge coloring for single-user trees ----------
     // Palette per rank (tweak as you like)
     const RANK_COLOR = {
       species:    '#22c55e',
@@ -542,7 +498,6 @@ class TreeManager {
     svg.addEventListener('click', () => {
       setTimeout(() => requestAnimationFrame(colorByRank), 250);
     });
-    } // end if (!isChecklist)
     // ------------------------------------------------------------------------
   
     // Install/update the floating toolbar
@@ -667,7 +622,6 @@ class TreeManager {
   }
 
   createComparisonTreeTab(tree) {
-    this._resolveContainers();
     const tabHeader = document.createElement('li');
     tabHeader.className = 'nav-item';
     tabHeader.innerHTML = `
@@ -1268,8 +1222,6 @@ _ensureMiniMap(treeId, svg) {
       if (c === '#dc2626') miniLine.classList.add('user1-edge');
       else if (c === '#2563eb') miniLine.classList.add('user2-edge');
       else if (c === '#9333ea') miniLine.classList.add('shared-edge');
-      else if (c === '#22c55e') miniLine.classList.add('seen-edge');     // NEW
-      else if (c === '#9ca3af') miniLine.classList.add('unseen-edge');   // NEW
 
       connsLayer.appendChild(miniLine);
     });
@@ -1698,13 +1650,9 @@ _ensureMiniMap(treeId, svg) {
     if (!g) return null;
     const f = g.querySelector('foreignObject');
     if (!f) return null;
-    // PvP
     if (f.querySelector('.shared-node')) return '#9333ea';
     if (f.querySelector('.user1-node'))  return '#dc2626';
     if (f.querySelector('.user2-node'))  return '#2563eb';
-    // Checklist
-    if (f.querySelector('.seen-node'))   return '#22c55e';
-    if (f.querySelector('.unseen-node')) return '#9ca3af';
     return null;
   }
 
@@ -1754,12 +1702,10 @@ _ensureMiniMap(treeId, svg) {
       linkEl.style.strokeOpacity = '1';
       linkEl.style.fill = 'none';
 
-      linkEl.classList.remove('user1-edge','user2-edge','shared-edge','seen-edge','unseen-edge');
+      linkEl.classList.remove('user1-edge', 'user2-edge', 'shared-edge');
       if (c === '#dc2626') linkEl.classList.add('user1-edge');
       else if (c === '#2563eb') linkEl.classList.add('user2-edge');
       else if (c === '#9333ea') linkEl.classList.add('shared-edge');
-      else if (c === '#22c55e') linkEl.classList.add('seen-edge');     // NEW
-      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge');   // NEW
     });
   }
 }
@@ -1781,13 +1727,4 @@ window.pvpManager = new TreeManager({
   tabsId: 'pvpTreeTabs',
   contentId: 'pvpTreeTabContent',
   deleteBtnId: 'pvpDeleteAllTrees'
-});
-
-// Checklist trees (Checklist tab)
-window.checklistManager = new TreeManager({
-  idPrefix: 'checklist',
-  resultsCardId: 'checklistResultsCard',
-  tabsId: 'checklistTreeTabs',
-  contentId: 'checklistTreeTabContent',
-  deleteBtnId: 'checklistDeleteAllTrees'
 });

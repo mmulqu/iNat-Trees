@@ -12,6 +12,23 @@ function authHeaders(){
   return headers;
 }
 
+// very small preprocessor so {color:#hex}label{/color} survives Markmap (HTML)
+function colorizeMarkdown(md){
+  return md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, (_m, c, txt) => `<span style="color:${c}">${txt}</span>`);
+}
+
+function mmRender(svg, markdown){
+  const md = colorizeMarkdown(markdown);
+  const { Transformer, Markmap } = window.markmap;
+  const transformer = new Transformer();
+  const { root } = transformer.transform(md);
+  const mm = Markmap.create(svg, null, root);
+  // fit after layout
+  setTimeout(() => mm.fit(), 50);
+  return mm;
+}
+
+function uid(){ return 'cl' + Math.random().toString(36).slice(2,9); }
 
 async function loadRegions(){
   const r = await fetch(`${API}/regions`, { headers: authHeaders() });
@@ -20,7 +37,7 @@ async function loadRegions(){
 }
 
 function setSpinner(on){ document.getElementById('clSpinner').style.display = on ? 'flex' : 'none'; }
-function showResultsCard(){ document.getElementById('checklistResultsCard').style.display = 'block'; }
+function showResultsCard(){ document.getElementById('clResultsCard').style.display = 'block'; }
 
 function activateTab(tabId){
   // Bootstrap tab show
@@ -28,6 +45,43 @@ function activateTab(tabId){
   if (tab && window.bootstrap?.Tab) new bootstrap.Tab(tab).show();
 }
 
+function addChecklistTreeTab(title, markdown){
+  showResultsCard();
+  const id = uid();
+
+  // header
+  const tabs = document.getElementById('clTreeTabs');
+  const li = document.createElement('li'); li.className = 'nav-item';
+  li.innerHTML = `
+    <a class="nav-link" id="${id}-tab" data-bs-toggle="tab" href="#${id}-content" role="tab" aria-controls="${id}-content" aria-selected="false">${title}</a>
+  `;
+  tabs.appendChild(li);
+
+  // content
+  const content = document.getElementById('clTreeTabContent');
+  const pane = document.createElement('div');
+  pane.className = 'tab-pane';
+  pane.id = `${id}-content`;
+  pane.setAttribute('role','tabpanel');
+  pane.innerHTML = `
+    <div class="markmap-container">
+      <svg id="${id}-svg" width="100%" height="700"></svg>
+    </div>
+  `;
+  content.appendChild(pane);
+
+  // markdown panel
+  const mdOut = document.getElementById('clMarkdownResult');
+  mdOut.textContent = markdown;
+
+  // activate and render
+  activateTab(id);
+  setTimeout(() => {
+    const svg = document.getElementById(`${id}-svg`);
+    svg.innerHTML = '';
+    mmRender(svg, markdown);
+  }, 60);
+}
 
 async function hydrateRegion(regionCode){
   const r = await fetch(`${API}/checklist/hydrate`, {
@@ -122,10 +176,10 @@ async function initChecklistUI(){
 
   // clear all
   document.getElementById('clClearBtn').addEventListener('click', () => {
-    document.getElementById('checklistTreeTabs').innerHTML = '';
-    document.getElementById('checklistTreeTabContent').innerHTML = '';
+    document.getElementById('clTreeTabs').innerHTML = '';
+    document.getElementById('clTreeTabContent').innerHTML = '';
     document.getElementById('clMarkdownResult').textContent = '';
-    document.getElementById('checklistResultsCard').style.display = 'none';
+    document.getElementById('clResultsCard').style.display = 'none';
   });
 
   // submit
@@ -158,39 +212,9 @@ async function initChecklistUI(){
         throw new Error(j?.error || r.statusText);
       }
 
-      // ⬇️ make sure user is on the Checklist pane & card is visible
-      if (typeof showTab === 'function') showTab('checklistPane');
-      document.body.classList.remove('in-home','in-pvp');
-      document.body.classList.add('in-checklist');
-      document.getElementById('checklistResultsCard').style.display = 'block';
-
-      // safety: (re)create manager with the checklist IDs if missing
-      if (!window.checklistManager) {
-        window.checklistManager = new TreeManager({
-          idPrefix: 'checklist',
-          resultsCardId: 'checklistResultsCard',
-          tabsId: 'checklistTreeTabs',
-          contentId: 'checklistTreeTabContent',
-          deleteBtnId: 'checklistDeleteAllTrees'
-        });
-      } else {
-        // force it to bind the right containers in case of race
-        window.checklistManager._resolveContainers?.();
-      }
-
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
-
-      // ✅ add to the Checklist manager only
-      const newId = window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
-      // Explicitly activate the new tab to ensure first render
-      if (newId && typeof window.checklistManager.activateTab === 'function') {
-        window.checklistManager.activateTab(newId);
-      }
-
-      // optionally, show markdown
-      const mdOut = document.getElementById('clMarkdownResult');
-      if (mdOut) mdOut.textContent = j.markdown || '';
+      addChecklistTreeTab(title, j.markdown);
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);
