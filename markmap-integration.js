@@ -93,6 +93,13 @@ document.addEventListener('DOMContentLoaded', function() {
       border-radius: 4px;
       font-weight: bold;
     }
+    /* Color preprocessing for checklist seen/missing */
+    .mm-color { font-weight: 600; }
+    .seen-node   { color:#22c55e !important; }
+    .unseen-node { color:#9ca3af !important; opacity:.85; }
+    .markmap-container svg path.seen-edge   { stroke:#22c55e !important; }
+    .markmap-container svg path.unseen-edge,
+    .markmap-container svg path.missing-edge{ stroke:#9ca3af !important; }
   `;
   document.head.appendChild(style);
 });
