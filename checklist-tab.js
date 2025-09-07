@@ -238,7 +238,14 @@ async function initChecklistUI(){
 
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
-      addChecklistTreeTab(title, j.markdown); // stays in Checklist tab
+      
+      // Use checklistManager to add tree with checklist mode
+      if (window.checklistManager) {
+        window.checklistManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
+      } else {
+        // Fallback to local implementation
+        addChecklistTreeTab(title, j.markdown);
+      } // stays in Checklist tab
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);

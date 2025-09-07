@@ -213,7 +213,7 @@ class TreeManager {
     if (card) card.style.display = 'block';
   }
 
-  addTree(username, taxonName, taxonId, markdown) {
+  addTree(username, taxonName, taxonId, markdown, opts = {}) {
     const treeId = this.generateTreeId();
 
     // Process markdown to extract statistics if not already provided
@@ -233,6 +233,7 @@ class TreeManager {
       taxonId,
       markdown,
       stats, // Store the calculated statistics (might be null)
+      isChecklist: opts.mode === 'checklist',
       timestamp: new Date()
     };
     this.trees.push(tree);
@@ -393,6 +394,17 @@ class TreeManager {
       zoom: true,
       scrollForPan: false   // wheel = zoom; gutters = page scroll
     }, root);
+
+    // Checklist-specific edge painting
+    if (tree.isChecklist) {
+      const paint = () => { window.mmColorEdgesFromLabels && window.mmColorEdgesFromLabels(svg); };
+      setTimeout(paint, 80);
+      setTimeout(paint, 180);
+      setTimeout(() => { paint(); mm.fit(); }, 360);
+      svg.addEventListener('click', () => setTimeout(paint, 250));
+      // optional: repaint on DOM changes within this SVG
+      new MutationObserver(() => setTimeout(paint, 120)).observe(svg, { subtree:true, childList:true, attributes:true });
+    }
   
     // Keep a handle + keep fitting
     tree._mm = mm;
@@ -1727,4 +1739,13 @@ window.pvpManager = new TreeManager({
   tabsId: 'pvpTreeTabs',
   contentId: 'pvpTreeTabContent',
   deleteBtnId: 'pvpDeleteAllTrees'
+});
+
+// Checklist trees (Checklist tab)
+window.checklistManager = new TreeManager({
+  idPrefix: 'checklist',
+  resultsCardId: 'checklistResultsCard',
+  tabsId: 'checklistTreeTabs',
+  contentId: 'checklistTreeTabContent',
+  deleteBtnId: 'checklistDeleteAllTrees'
 });

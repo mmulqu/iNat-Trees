@@ -9,7 +9,7 @@ window.mmPreprocessColors = function mmPreprocessColors(md) {
     .replace(/\{\/color\}/g, '</span>');
 };
 
-// Color edges based on their target node's label color (robust across Markmap builds)
+// --- Robust edge painter (works across Markmap builds) ---
 window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
   const toHex = (c) => {
     if (!c) return '';
@@ -27,11 +27,11 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
   };
 
   try {
-    // Handle both old/new Markmap class/attr names
+    // Handle multiple class/attr variants across Markmap versions
     const links = svgRoot.querySelectorAll('path.markmap-link, path.link, .markmap-link, .link');
     const nodes = svgRoot.querySelectorAll('g.markmap-node, g.node, .markmap-node, .node');
 
-    // Build index → node map
+    // index → node
     const byIndex = new Map();
     nodes.forEach((n, i) => {
       const idx = n.getAttribute('data-index') || n.dataset?.index || n.getAttribute('data-i') || String(i);
@@ -43,25 +43,30 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
       const node = to != null ? byIndex.get(String(to)) : null;
       if (!node) return;
 
-      // Prefer explicit colored span; otherwise use any styled element / text fill
-      const colored = node.querySelector('.mm-color') ||
-                      node.querySelector('[style*="color"]') ||
-                      node.querySelector('foreignObject *') ||
-                      node.querySelector('text');
+      // Prefer the explicit colored span we injected from Markdown
+      const colored =
+        node.querySelector('.mm-color') ||
+        node.querySelector('[style*="color"]') ||
+        node.querySelector('foreignObject *') ||
+        node.querySelector('text');
 
       let color = '';
       if (colored) {
-        color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1] ||
-                colored.getAttribute('fill') ||
-                getComputedStyle(colored).color || '';
+        color =
+          (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1] ||
+          colored.getAttribute('fill') ||
+          getComputedStyle(colored).color || '';
       }
       const hex = toHex(color);
       if (!hex) return;
 
-      // Reset & tag
-      link.classList.remove('seen-edge','missing-edge','user1-edge','user2-edge','shared-edge');
-      if (hex === '#22c55e') link.classList.add('seen-edge');
-      else if (hex === '#9ca3af') link.classList.add('missing-edge');
+      // Reset & tag (support both "unseen-edge" and legacy "missing-edge")
+      link.classList.remove('seen-edge','unseen-edge','missing-edge','user1-edge','user2-edge','shared-edge');
+      if (hex === '#22c55e') {
+        link.classList.add('seen-edge');
+      } else if (hex === '#9ca3af') {
+        link.classList.add('unseen-edge', 'missing-edge');
+      }
     });
   } catch {}
 };
@@ -116,8 +121,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   /* Color preprocessing for checklist seen/missing */
   .mm-color { font-weight: 600; }
-  .markmap-container svg path.seen-edge { stroke: #22c55e !important; }
-  .markmap-container svg path.missing-edge { stroke: #9ca3af !important; }
+  .markmap-container svg path.seen-edge   { stroke:#22c55e !important; stroke-opacity:.98; }
+  .markmap-container svg path.unseen-edge,
+  .markmap-container svg path.missing-edge{ stroke:#9ca3af !important; stroke-opacity:.9; }
 
   /* Draggable first-observation popup */
   .first-obs-preview{
