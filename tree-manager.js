@@ -1,5 +1,8 @@
 // tree-manager.js
 
+// Global flag to suppress heavy repaints during animations
+window.__suppressMarkmapRepaints ??= false;
+
 // ---- Taxon name resolver ----
 async function resolveTaxonTitle(taxonId) {
   const cache = (resolveTaxonTitle._cache ||= new Map());
@@ -384,16 +387,34 @@ class TreeManager {
     // Clear the SVG container before rendering
     svg.innerHTML = '';
   
-    // Preprocess markdown
+    // Preprocess + sanitize markdown
     const md0 = String(tree.markdown || tree.md || '');
     let md = md0;
+
+    // If there is stray UI copy before the list/heading, trim to the first structure point
+    // and auto-insert a root heading if none exists.
+    {
+      const firstStruct = md.search(/(^|\n)\s*(?:#{1,6}\s+|[-*]\s+)/);
+      if (firstStruct > 0) md = md.slice(firstStruct);
+      const hasHeading = /(^|\n)\s*#{1,6}\s+/.test(md);
+      const hasList    = /(^|\n)\s*[-*]\s+/.test(md);
+      if (!hasHeading && hasList) {
+        const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Tree';
+        md = `# ${title}\n\n${md.trim()}\n`;
+      }
+    }
+
     if (tree.isChecklist) {
       // Checklist uses semantic spans (do NOT run the generic preprocessor)
       md = this.processChecklistMarkdown(md0);
     } else if (window.mmPreprocessColors) {
       // Explore: run the generic preprocessor, but never pass a falsy result to Markmap
-      const out = window.mmPreprocessColors(md0);
-      md = (typeof out === 'string' && out.length) ? out : md0;
+      try {
+        const out = window.mmPreprocessColors(md);
+        md = (typeof out === 'string' && out.length) ? out : md;
+      } catch (_) {
+        /* keep md as-is */
+      }
     }
   
     const { Transformer, Markmap } = window.markmap;
@@ -1310,6 +1331,7 @@ _ensureMiniMap(treeId, svg) {
   // Watch DOM changes to re-sync
   if (!host._miniObserver) {
     const mo = new MutationObserver(() => {
+      if (window.__suppressMarkmapRepaints) return;
       clearTimeout(host._miniDeb);
       host._miniDeb = setTimeout(() => { rebuildMini(); updateViewport(); }, 120);
     });
@@ -1739,6 +1761,7 @@ _ensureMiniMap(treeId, svg) {
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
     if (!svg) return;
+    if (window.__suppressMarkmapRepaints) return;
 
     // Map data-path → color
     const colorByPath = new Map();
