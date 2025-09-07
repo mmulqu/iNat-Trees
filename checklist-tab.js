@@ -12,19 +12,27 @@ function authHeaders(){
   return headers;
 }
 
-// very small preprocessor so {color:#hex}label{/color} survives Markmap (HTML)
-function colorizeMarkdown(md){
-  return md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, (_m, c, txt) => `<span style="color:${c}">${txt}</span>`);
-}
-
 function mmRender(svg, markdown){
-  const md = colorizeMarkdown(markdown);
+  // Use shared color preprocessor so label colors map to edge colors
+  const preprocess = window.mmPreprocessColors || ((s)=>s);
+  const md = preprocess(markdown);
+
   const { Transformer, Markmap } = window.markmap;
   const transformer = new Transformer();
   const { root } = transformer.transform(md);
   const mm = Markmap.create(svg, null, root);
-  // fit after layout
-  setTimeout(() => mm.fit(), 50);
+
+  // Paint edges to match label colors, then fit.
+  const paint = () => {
+    if (typeof window.mmColorEdgesFromLabels === 'function') {
+      window.mmColorEdgesFromLabels(svg);
+    }
+  };
+  setTimeout(() => { paint(); mm.fit(); }, 80);
+
+  // Repaint after expand/collapse interactions
+  svg.addEventListener('click', () => setTimeout(paint, 250));
+
   return mm;
 }
 
