@@ -1,8 +1,5 @@
 // tree-manager.js
 
-// Global flag to suppress heavy repaints during animations
-window.__suppressMarkmapRepaints ??= false;
-
 // ---- Taxon name resolver ----
 async function resolveTaxonTitle(taxonId) {
   const cache = (resolveTaxonTitle._cache ||= new Map());
@@ -387,34 +384,14 @@ class TreeManager {
     // Clear the SVG container before rendering
     svg.innerHTML = '';
   
-    // Preprocess + sanitize markdown
-    const md0 = String(tree.markdown || tree.md || '');
-    let md = md0;
-
-    // If there is stray UI copy before the list/heading, trim to the first structure point
-    // and auto-insert a root heading if none exists.
-    {
-      const firstStruct = md.search(/(^|\n)\s*(?:#{1,6}\s+|[-*]\s+)/);
-      if (firstStruct > 0) md = md.slice(firstStruct);
-      const hasHeading = /(^|\n)\s*#{1,6}\s+/.test(md);
-      const hasList    = /(^|\n)\s*[-*]\s+/.test(md);
-      if (!hasHeading && hasList) {
-        const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Tree';
-        md = `# ${title}\n\n${md.trim()}\n`;
-      }
-    }
-
+    // Preprocess markdown
+    let md = tree.markdown || tree.md || '';
     if (tree.isChecklist) {
-      // Checklist uses semantic spans (do NOT run the generic preprocessor)
-      md = this.processChecklistMarkdown(md0);
-    } else if (window.mmPreprocessColors) {
-      // Explore: run the generic preprocessor, but never pass a falsy result to Markmap
-      try {
-        const out = window.mmPreprocessColors(md);
-        md = (typeof out === 'string' && out.length) ? out : md;
-      } catch (_) {
-        /* keep md as-is */
-      }
+      // Checklist uses semantic spans like PvP does (skip generic preprocessor)
+      md = this.processChecklistMarkdown(md);
+    } else {
+      // Explore keeps generic {color:...} → .mm-color spans
+      if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
     }
   
     const { Transformer, Markmap } = window.markmap;
@@ -462,8 +439,9 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Checklist-only: mirror label colors to edges
-    if (tree.isChecklist && svg && window.mmColorEdgesFromLabels) {
+    // Color edges based on label colors
+    if (svg && window.mmColorEdgesFromLabels) {
+      // slight delay to let layout settle
       setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
     }
   
@@ -752,9 +730,9 @@ class TreeManager {
   processComparisonMarkdown(markdown) {
     // Turn {color:*}...{/color} into spans Markmap can render as HTML labels
     return String(markdown)
-      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
-      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
-      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>');
+      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
+      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
   }
 
   // Checklist: mirror PvP approach with semantic classes (seen/unseen)
@@ -770,13 +748,13 @@ class TreeManager {
     if (!svg) return;
     svg.innerHTML = '';
   
-    // PvP: turn {color:red|blue|purple} into semantic spans and DO NOT
-    // run the generic color preprocessor (it can strip our classes).
+    // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
-    md = this.processComparisonMarkdown(md);
+    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+    const processedMarkdown = this.processComparisonMarkdown(md);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
-    const { root } = transformer.transform(md);
+    const { root } = transformer.transform(processedMarkdown);
   
     const mm = Markmap.create(svg, {
       htmlLabels: true,
@@ -800,15 +778,6 @@ class TreeManager {
       }
     }, root);
 
-    // Robust edge coloring (purple/red/blue) — DOM can settle late
-    const repaint = () => this._colorLinksAndTagEdges(svg, mm);
-    setTimeout(repaint, 80);
-    setTimeout(repaint, 180);
-    setTimeout(() => { repaint(); mm.fit(); }, 360);
-    svg.addEventListener('click', () => setTimeout(repaint, 250));
-    new MutationObserver(() => setTimeout(repaint, 120))
-      .observe(svg, { subtree: true, childList: true, attributes: true });
-
     // Keep a handle + keep fitting
     tree._mm = mm;
     const pane = svg.closest('.tab-pane');
@@ -817,6 +786,12 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
+    // Color edges based on label colors
+    if (svg && window.mmColorEdgesFromLabels) {
+      // slight delay to let layout settle
+      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
+    }
+  
     // Color links and tag classes (comparison too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
     // Reapply on expand/collapse
@@ -1331,7 +1306,6 @@ _ensureMiniMap(treeId, svg) {
   // Watch DOM changes to re-sync
   if (!host._miniObserver) {
     const mo = new MutationObserver(() => {
-      if (window.__suppressMarkmapRepaints) return;
       clearTimeout(host._miniDeb);
       host._miniDeb = setTimeout(() => { rebuildMini(); updateViewport(); }, 120);
     });
@@ -1717,24 +1691,6 @@ _ensureMiniMap(treeId, svg) {
     }catch(_){}
   }
 
-  _normalizeColor(c) {
-    if (!c) return null;
-    const s = c.trim().toLowerCase();
-    if (s.startsWith('#')) {
-      if (s.length === 4) { // #rgb → #rrggbb
-        return '#' + s[1]+s[1] + s[2]+s[2] + s[3]+s[3];
-      }
-      return s;
-    }
-    const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-    if (m) {
-      const [r,g,b] = m.slice(1,4).map(n => Math.max(0, Math.min(255, parseInt(n,10))));
-      const toHex = (n)=> n.toString(16).padStart(2,'0');
-      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-    }
-    return s; // last resort
-  }
-
   // Infer user color from a node's HTML label, if present
   _inferNodeColorFromG(g) {
     if (!g) return null;
@@ -1746,22 +1702,12 @@ _ensureMiniMap(treeId, svg) {
     // Checklist classes
     if (f.querySelector('.seen-node'))   return '#22c55e';
     if (f.querySelector('.unseen-node')) return '#9ca3af';
-    // Fallback: inline style color produced by Explore preprocessor
-    const styled = f.querySelector('[style*="color"]');
-    if (styled) {
-      try {
-        const col = getComputedStyle(styled).color;
-        const norm = this._normalizeColor(col);
-        return norm || null;
-      } catch (_) {}
-    }
     return null;
   }
 
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
     if (!svg) return;
-    if (window.__suppressMarkmapRepaints) return;
 
     // Map data-path → color
     const colorByPath = new Map();
@@ -1799,7 +1745,6 @@ _ensureMiniMap(treeId, svg) {
       }
 
       if (!c) return;
-      c = this._normalizeColor(c);
 
       linkEl.setAttribute('stroke', c);
       linkEl.style.stroke = c;

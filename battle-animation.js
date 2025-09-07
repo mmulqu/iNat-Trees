@@ -36,9 +36,6 @@ class BattleAnimator {
   }
 
   startBattleCountdown(username1, username2, onComplete) {
-    // Pause markmap repaint churn while overlay is up
-    window.__suppressMarkmapRepaints = true;
-
     console.log(`Starting battle countdown: ${username1} vs ${username2}`);
 
     // Prepare countdown element
@@ -65,36 +62,43 @@ class BattleAnimator {
     // Show countdown
     countdownContainer.style.display = 'flex';
 
-    // Start countdown (drift-tolerant, fast)
-    const STEP_MS = 350;           // snappier than 1000ms
-    const TOTAL_STEPS = 3;
-    const t0 = performance.now();
-    const tick = (now) => {
-      const step = Math.max(0, TOTAL_STEPS - Math.floor((now - t0) / STEP_MS));
-      if (step > 0) {
-        countdownNumber.textContent = step;
-        requestAnimationFrame(tick);
-        return;
-      }
-      // Show "BATTLE!"
-      countdownNumber.style.display = 'none';
-      const battleText = document.createElement('div');
-      battleText.className = 'battle-text';
-      battleText.textContent = 'BATTLE!';
-      countdownContainer.querySelector('.battle-countdown-content').appendChild(battleText);
-      setTimeout(() => battleText.classList.add('animate-in'), 60);
+    // Start countdown
+    let count = 3;
+    countdownNumber.textContent = count;
 
-      setTimeout(() => {
-        countdownContainer.style.display = 'none';
-        // Resume markmap repainting and force one catch-up repaint
-        window.__suppressMarkmapRepaints = false;
-        document.querySelectorAll('.markmap-container svg').forEach(svg => {
-          try { svg.dispatchEvent(new Event('click')); } catch(_) {}
-        });
-        if (typeof onComplete === 'function') onComplete();
-      }, 600);
-    };
-    requestAnimationFrame(tick);
+    const countdownInterval = setInterval(() => {
+      count--;
+
+      if (count > 0) {
+        countdownNumber.textContent = count;
+      } else if (count === 0) {
+        // Show "BATTLE!" text
+        countdownNumber.style.display = 'none';
+
+        // Create and show battle text
+        const battleText = document.createElement('div');
+        battleText.className = 'battle-text';
+        battleText.textContent = 'BATTLE!';
+        countdownContainer.querySelector('.battle-countdown-content').appendChild(battleText);
+
+        // Start battle text animation
+        setTimeout(() => {
+          battleText.classList.add('animate-in');
+        }, 100);
+
+        // Prepare to hide countdown and animate tree
+        setTimeout(() => {
+          countdownContainer.style.display = 'none';
+
+          // Call the completion callback
+          if (typeof onComplete === 'function') {
+            onComplete();
+          }
+        }, 1500);
+
+        clearInterval(countdownInterval);
+      }
+    }, 1000);
   }
 
   animateTree(treeId) {
@@ -174,7 +178,7 @@ class BattleAnimator {
       }, 300);
 
       // Add a special effect for comparison trees - color emphasizing
-      if (svgContainer.querySelector('.user1-node, .user2-node, .shared-node')) {
+      if (treeId.includes('tree-') && svgContainer.querySelector('.user1-node, .user2-node, .shared-node')) {
         setTimeout(() => {
           // Find nodes with special classes
           const user1Nodes = svgContainer.querySelectorAll('.user1-node-wrapper, .user1-node');
