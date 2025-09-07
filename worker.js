@@ -883,7 +883,8 @@ function annotateSeenMissing(node, seenSet) {
   }
   node.sppCount = count;
   node.sppSeen  = seen;
-  if (seen === 0) node.color = '#9ca3af';
+  // NEW: binary branch color: any seen → green, none → gray
+  node.color = (seen > 0) ? '#22c55e' : '#9ca3af';
   return { count, seen };
 }
 
