@@ -411,10 +411,10 @@ class TreeManager {
       color: tree.isChecklist ? (node) => {
         const hay = [node.v, node.content, node.payload?.content];
         for (const s of hay) {
-          if (s && typeof s === 'string') {
-            if (s.includes('seen-node'))   return '#22c55e';
-            if (s.includes('unseen-node')) return '#9ca3af';
-          }
+          if (!s || typeof s !== 'string') continue;
+          // IMPORTANT: check UNSEEN first, and use class-style matching
+          if (/\bunseen-node\b/.test(s)) return '#9ca3af'; // gray
+          if (/\bseen-node\b/.test(s))   return '#22c55e'; // green
         }
         return undefined;
       } : undefined
