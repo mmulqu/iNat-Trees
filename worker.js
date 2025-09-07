@@ -865,7 +865,6 @@ async function resolveSpeciesIdFromAny(env, taxonId) {
   return species?.taxon_id || row.taxon_id;
 }
 
-// Color leaves and compute sppSeen/sppCount for chips
 function annotateSeenMissing(node, seenSet) {
   const isLeafSpecies = String(node.rank || '').toLowerCase() === 'species';
 
@@ -883,10 +882,11 @@ function annotateSeenMissing(node, seenSet) {
   }
   node.sppCount = count;
   node.sppSeen  = seen;
-  // Binary branch coloring: any seen descendant -> green, otherwise gray
-  node.color = seen > 0 ? '#22c55e' : '#9ca3af';
+  // CHECKLIST: any seen descendant → green, none → gray
+  node.color = (seen > 0) ? '#22c55e' : '#9ca3af';
   return { count, seen };
 }
+
 
 // Hydrate taxa for a region (fills in missing ancestors)
 async function hydrateRegionTaxa(request, env) {
