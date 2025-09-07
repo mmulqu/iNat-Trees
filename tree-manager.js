@@ -1744,8 +1744,8 @@ window.pvpManager = new TreeManager({
 // Checklist trees (Checklist tab)
 window.checklistManager = new TreeManager({
   idPrefix: 'checklist',
-  resultsCardId: 'checklistResultsCard',
-  tabsId: 'checklistTreeTabs',
-  contentId: 'checklistTreeTabContent',
-  deleteBtnId: 'checklistDeleteAllTrees'
+  resultsCardId: 'clResultsCard',
+  tabsId: 'clTreeTabs',
+  contentId: 'clTreeTabContent',
+  deleteBtnId: 'clClearBtn'
 });

@@ -200,10 +200,15 @@ async function initChecklistUI(){
 
   // clear all
   document.getElementById('clClearBtn').addEventListener('click', () => {
-    document.getElementById('clTreeTabs').innerHTML = '';
-    document.getElementById('clTreeTabContent').innerHTML = '';
-    document.getElementById('clMarkdownResult').textContent = '';
-    document.getElementById('clResultsCard').style.display = 'none';
+    if (window.checklistManager) {
+      window.checklistManager.clearAllTrees();
+    } else {
+      // Fallback (if manager not loaded)
+      document.getElementById('clTreeTabs').innerHTML = '';
+      document.getElementById('clTreeTabContent').innerHTML = '';
+      document.getElementById('clMarkdownResult').textContent = '';
+      document.getElementById('clResultsCard').style.display = 'none';
+    }
   });
 
   // submit
