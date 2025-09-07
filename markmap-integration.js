@@ -4,15 +4,29 @@
 // We inline the style so it works in both SVG <text> and foreignObject modes.
 window.mmPreprocessColors = (function(prev){
   return function(md){
-    md = String(md || '');
-    if (typeof prev === 'function') md = prev(md); // keep existing behavior (PvP, etc.)
+    md = String(md ?? '');
+    // 1) keep existing behavior (PvP, older code paths)
+    if (typeof prev === 'function') md = prev(md);
 
-    // Checklist: seen/unseen hex colors from the Worker → semantic spans
-    md = md.replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/g, '<span class="seen-node mm-color" style="color:#22c55e">$1<\/span>');
-    md = md.replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/g, '<span class="unseen-node mm-color" style="color:#9ca3af">$1<\/span>');
+    // 2) If raw tokens remain, convert opens/closes (safe for nested content)
+    if (/\{color:[^}]+\}|\{\/color\}/.test(md)) {
+      md = md
+        .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
+        .replace(/\{\/color\}/g, '</span>');
+    }
 
-    // Fallback: any other {color:...} → inline style so nothing breaks
-    md = md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, '<span class="mm-color" style="color:$1">$2<\/span>');
+    // 3) Promote specific checklist colors to semantic classes on existing mm-color spans
+    md = md
+      .replace(/<span([^>]*?)class="([^"]*?\bmm-color\b[^"]*?)"([^>]*?)style="([^"]*?color:\s*#22c55e[^"]*?)"([^>]*)>/gi,
+               '<span$1class="$2 seen-node"$3style="$4"$5>')
+      .replace(/<span([^>]*?)class="([^"]*?\bmm-color\b[^"]*?)"([^>]*?)style="([^"]*?color:\s*#9ca3af[^"]*?)"([^>]*)>/gi,
+               '<span$1class="$2 unseen-node"$3style="$4"$5>');
+
+    // 4) Safety: handle any lingering paired tokens
+    md = md
+      .replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/g, '<span class="mm-color seen-node" style="color:#22c55e">$1</span>')
+      .replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/g, '<span class="mm-color unseen-node" style="color:#9ca3af">$1</span>')
+      .replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, '<span class="mm-color" style="color:$1">$2</span>');
     return md;
   };
 })(window.mmPreprocessColors);
@@ -40,8 +54,11 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
       else if (colored.classList.contains('unseen-node')) color = '#9ca3af';
       else color = (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1];
       if (!color) return;
-      if (color.toLowerCase() === '#22c55e') link.classList.add('seen-edge');
-      else if (color.toLowerCase() === '#9ca3af') link.classList.add('missing-edge');
+      if (color.toLowerCase() === '#22c55e') {
+        link.classList.add('seen-edge');
+      } else if (color.toLowerCase() === '#9ca3af') {
+        link.classList.add('unseen-edge','missing-edge');
+      }
       // inline so it wins over default gray
       link.style.stroke = color;
       link.style.strokeOpacity = '1';

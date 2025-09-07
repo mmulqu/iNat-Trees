@@ -725,9 +725,11 @@ class TreeManager {
     svg.innerHTML = '';
   
     // Preprocess markdown for color tokens
-    let md = tree.markdown || tree.md || '';
-    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-    const processedMarkdown = this.processComparisonMarkdown(md);
+    const raw = tree.markdown || tree.md || '';
+    // First map PvP user tokens to classes
+    let processedMarkdown = this.processComparisonMarkdown(raw);
+    // Then run shared preprocessor for other color tokens
+    if (window.mmPreprocessColors) processedMarkdown = window.mmPreprocessColors(processedMarkdown);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
@@ -1733,7 +1735,7 @@ _ensureMiniMap(treeId, svg) {
       else if (c === '#2563eb') linkEl.classList.add('user2-edge');
       else if (c === '#9333ea') linkEl.classList.add('shared-edge');
       else if (c === '#22c55e') linkEl.classList.add('seen-edge');
-      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge');
+      else if (c === '#9ca3af') linkEl.classList.add('unseen-edge','missing-edge');
     });
   }
 }
