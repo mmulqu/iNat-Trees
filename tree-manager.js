@@ -1760,3 +1760,12 @@ window.pvpManager = new TreeManager({
   contentId: 'pvpTreeTabContent',
   deleteBtnId: 'pvpDeleteAllTrees'
 });
+
+// Checklist trees (Checklist tab)
+window.checklistManager = new TreeManager({
+  idPrefix: 'checklist',
+  resultsCardId: 'checklistResultsCard',
+  tabsId: 'checklistTreeTabs',
+  contentId: 'checklistTreeTabContent',
+  deleteBtnId: 'checklistDeleteAllTrees'
+});

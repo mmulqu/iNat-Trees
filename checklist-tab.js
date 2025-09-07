@@ -12,23 +12,6 @@ function authHeaders(){
   return headers;
 }
 
-// very small preprocessor so {color:#hex}label{/color} survives Markmap (HTML)
-function colorizeMarkdown(md){
-  return md.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g, (_m, c, txt) => `<span style="color:${c}">${txt}</span>`);
-}
-
-function mmRender(svg, markdown){
-  const md = colorizeMarkdown(markdown);
-  const { Transformer, Markmap } = window.markmap;
-  const transformer = new Transformer();
-  const { root } = transformer.transform(md);
-  const mm = Markmap.create(svg, null, root);
-  // fit after layout
-  setTimeout(() => mm.fit(), 50);
-  return mm;
-}
-
-function uid(){ return 'cl' + Math.random().toString(36).slice(2,9); }
 
 async function loadRegions(){
   const r = await fetch(`${API}/regions`, { headers: authHeaders() });
@@ -37,7 +20,7 @@ async function loadRegions(){
 }
 
 function setSpinner(on){ document.getElementById('clSpinner').style.display = on ? 'flex' : 'none'; }
-function showResultsCard(){ document.getElementById('clResultsCard').style.display = 'block'; }
+function showResultsCard(){ document.getElementById('checklistResultsCard').style.display = 'block'; }
 
 function activateTab(tabId){
   // Bootstrap tab show
@@ -45,43 +28,6 @@ function activateTab(tabId){
   if (tab && window.bootstrap?.Tab) new bootstrap.Tab(tab).show();
 }
 
-function addChecklistTreeTab(title, markdown){
-  showResultsCard();
-  const id = uid();
-
-  // header
-  const tabs = document.getElementById('clTreeTabs');
-  const li = document.createElement('li'); li.className = 'nav-item';
-  li.innerHTML = `
-    <a class="nav-link" id="${id}-tab" data-bs-toggle="tab" href="#${id}-content" role="tab" aria-controls="${id}-content" aria-selected="false">${title}</a>
-  `;
-  tabs.appendChild(li);
-
-  // content
-  const content = document.getElementById('clTreeTabContent');
-  const pane = document.createElement('div');
-  pane.className = 'tab-pane';
-  pane.id = `${id}-content`;
-  pane.setAttribute('role','tabpanel');
-  pane.innerHTML = `
-    <div class="markmap-container">
-      <svg id="${id}-svg" width="100%" height="700"></svg>
-    </div>
-  `;
-  content.appendChild(pane);
-
-  // markdown panel
-  const mdOut = document.getElementById('clMarkdownResult');
-  mdOut.textContent = markdown;
-
-  // activate and render
-  activateTab(id);
-  setTimeout(() => {
-    const svg = document.getElementById(`${id}-svg`);
-    svg.innerHTML = '';
-    mmRender(svg, markdown);
-  }, 60);
-}
 
 async function hydrateRegion(regionCode){
   const r = await fetch(`${API}/checklist/hydrate`, {
@@ -176,10 +122,10 @@ async function initChecklistUI(){
 
   // clear all
   document.getElementById('clClearBtn').addEventListener('click', () => {
-    document.getElementById('clTreeTabs').innerHTML = '';
-    document.getElementById('clTreeTabContent').innerHTML = '';
+    document.getElementById('checklistTreeTabs').innerHTML = '';
+    document.getElementById('checklistTreeTabContent').innerHTML = '';
     document.getElementById('clMarkdownResult').textContent = '';
-    document.getElementById('clResultsCard').style.display = 'none';
+    document.getElementById('checklistResultsCard').style.display = 'none';
   });
 
   // submit
@@ -214,8 +160,8 @@ async function initChecklistUI(){
 
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
-      // Use main tree manager with checklist mode
-      window.treeManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
+      // Use checklist manager with checklist mode
+      window.checklistManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);
