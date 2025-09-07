@@ -439,9 +439,8 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Color edges based on label colors
-    if (svg && window.mmColorEdgesFromLabels) {
-      // slight delay to let layout settle
+    // Checklist-only: mirror label colors to edges
+    if (tree.isChecklist && svg && window.mmColorEdgesFromLabels) {
       setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
     }
   
@@ -748,13 +747,14 @@ class TreeManager {
     if (!svg) return;
     svg.innerHTML = '';
   
-    // Preprocess markdown for color tokens
+    // PvP: turn {color:red|blue|purple} into semantic spans FIRST,
+    // then optionally run the generic color preprocessor on any leftovers.
     let md = tree.markdown || tree.md || '';
+    md = this.processComparisonMarkdown(md);
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-    const processedMarkdown = this.processComparisonMarkdown(md);
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
-    const { root } = transformer.transform(processedMarkdown);
+    const { root } = transformer.transform(md);
   
     const mm = Markmap.create(svg, {
       htmlLabels: true,
@@ -786,12 +786,6 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Color edges based on label colors
-    if (svg && window.mmColorEdgesFromLabels) {
-      // slight delay to let layout settle
-      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
-    }
-  
     // Color links and tag classes (comparison too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
     // Reapply on expand/collapse
