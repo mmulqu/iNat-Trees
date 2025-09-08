@@ -510,8 +510,8 @@ class TreeManager {
       return;
     }
   
-    // --- 3) create markmap (draws nodes/edges), color function only for checklist
-    const mm = Markmap.create(svg, {
+    // --- 3) create markmap ---
+    const opts = {
       htmlLabels: true,
       duration: 500,
       autoFit: true,
@@ -519,17 +519,24 @@ class TreeManager {
       initialExpandLevel: -1,
       pan: true,
       zoom: true,
-      scrollForPan: false,
-      color: tree.isChecklist ? (node) => {
+      scrollForPan: false
+    };
+
+    // Only add color when we have a real accessor (Checklist mode)
+    if (tree.isChecklist) {
+      opts.color = (node) => {
         const hay = [node.v, node.content, node.payload?.content];
         for (const s of hay) {
           if (!s || typeof s !== 'string') continue;
           if (/\bunseen-node\b/.test(s)) return '#9ca3af';
           if (/\bseen-node\b/.test(s))   return '#22c55e';
         }
+        // fall through to Markmap's default for other nodes
         return undefined;
-      } : undefined
-    }, root);
+      };
+    }
+
+    const mm = Markmap.create(svg, opts, root);
 
     // After create, sanity-check the render target size once it's visible
     setTimeout(() => {
@@ -806,7 +813,7 @@ class TreeManager {
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
   
-    const mm = Markmap.create(svg, {
+    const opts = {
       htmlLabels: true,
       duration: 500,
       autoFit: true,
@@ -814,19 +821,23 @@ class TreeManager {
       initialExpandLevel: -1,   // show full tree now
       pan: true,
       zoom: true,
-      scrollForPan: false,   // wheel = zoom; gutters = page scroll
-      color: (node) => {
-        const hay = [node.v, node.content, node.payload?.content];
-        for (const s of hay) {
-          if (s && typeof s === 'string') {
-            if (s.includes('user1-node')) return '#dc2626';
-            if (s.includes('user2-node')) return '#2563eb';
-            if (s.includes('shared-node')) return '#9333ea';
-          }
+      scrollForPan: false   // wheel = zoom; gutters = page scroll
+    };
+
+    // Add color function for PvP comparison trees
+    opts.color = (node) => {
+      const hay = [node.v, node.content, node.payload?.content];
+      for (const s of hay) {
+        if (s && typeof s === 'string') {
+          if (s.includes('user1-node')) return '#dc2626';
+          if (s.includes('user2-node')) return '#2563eb';
+          if (s.includes('shared-node')) return '#9333ea';
         }
-        return undefined;
       }
-    }, root);
+      return undefined;
+    };
+
+    const mm = Markmap.create(svg, opts, root);
 
     // Keep a handle + keep fitting
     tree._mm = mm;
