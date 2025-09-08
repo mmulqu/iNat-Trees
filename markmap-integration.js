@@ -1,11 +1,13 @@
 // markmap-integration.js
 
-// Turn {color:#hex}…{/color} into HTML spans Markmap will render.
-// We inline the style so it works in both SVG <text> and foreignObject modes.
+// Turn {color:#hex|name}…{/color} into HTML spans Markmap will render,
+// BUT leave PvP colors (red/blue/purple) untouched for the PvP pass.
 window.mmPreprocessColors = function mmPreprocessColors(md) {
-  if (!md) return md;
+  if (md == null) return md;
   return String(md)
-    .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
+    // do NOT eat PvP's three colors; everything else becomes <span class="mm-color" …>
+    .replace(/\{color:(?!red\b|blue\b|purple\b)([^}]+)\}/gi,
+             (_m, c) => `<span class="mm-color" style="color:${c}">`)
     .replace(/\{\/color\}/g, '</span>');
 };
 

@@ -728,11 +728,16 @@ class TreeManager {
   }
 
   processComparisonMarkdown(markdown) {
-    // Turn {color:*}...{/color} into spans Markmap can render as HTML labels
-    return String(markdown)
-      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/g, '<span class="user1-node">$1</span>')
-      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/g, '<span class="user2-node">$1</span>')
-      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/g, '<span class="shared-node">$1</span>');
+    const s = String(markdown);
+    return s
+      // raw PvP tokens → classes
+      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
+      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>')
+      // ALSO catch already-preprocessed spans, just in case
+      .replace(/<span class="mm-color" style="color:\s*red">([\s\S]*?)<\/span>/gi, '<span class="user1-node">$1</span>')
+      .replace(/<span class="mm-color" style="color:\s*blue">([\s\S]*?)<\/span>/gi, '<span class="user2-node">$1</span>')
+      .replace(/<span class="mm-color" style="color:\s*purple">([\s\S]*?)<\/span>/gi, '<span class="shared-node">$1</span>');
   }
 
   // Checklist: mirror PvP approach with semantic classes (seen/unseen)
@@ -750,8 +755,11 @@ class TreeManager {
   
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
+    // 1) Turn PvP tokens into semantic classes first
+    md = this.processComparisonMarkdown(md);
+    // 2) Then let the generic preprocessor handle any other colors
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-    const processedMarkdown = this.processComparisonMarkdown(md);
+    const processedMarkdown = md;
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);
