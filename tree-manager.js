@@ -524,17 +524,13 @@ class TreeManager {
 
     // Only add color when we have a real accessor (Checklist mode)
     if (tree.isChecklist) {
-      opts.color = (node) => {
-        const hay = [node.v, node.content, node.payload?.content];
-        for (const s of hay) {
-          if (!s || typeof s !== 'string') continue;
-          if (/\bunseen-node\b/.test(s)) return '#9ca3af';
-          if (/\bseen-node\b/.test(s))   return '#22c55e';
-        }
-        // fall through to Markmap's default for other nodes
-        return undefined;
-      };
+      md = this.processChecklistMarkdown(mdRaw);
+    } else {
+      md = listToHeadings(mdRaw, null);          // bullets → headings, no synthetic root
+      md = this._applyRankBadgesToMarkdown(md);  // inject badge spans directly
+      console.debug('[MM] Explore (headings+badges) head:', md.slice(0, 160));
     }
+    
 
     const mm = Markmap.create(svg, opts, root);
 
@@ -1762,12 +1758,13 @@ _ensureMiniMap(treeId, svg) {
 
   // Replace trailing rank letters with a special token that survives HTML stripping.
   _applyRankBadgesToMarkdown(md){
-    const TITLE = {F:'family', G:'genus', S:'species', O:'order', C:'class', P:'phylum', K:'kingdom', D:'domain'};
+    const TITLE = {F:'family', G:'genus', S:'genus', O:'order', C:'class', P:'phylum', K:'kingdom', D:'domain'};
     return String(md).split(/\r?\n/).map(line =>
       line.replace(/(\s)([FGSOCPKD])(\s*(?:🖼️)?\s*)$/,
-        (m, sp, L, tail) => `${sp}{RANK:${L}|${TITLE[L]||''}}${tail}`)
+        (m, sp, L, tail) => `${sp}<span class="mm-badge mm-rank" title="${TITLE[L]||''}">${L}</span>${tail}`)
     ).join('\n');
   }
+  
 
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
