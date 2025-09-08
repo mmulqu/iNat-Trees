@@ -174,12 +174,11 @@ async function resolveTaxonTitle(taxonId) {
 // Helper to convert bullet lists to heading hierarchies
 function listToHeadings(md, title) {
   md = String(md || '');
-  // Strip color tokens + HTML we don't need for labels
+  // Strip color + links, keep rank tokens
   md = md
     .replace(/\{\/?color:[^}]*\}/g, '')
     .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
-    .replace(/<\/?span\b[^>]*>/gi, '')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<[^>]+>/g, '') // drop other HTML, but leaves {RANK:...}
     .trim();
 
   const lines = md.split(/\r?\n/);
@@ -188,14 +187,11 @@ function listToHeadings(md, title) {
 
   for (const line of lines) {
     const m = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
-    if (!m) continue;                              // ignore non-bullet lines
+    if (!m) continue;
     const indent = m[1].replace(/\t/g, '  ').length;
-    const level = Math.min(6, 2 + Math.floor(indent / 2)); // H2+ based on indent
+    const level = Math.min(6, 2 + Math.floor(indent / 2));
     let text = m[2].trim();
-
-    // Optional: trim camera emoji / trailing badge clutter if present
     text = text.replace(/\s*🖼️\s*$/u, '');
-
     out.push(`${'#'.repeat(level)} ${text}`);
   }
   return out.join('\n');
