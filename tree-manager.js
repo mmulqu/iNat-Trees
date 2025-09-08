@@ -463,11 +463,11 @@ class TreeManager {
     // Ensure Explore has a heading root; Markmap won't render a pure list as the document root.
     const hasHeading = /^\s*#{1,6}\s+/m.test(md);
     const hasList    = /^\s*[-*+]\s+/m.test(md);
-    if (!hasHeading && hasList) {
+    if (!tree.isChecklist && !hasHeading && hasList) {
       const rootTitle = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
-      // Indent everything so the bullets become children of the H1
+      // Indent everything so the bullets become children of the new H1
       md = `# ${rootTitle}\n` + String(md).replace(/^/gm, '  ');
-      console.debug('[MM] injected synthetic H1 root for Explore');
+      console.debug('[MM] Injected synthetic H1 root for Explore');
     }
   
     svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
