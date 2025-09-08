@@ -1,13 +1,70 @@
 // markmap-integration.js
 
-// Turn {color:#hex}…{/color} into HTML spans Markmap will render.
-// This simple, generic version works for all cases, including the Explore tab's rank colors.
+// SAFER: convert {color:...} tags without breaking lists/blocks.
+// - Handles inline pairs on a single line.
+// - If a color block spans multiple lines, it wraps only the label portion
+//   of each list line (or heading) and never emits a <span> across lines.
+// - Any leftover tokens are stripped so the parser never sees raw {color:...}.
 window.mmPreprocessColors = function mmPreprocessColors(md) {
   if (!md) return md;
-  return String(md)
-    .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
-    .replace(/\{\/color\}/g, '</span>');
+  const lines = String(md).split(/\r?\n/);
+  let active = null; // current color (if inside a multi-line block)
+
+  const wrapLabel = (line, color) => {
+    // List items: "- ", "* ", "+ ", or "1. " etc.
+    const li = line.replace(/^(\s*(?:[-*+]|(?:\d+\.))\s+)(.+)$/, (_, pfx, rest) =>
+      `${pfx}<span class="mm-color" style="color:${color}">${rest}</span>`
+    );
+    if (li !== line) return li;
+
+    // Headings: "#", "##", …
+    const hd = line.replace(/^(\s*#{1,6}\s+)(.+)$/, (_, pfx, rest) =>
+      `${pfx}<span class="mm-color" style="color:${color}">${rest}</span>`
+    );
+    if (hd !== line) return hd;
+
+    // Fallback: plain text lines
+    if (line.trim()) {
+      return `<span class="mm-color" style="color:${color}">${line}</span>`;
+    }
+    return line;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    let L = lines[i];
+
+    // 1) handle inline, same-line pairs first: {color:X}text{/color}
+    L = L.replace(/\{color:([^}]+)\}([\s\S]*?)\{\/color\}/g,
+      (_m, c, txt) => `<span class="mm-color" style="color:${c}">${txt}</span>`);
+
+    // 2) open/close tokens that don't pair on the same line
+    // open only
+    const openMatch = L.match(/\{color:([^}]+)\}/);
+    const hasClose  = /\{\/color\}/.test(L);
+
+    if (openMatch && !hasClose) {
+      active = openMatch[1];
+      L = L.replace(/\{color:[^}]+\}/g, ''); // remove token
+      L = wrapLabel(L, active);
+    } else if (!openMatch && hasClose) {
+      // closing a previously opened block
+      if (active) L = wrapLabel(L.replace(/\{\/color\}/g, ''), active);
+      active = null;
+    } else if (openMatch && hasClose) {
+      // (rare) both tokens still present after inline pass; clean them
+      L = L.replace(/\{color:[^}]+\}/g, '').replace(/\{\/color\}/g, '');
+    } else if (active) {
+      // inside an active color block
+      L = wrapLabel(L, active);
+    }
+
+    lines[i] = L;
+  }
+
+  // 3) safety: strip any stray tokens so markdown stays clean
+  return lines.join('\n').replace(/\{\/?color:[^}]*\}/g, '');
 };
+
 
 
 document.addEventListener('DOMContentLoaded', function() {
