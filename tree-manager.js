@@ -175,9 +175,9 @@ async function resolveTaxonTitle(taxonId) {
 function listToHeadings(md, title) {
   md = String(md || '');
   md = md
-    .replace(/\{\/?color:[^}]*\}/g, '')               // strip color
-    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')          // keep link text
-    .replace(/<[^>]+>/g, '')                          // kill other HTML (but leaves {RANK:...})
+    .replace(/\{\/?color:[^}]*\}/g, '')              // strip color tokens
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')         // keep link text
+    .replace(/<[^>]+>/g, '')                         // drop other HTML (tokens survive)
     .trim();
 
   const lines = md.split(/\r?\n/);
@@ -190,11 +190,12 @@ function listToHeadings(md, title) {
     const indent = m[1].replace(/\t/g, '  ').length;
     const level = Math.min(6, 2 + Math.floor(indent / 2));
     let text = m[2].trim();
-    text = text.replace(/\s*🖼️\s*$/u, '');
+    text = text.replace(/\s*🖼️\s*$/u, ''); // strip camera emoji
     out.push(`${'#'.repeat(level)} ${text}`);
   }
   return out.join('\n');
 }
+
 
 
 
@@ -432,12 +433,13 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      md = this._applyRankBadgesToMarkdown(mdRaw); // convert rank letters to tokens first
-      md = listToHeadings(md, null); // ⬅️ convert bullets → headings (strips HTML but preserves tokens), no synthetic root
-      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g,
-        (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`); // convert tokens to spans after HTML stripping
-      console.debug('[MM] Explore (headings) head:', md.slice(0, 160));
+      md = this._applyRankBadgesToMarkdown(mdRaw); // step 1: replace trailing letters → tokens
+      md = listToHeadings(md, null);               // step 2: convert bullets → headings
+      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g, // step 3: tokens → spans
+        (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`);
+      console.debug('[MM] Explore (headings+badges) head:', md.slice(0, 160));
     }
+    
   
     const { Transformer, Markmap } = window.markmap;
   
@@ -1758,12 +1760,17 @@ _ensureMiniMap(treeId, svg) {
 
   // Replace trailing rank letters with a special token that survives HTML stripping.
   _applyRankBadgesToMarkdown(md){
-    const TITLE = {F:'family', G:'genus', S:'genus', O:'order', C:'class', P:'phylum', K:'kingdom', D:'domain'};
+    const TITLE = {
+      F:'family', G:'genus', S:'species',
+      O:'order', C:'class', P:'phylum',
+      K:'kingdom', D:'domain'
+    };
     return String(md).split(/\r?\n/).map(line =>
       line.replace(/(\s)([FGSOCPKD])(\s*(?:🖼️)?\s*)$/,
-        (m, sp, L, tail) => `${sp}<span class="mm-badge mm-rank" title="${TITLE[L]||''}">${L}</span>${tail}`)
+        (m, sp, L, tail) => `${sp}{RANK:${L}|${TITLE[L]||''}}${tail}`)
     ).join('\n');
   }
+  
   
 
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
