@@ -199,6 +199,7 @@ function listToHeadings(md, title) {
 
 
 
+
 class TreeManager {
   constructor(opts = {}) {
     this.trees = [];
@@ -427,19 +428,21 @@ class TreeManager {
     // --- 1) pick source markdown ---
     const mdRaw = tree.markdown || tree.md || '';
     let md = mdRaw;
-
+  
     svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
-
+  
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      md = this._applyRankBadgesToMarkdown(mdRaw); // step 1: replace trailing letters → tokens
-      md = listToHeadings(md, null);               // step 2: convert bullets → headings
-      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g, // step 3: tokens → spans
+      // Step 1: replace trailing rank letters → tokens
+      md = this._applyRankBadgesToMarkdown(mdRaw);
+      // Step 2: convert bullets → headings
+      md = listToHeadings(md, null);
+      // Step 3: tokens → span badges
+      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g,
         (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`);
-      console.debug('[MM] Explore (headings+badges) head:', md.slice(0, 160));
+      console.debug('[MM] Explore final md >>>', md.slice(0, 200));
     }
-    
   
     const { Transformer, Markmap } = window.markmap;
   
@@ -448,18 +451,10 @@ class TreeManager {
       const t = new Transformer();
       return t.transform(String(s)).root;
     };
-    const dbgSummary = (label, root) => {
-      const c = root && Array.isArray(root.children) ? root.children.length : 0;
-      console.debug(`[MM][xform ${label}] children:`, c, root);
-      return c;
-    };
     const stripColorTokens = (s) => String(s).replace(/\{\/?color:[^}]*\}/g, '');
     const stripRiskyHtml = (s) => String(s)
-      // keep link text, drop tags
       .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
-      // keep inner text of spans (e.g., rank badge letters go away only in this fallback)
       .replace(/<\/?span\b[^>]*>/gi, '')
-      // nuke anything else that looks like HTML
       .replace(/<[^>]+>/g, '');
     const bulletize = (s) => String(s).split(/\r?\n/).map(l => {
       if (!l.trim()) return l;
@@ -468,53 +463,39 @@ class TreeManager {
   
     // --- 2) transform pipeline ---
     let root = null;
-  
-    // Pass A: headings (best case)
-    try { root = transform(md); console.debug('[MM][xform A headings] children:', root?.children?.length || 0); } catch (e) { console.error('xform A failed:', e); root = null; }
-  
-    // Pass B: drop any leftover {color:...} (paranoia)
-    if (!root?.children?.length) {
-      try { root = transform(md.replace(/\{\/?color:[^}]*\}/g, '')); 
-           console.debug('[MM][xform B no-color] children:', root?.children?.length || 0); } 
-      catch (e) { console.error('xform B failed:', e); root = null; }
+    try {
+      root = transform(md);
+      console.debug('[MM][xform A headings] children:', root?.children?.length || 0);
+    } catch (e) {
+      console.error('xform A failed:', e);
+      root = null;
     }
   
     if (!root?.children?.length) {
-      console.error('Explore: empty AST after all passes. Preview:', String(mdRaw).slice(0, 400));
+      try {
+        root = transform(stripColorTokens(md));
+        console.debug('[MM][xform B no-color] children:', root?.children?.length || 0);
+      } catch (e) {
+        console.error('xform B failed:', e);
+        root = null;
+      }
+    }
+  
+    if (!root?.children?.length) {
+      console.error('Explore: empty AST after all passes. Preview:', String(md).slice(0, 400));
       const tabContent = document.getElementById(`${tree.id}-content`);
       const host = tabContent?.querySelector('.markmap-container');
       if (host) {
-        const note = document.createElement('div');
-        note.className = 'alert alert-warning m-3';
-        note.innerHTML = `
-          <div class="d-flex align-items-start">
-            <div class="me-2">⚠️</div>
-            <div>
-              <strong>Couldn’t build a tree for this result.</strong><br/>
-              The API didn’t return hierarchical markdown (lists/headings). 
-              <a href="#" id="${tree.id}-dump">Click to copy the raw input</a> and check the /build-taxonomy payload.
-            </div>
-          </div>`;
-        host.innerHTML = '';
-        host.appendChild(note);
-        note.querySelector(`#${tree.id}-dump`)?.addEventListener('click', (e) => {
-          e.preventDefault();
-          try {
-            navigator.clipboard.writeText(window.lastExploreMarkdown || '');
-            note.classList.remove('alert-warning');
-            note.classList.add('alert-success');
-            note.innerHTML = '✅ Copied raw input markdown to clipboard. Paste into your editor and verify structure.';
-          } catch {
-            alert('Copy failed. Open console and use window.lastExploreMarkdown.');
-          }
-        });
+        host.innerHTML = `<div class="alert alert-warning m-3">
+          ⚠️ Couldn’t build a tree. Check the /build-taxonomy payload.
+        </div>`;
       }
       return;
     }
   
     // --- 3) create markmap ---
     const opts = {
-      htmlLabels: true,
+      htmlLabels: true,   // <-- critical for badge spans
       duration: 500,
       autoFit: true,
       fitRatio: 0.98,
@@ -523,26 +504,15 @@ class TreeManager {
       zoom: true,
       scrollForPan: false
     };
-
-    // Only add color when we have a real accessor (Checklist mode)
-    if (tree.isChecklist) {
-      md = this.processChecklistMarkdown(mdRaw);
-    } else {
-      md = listToHeadings(mdRaw, null);          // bullets → headings, no synthetic root
-      md = this._applyRankBadgesToMarkdown(md);  // inject badge spans directly
-      console.debug('[MM] Explore (headings+badges) head:', md.slice(0, 160));
-    }
-    
-
+  
     const mm = Markmap.create(svg, opts, root);
-
-    // After create, sanity-check the render target size once it's visible
+  
+    // After create, sanity-check
     setTimeout(() => {
       const nodes = svg.querySelectorAll('g.markmap-node').length;
       const paths = svg.querySelectorAll('path.markmap-link').length;
       console.debug('[MM] after-create counts', { nodes, links: paths });
       if (nodes > 0) {
-        // paint links + classes (works for any mode)
         setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
         svg.addEventListener('click', () => {
           setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
@@ -558,9 +528,7 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
   
-    // color/minimap scheduling moved into post-create guard above
-  
-    // --- 4) rank-based coloring (this ONLY runs after nodes exist) ---
+    // --- 4) rank-based coloring ---
     if (!tree.isChecklist) {
       const RANK_COLOR = {
         species:'#22c55e', subspecies:'#22c55e', variety:'#22c55e',
@@ -591,10 +559,6 @@ class TreeManager {
         svg.querySelectorAll('path.markmap-link').forEach((p) => {
           let key = p.getAttribute('data-path');
           let gNode = key ? svg.querySelector(`g.markmap-node[data-path="${key}"]`) : null;
-          if (!gNode) {
-            const d = p.__data__; const target = d && d.target;
-            if (target?.path) { key = target.path; gNode = svg.querySelector(`g.markmap-node[data-path="${key}"]`); }
-          }
           const c = (gNode && getRankColor(gNode)) || (key && colorByPath.get(key));
           if (!c) return;
           p.setAttribute('stroke', c);
@@ -605,34 +569,11 @@ class TreeManager {
       svg.addEventListener('click', () => setTimeout(() => requestAnimationFrame(colorByRank), 250));
     }
   
-    // toolbar, gutters, minimap, dark text polish, stats (unchanged)
+    // toolbar, gutters, minimap
     this.installToolbar(tree, mm, root);
     this._ensureScrollGutters(svg.closest('.markmap-container'));
     this._ensureMiniMap(tree.id, svg);
-  
-    try {
-      const isDark = document.body.classList.contains('dark-theme');
-      if (isDark) {
-        setTimeout(() => {
-          svg.querySelectorAll('text, tspan, .markmap-node text').forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          svg.querySelectorAll('.markmap-foreign *').forEach(el => { el.style.color = '#f8fafc'; });
-        }, 0);
-      }
-    } catch {}
-  
-    try {
-      const tabContent = document.getElementById(`${tree.id}-content`);
-      tabContent.querySelectorAll('.taxonomy-stats').forEach(el => el.remove());
-      if (tree.stats && window.taxonomyStats) {
-        const statsContainer = this.createStatsDashboard(tree);
-        const info = tabContent.querySelector('.tree-info');
-        if (statsContainer) (info ? info.after(statsContainer) : tabContent.appendChild(statsContainer));
-      }
-    } catch (e) {
-      console.error('Stats render error:', e);
-    }
   }
-  
   
 
   // Create statistics dashboard for a single tree
@@ -1771,8 +1712,6 @@ _ensureMiniMap(treeId, svg) {
     ).join('\n');
   }
   
-  
-
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
     if (!svg) return;
