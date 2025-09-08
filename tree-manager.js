@@ -430,17 +430,6 @@ class TreeManager {
         return undefined;
       } : undefined
     }, root);
-
-    // Checklist-specific edge painting (mirror PvP timing)
-    if (tree.isChecklist) {
-      const paint = () => { /* Edge painting now handled by _colorLinksAndTagEdges */ };
-      setTimeout(paint, 80);
-      setTimeout(paint, 180);
-      setTimeout(() => { paint(); mm.fit(); }, 360);
-      svg.addEventListener('click', () => setTimeout(paint, 250));
-      // optional: repaint on DOM changes within this SVG
-      new MutationObserver(() => setTimeout(paint, 120)).observe(svg, { subtree:true, childList:true, attributes:true });
-    }
   
     // Keep a handle + keep fitting
     tree._mm = mm;
@@ -449,10 +438,8 @@ class TreeManager {
     tree._ro = new ResizeObserver(() => { try { mm.fit(); } catch(_){} });
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
-
-    // Edge coloring now handled by _colorLinksAndTagEdges for all tree types
   
-    // Color links and tag classes (single-user too)
+    // Color links and tag classes for ALL trees
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
     // Reapply on expand/collapse
     svg.addEventListener('click', () => {
