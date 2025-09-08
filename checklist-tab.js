@@ -12,8 +12,6 @@ function authHeaders(){
   return headers;
 }
 
-function uid(){ return 'cl' + Math.random().toString(36).slice(2,9); }
-
 async function loadRegions(){
   const r = await fetch(`${API}/regions`, { headers: authHeaders() });
   const j = await r.json();
@@ -21,89 +19,6 @@ async function loadRegions(){
 }
 
 function setSpinner(on){ document.getElementById('clSpinner').style.display = on ? 'flex' : 'none'; }
-function showResultsCard(){ document.getElementById('clResultsCard').style.display = 'block'; }
-
-function activateTab(tabId){
-  const tab = document.getElementById(`${tabId}-tab`);
-  if (tab && window.bootstrap?.Tab) new bootstrap.Tab(tab).show();
-}
-
-// --- Checklist-only Markmap render with robust color pass ---
-function mmRender(svg, markdown){
-  // 1) Start with shared preprocessor so {color:#hex} → <span class="mm-color" style="color:#hex">
-  const preprocess = window.mmPreprocessColors || ((s)=>s);
-  let md = preprocess(markdown || '');
-
-  // 2) Upgrade our two checklist colors to semantic classes (only in this tab)
-  md = md
-    .replace(/<span class="mm-color" style="color:\s*#22c55e">/gi, '<span class="mm-color seen-node" style="color:#22c55e">')
-    .replace(/<span class="mm-color" style="color:\s*#9ca3af">/gi, '<span class="mm-color unseen-node" style="color:#9ca3af">');
-
-  // 3) Build Markmap
-  const { Transformer, Markmap } = window.markmap;
-  const transformer = new Transformer();
-  const { root } = transformer.transform(md);
-  const mm = Markmap.create(svg, null, root);
-  svg.dataset.mode = 'checklist';
-
-  // 4) Edge painting now handled by _colorLinksAndTagEdges
-  const paint = () => {
-    // Edge painting now handled by _colorLinksAndTagEdges
-  };
-
-  // Initial fit + multiple delayed paints to catch async layout
-  const schedulePaints = () => {
-    setTimeout(paint, 80);
-    setTimeout(paint, 180);
-    setTimeout(() => { paint(); mm.fit(); }, 360);
-  };
-  schedulePaints();
-
-  // Repaint on expand/collapse clicks and on DOM mutations within this SVG only
-  svg.addEventListener('click', () => setTimeout(paint, 250));
-  const obs = new MutationObserver(() => setTimeout(paint, 120));
-  obs.observe(svg, { subtree: true, childList: true, attributes: true });
-
-  return mm;
-}
-
-function addChecklistTreeTab(title, markdown){
-  showResultsCard();
-  const id = uid();
-
-  // header
-  const tabs = document.getElementById('clTreeTabs');
-  const li = document.createElement('li'); li.className = 'nav-item';
-  li.innerHTML = `
-    <a class="nav-link" id="${id}-tab" data-bs-toggle="tab" href="#${id}-content" role="tab" aria-controls="${id}-content" aria-selected="false">${title}</a>
-  `;
-  tabs.appendChild(li);
-
-  // content
-  const content = document.getElementById('clTreeTabContent');
-  const pane = document.createElement('div');
-  pane.className = 'tab-pane';
-  pane.id = `${id}-content`;
-  pane.setAttribute('role','tabpanel');
-  pane.innerHTML = `
-    <div class="markmap-container">
-      <svg id="${id}-svg" data-mode="checklist" width="100%" height="700"></svg>
-    </div>
-  `;
-  content.appendChild(pane);
-
-  // markdown panel
-  const mdOut = document.getElementById('clMarkdownResult');
-  mdOut.textContent = markdown;
-
-  // activate and render in THIS Checklist tab (do NOT call treeManager.addTree)
-  activateTab(id);
-  setTimeout(() => {
-    const svg = document.getElementById(`${id}-svg`);
-    svg.innerHTML = '';
-    mmRender(svg, markdown);
-  }, 60);
-}
 
 async function hydrateRegion(regionCode){
   const r = await fetch(`${API}/checklist/hydrate`, {
@@ -198,14 +113,9 @@ async function initChecklistUI(){
 
   // clear all
   document.getElementById('clClearBtn').addEventListener('click', () => {
+    // This now correctly and exclusively uses the manager
     if (window.checklistManager) {
       window.checklistManager.clearAllTrees();
-    } else {
-      // Fallback (if manager not loaded)
-      document.getElementById('clTreeTabs').innerHTML = '';
-      document.getElementById('clTreeTabContent').innerHTML = '';
-      document.getElementById('clMarkdownResult').textContent = '';
-      document.getElementById('clResultsCard').style.display = 'none';
     }
   });
 
@@ -242,13 +152,8 @@ async function initChecklistUI(){
       const taxonLabel = document.getElementById('clTaxonName').value || `Taxon ${baseId}`;
       const title = `Targets: ${region} — ${taxonLabel}`;
       
-      // Use checklistManager to add tree with checklist mode
-      if (window.checklistManager) {
-        window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
-      } else {
-        // Fallback to local implementation
-        addChecklistTreeTab(title, j.markdown);
-      } // stays in Checklist tab
+      // Use checklistManager to add the tree
+      window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
     } catch (e) {
       console.error(e);
       alert(`Checklist build failed: ${e.message}`);

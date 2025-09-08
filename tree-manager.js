@@ -387,11 +387,13 @@ class TreeManager {
     // Preprocess markdown
     let md = tree.markdown || tree.md || '';
     if (tree.isChecklist) {
-      // Checklist: upgrade the two hexes to semantic classes
+      // Checklist uses its own specific processor
       md = this.processChecklistMarkdown(md);
     } else {
-      // EXPLORE: never run the generic preprocessor; just strip any color tokens
-      md = md.replace(/\{color:[^}]+\}/gi, '').replace(/\{\/color\}/gi, '');
+      // Explore (the default) uses the generic color preprocessor
+      if (window.mmPreprocessColors) {
+        md = window.mmPreprocessColors(md);
+      }
     }
 
     // Tag the mode for any helpers that look at it (mini-map, etc.)
@@ -733,14 +735,11 @@ class TreeManager {
   }
 
   processComparisonMarkdown(markdown) {
+    // Turn {color:*}...{/color} into spans Markmap can render as HTML labels
     return String(markdown)
       .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
       .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
-      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>')
-      // Fallback if something already made <span class="mm-color" style="color:…">
-      .replace(/<span class="mm-color" style="color:\s*red">([\s\S]*?)<\/span>/gi, '<span class="user1-node">$1</span>')
-      .replace(/<span class="mm-color" style="color:\s*blue">([\s\S]*?)<\/span>/gi, '<span class="user2-node">$1</span>')
-      .replace(/<span class="mm-color" style="color:\s*purple">([\s\S]*?)<\/span>/gi, '<span class="shared-node">$1</span>');
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>');
   }
 
   // Checklist: mirror PvP approach with semantic classes (seen/unseen)
@@ -758,11 +757,7 @@ class TreeManager {
   
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
-    // First: convert PvP tokens to semantic classes
-    md = this.processComparisonMarkdown(md);
-    // Then: let the generic preprocessor handle any other colors
-    if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
-    const processedMarkdown = md;
+    const processedMarkdown = this.processComparisonMarkdown(md);
 
     // Tag the mode for any helpers that look at it (mini-map, etc.)
     svg.dataset.mode = 'pvp';
