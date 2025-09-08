@@ -187,6 +187,33 @@ class TreeManager {
 
     const delBtn = document.getElementById(this.deleteBtnId);
     if (delBtn) delBtn.addEventListener('click', () => this.clearAllTrees());
+
+    // Render coordination: debounce + in-flight guard
+    this._renderTimers = new Map();
+    this._renderingNow = new Set();
+  }
+
+  _scheduleRender(tree, delay = 50) {
+    const key = tree.id;
+    if (this._renderTimers.has(key)) clearTimeout(this._renderTimers.get(key));
+    this._renderTimers.set(key, setTimeout(() => {
+      this._renderTimers.delete(key);
+      this._safeRender(tree);
+    }, delay));
+  }
+
+  _safeRender(tree) {
+    if (this._renderingNow.has(tree.id)) {
+      __mmdbg?.log && __mmdbg.log('render skipped (in-flight)', { id: tree.id });
+      return;
+    }
+    this._renderingNow.add(tree.id);
+    try {
+      if (tree.isComparison) this.renderComparisonTree(tree);
+      else this.renderTree(tree);
+    } finally {
+      setTimeout(() => this._renderingNow.delete(tree.id), 120);
+    }
   }
 
   generateTreeId() {
@@ -247,8 +274,8 @@ class TreeManager {
     this.trees.push(tree);
     this.createTreeTab(tree);
     this.activateTab(treeId);
-    // Render immediately (and later on tab shown we re-render)
-    this.renderTree(tree);
+    // Only schedule one render; shown.bs.tab will also schedule if needed
+    this._scheduleRender(tree, 100);
     return treeId;
   }
 
@@ -268,9 +295,8 @@ class TreeManager {
     const tree = this.trees.find(t => t.id === treeId);
     if (!tree) return;
 
-    // Render into the now-active pane
-    if (tree.isComparison) this.renderComparisonTree(tree);
-    else this.renderTree(tree);
+    // Render into the now-active pane (debounced / guarded)
+    this._scheduleRender(tree, 50);
   }
 
   // Add this method to the TreeManager class
@@ -343,16 +369,12 @@ class TreeManager {
       e.preventDefault();
       new bootstrap.Tab(tabTrigger).show();
     });
-    // When the tab is shown, clear the SVG and re-render the tree
+    // When the tab is shown, clear the SVG and schedule a re-render
     tabTrigger.addEventListener('shown.bs.tab', () => {
       __mmdbg?.log && __mmdbg.log('tab shown', { treeId: tree.id });
-      // Clear any existing renderers first to prevent memory leaks
       const svg = document.getElementById(`${tree.id}-svg`);
       if (svg) svg.innerHTML = '';
-
-      setTimeout(() => {
-        this.renderTree(tree);
-      }, 100);
+      this._scheduleRender(tree, 80);
     });
     if (this.trees.length === 1) {
       new bootstrap.Tab(tabTrigger).show();
@@ -465,6 +487,14 @@ class TreeManager {
         return undefined;
       } : undefined
     }, root);
+
+    // Extra post-create DOM visibility
+    queueMicrotask(() => {
+      const svgEl = document.getElementById(`${tree.id}-svg`);
+      const gCount = svgEl ? svgEl.querySelectorAll('g').length : 0;
+      const anyPath = svgEl ? svgEl.querySelector('path') : null;
+      console.log('[MM] post-create DOM', { gCount, hasPath: !!anyPath });
+    });
   
     // keep handles + fit
     tree._mm = mm;
@@ -1682,13 +1712,13 @@ _ensureMiniMap(treeId, svg) {
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
     if (!svg) return;
-    const linksBefore = svg.querySelectorAll('path.markmap-link').length;
-    const nodesBefore = svg.querySelectorAll('g.markmap-node').length;
+    const linksBefore = svg.querySelectorAll('path.markmap-link, path.link').length;
+    const nodesBefore = svg.querySelectorAll('g.markmap-node, g.node').length;
     __mmdbg?.log && __mmdbg.log('color pass: before', { nodesBefore, linksBefore });
 
     // Map data-path → color
     const colorByPath = new Map();
-    svg.querySelectorAll('g.markmap-node').forEach(g => {
+    svg.querySelectorAll('g.markmap-node, g.node').forEach(g => {
       const key = g.getAttribute('data-path');
       const c = this._inferNodeColorFromG(g);
       if (key && c) colorByPath.set(key, c);
@@ -1702,7 +1732,7 @@ _ensureMiniMap(treeId, svg) {
     });
 
     // Color the curved links and tag classes
-    svg.querySelectorAll('path.markmap-link').forEach(linkEl => {
+    svg.querySelectorAll('path.markmap-link, path.link').forEach(linkEl => {
       let c = null;
 
       // Prefer data-path
@@ -1735,7 +1765,7 @@ _ensureMiniMap(treeId, svg) {
       else if (c === '#22c55e') linkEl.classList.add('seen-edge');
       else if (c === '#9ca3af') linkEl.classList.add('unseen-edge','missing-edge');
     });
-    const linksAfter = svg.querySelectorAll('path.markmap-link').length;
+    const linksAfter = svg.querySelectorAll('path.markmap-link, path.link').length;
     __mmdbg?.log && __mmdbg.log('color pass: after', { linksAfter });
   }
 }
