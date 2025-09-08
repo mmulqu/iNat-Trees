@@ -439,8 +439,8 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Color edges based on label colors
-    if (svg && window.mmColorEdgesFromLabels) {
+    // Color edges based on label colors (checklist only)
+    if (tree.isChecklist && svg && window.mmColorEdgesFromLabels) {
       // slight delay to let layout settle
       setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
     }
@@ -728,13 +728,11 @@ class TreeManager {
   }
 
   processComparisonMarkdown(markdown) {
-    const s = String(markdown);
-    return s
-      // raw PvP tokens → classes
+    return String(markdown)
       .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
       .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
       .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>')
-      // ALSO catch already-preprocessed spans, just in case
+      // Fallback if something already made <span class="mm-color" style="color:…">
       .replace(/<span class="mm-color" style="color:\s*red">([\s\S]*?)<\/span>/gi, '<span class="user1-node">$1</span>')
       .replace(/<span class="mm-color" style="color:\s*blue">([\s\S]*?)<\/span>/gi, '<span class="user2-node">$1</span>')
       .replace(/<span class="mm-color" style="color:\s*purple">([\s\S]*?)<\/span>/gi, '<span class="shared-node">$1</span>');
@@ -755,9 +753,9 @@ class TreeManager {
   
     // Preprocess markdown for color tokens
     let md = tree.markdown || tree.md || '';
-    // 1) Turn PvP tokens into semantic classes first
+    // First: convert PvP tokens to semantic classes
     md = this.processComparisonMarkdown(md);
-    // 2) Then let the generic preprocessor handle any other colors
+    // Then: let the generic preprocessor handle any other colors
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
     const processedMarkdown = md;
     const { Transformer, Markmap } = window.markmap;
@@ -794,12 +792,6 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Color edges based on label colors
-    if (svg && window.mmColorEdgesFromLabels) {
-      // slight delay to let layout settle
-      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
-    }
-  
     // Color links and tag classes (comparison too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
     // Reapply on expand/collapse

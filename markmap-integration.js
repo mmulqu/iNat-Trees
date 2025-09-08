@@ -11,15 +11,17 @@ window.mmPreprocessColors = function mmPreprocessColors(md) {
     .replace(/\{\/color\}/g, '</span>');
 };
 
-// --- Robust edge painter (works across Markmap builds) ---
+// --- Checklist-only edge painter (green/gray). Safe for all Markmap versions.
 window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
+  // ✅ Do nothing unless this SVG was rendered in checklist mode
+  if (!svgRoot || svgRoot.dataset.mode !== 'checklist') return;
+
   const toHex = (c) => {
     if (!c) return '';
     c = String(c).trim().toLowerCase();
-    if (c.startsWith('#')) {
-      if (c.length === 4) return '#' + c.slice(1).split('').map(x => x + x).join('');
-      return c;
-    }
+    if (c.startsWith('#')) return c.length === 4
+      ? '#' + c.slice(1).split('').map(x => x + x).join('')
+      : c;
     const m = c.match(/rgb\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/);
     if (m) {
       const [r,g,b] = m.slice(1).map(n => parseInt(n,10));
@@ -29,15 +31,13 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
   };
 
   try {
-    // Handle multiple class/attr variants across Markmap versions
     const links = svgRoot.querySelectorAll('path.markmap-link, path.link, .markmap-link, .link');
     const nodes = svgRoot.querySelectorAll('g.markmap-node, g.node, .markmap-node, .node');
 
-    // index → node
     const byIndex = new Map();
     nodes.forEach((n, i) => {
       const idx = n.getAttribute('data-index') || n.dataset?.index || n.getAttribute('data-i') || String(i);
-      if (idx != null) byIndex.set(idx, n);
+      byIndex.set(String(idx), n);
     });
 
     links.forEach(link => {
@@ -45,7 +45,6 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
       const node = to != null ? byIndex.get(String(to)) : null;
       if (!node) return;
 
-      // Prefer the explicit colored span we injected from Markdown
       const colored =
         node.querySelector('.mm-color') ||
         node.querySelector('[style*="color"]') ||
@@ -62,8 +61,9 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
       const hex = toHex(color);
       if (!hex) return;
 
-      // Reset & tag (support both "unseen-edge" and legacy "missing-edge")
-      link.classList.remove('seen-edge','unseen-edge','missing-edge','user1-edge','user2-edge','shared-edge');
+      // ❗ Do NOT remove PvP classes anymore
+      link.classList.remove('seen-edge', 'unseen-edge', 'missing-edge');
+
       if (hex === '#22c55e') {
         link.classList.add('seen-edge');
       } else if (hex === '#9ca3af') {
@@ -72,6 +72,7 @@ window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
     });
   } catch {}
 };
+
 
 
 document.addEventListener('DOMContentLoaded', function() {

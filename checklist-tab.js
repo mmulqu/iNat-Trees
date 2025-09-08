@@ -246,7 +246,7 @@ async function initChecklistUI(){
       
       // Use checklistManager to add tree with checklist mode
       if (window.checklistManager) {
-        window.checklistManager.addTree('checklist', title, baseId, j.markdown, { mode: 'checklist' });
+        window.checklistManager.addTree(username, title, baseId, j.markdown, { mode: 'checklist' });
       } else {
         // Fallback to local implementation
         addChecklistTreeTab(title, j.markdown);
