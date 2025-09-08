@@ -70,6 +70,8 @@
       log('smoke FAILED', { e: String(e) });
     }
   };
+  // Loud sentinel so we know the harness actually executed
+  console.log('[MM] harness loaded?', !!window.__mmdbg);
 })();
 
 // markmap-integration.js

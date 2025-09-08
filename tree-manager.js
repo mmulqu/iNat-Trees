@@ -381,6 +381,7 @@ class TreeManager {
   renderTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
+    console.log('[MM] renderTree begin', { id: tree.id, isChecklist: !!tree.isChecklist, mdLen: String(tree.markdown||tree.md||'').length });
     svg.innerHTML = '';
   
     // --- 1) pick source markdown ---
