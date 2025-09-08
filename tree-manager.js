@@ -345,6 +345,7 @@ class TreeManager {
     });
     // When the tab is shown, clear the SVG and re-render the tree
     tabTrigger.addEventListener('shown.bs.tab', () => {
+      __mmdbg?.log && __mmdbg.log('tab shown', { treeId: tree.id });
       // Clear any existing renderers first to prevent memory leaks
       const svg = document.getElementById(`${tree.id}-svg`);
       if (svg) svg.innerHTML = '';
@@ -1680,6 +1681,9 @@ _ensureMiniMap(treeId, svg) {
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
     if (!svg) return;
+    const linksBefore = svg.querySelectorAll('path.markmap-link').length;
+    const nodesBefore = svg.querySelectorAll('g.markmap-node').length;
+    __mmdbg?.log && __mmdbg.log('color pass: before', { nodesBefore, linksBefore });
 
     // Map data-path → color
     const colorByPath = new Map();
@@ -1730,6 +1734,8 @@ _ensureMiniMap(treeId, svg) {
       else if (c === '#22c55e') linkEl.classList.add('seen-edge');
       else if (c === '#9ca3af') linkEl.classList.add('unseen-edge','missing-edge');
     });
+    const linksAfter = svg.querySelectorAll('path.markmap-link').length;
+    __mmdbg?.log && __mmdbg.log('color pass: after', { linksAfter });
   }
 }
 

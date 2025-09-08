@@ -1,3 +1,77 @@
+// ===== MM DEBUG HARNESS =====
+(() => {
+  if (window.__mmDebugInit) return;
+  window.__mmDebugInit = true;
+
+  // Turn on/off
+  window.MM_DEBUG = true;
+
+  const t0 = performance.now();
+  const stamp = () => `${Math.round(performance.now() - t0)}ms`;
+  const safe = (v) => {
+    try { return JSON.parse(JSON.stringify(v)); } catch { return String(v); }
+  };
+
+  const mdStats = (md) => {
+    const s = String(md || '');
+    return {
+      len: s.length,
+      lines: s.split(/\r?\n/).length,
+      colorOpen: (s.match(/\{color:/g) || []).length,
+      colorClose: (s.match(/\{\/color\}/g) || []).length,
+      hasList: /^(\s*(?:[-*+]|\d+\.))\s+/m.test(s),
+      hasHeading: /^\s*#{1,6}\s+/m.test(s),
+      head: s.slice(0, 400)
+    };
+  };
+
+  const elStats = (el) => {
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const box = { w: el.clientWidth, h: el.clientHeight };
+    return {
+      display: cs.display, visibility: cs.visibility, opacity: cs.opacity,
+      position: cs.position, ...box
+    };
+  };
+
+  const log = (msg, data) => {
+    if (!window.MM_DEBUG) return;
+    console.debug(`[MM][${stamp()}] ${msg}`, data === undefined ? '' : safe(data));
+  };
+
+  // Global quick helpers
+  window.__mmdbg = { log, mdStats, elStats };
+
+  // Catch silent errors
+  window.addEventListener('error', (e) => log('window.error', { msg: e.message, src: e.filename, line: e.lineno }));
+  window.addEventListener('unhandledrejection', (e) => log('unhandledrejection', { reason: String(e.reason) }));
+
+  // Environment snapshot once
+  log('env', {
+    markmapKeys: Object.keys(window.markmap || {}),
+    d3Version: window.d3?.version || null,
+    hasForeignObject: 'SVGForeignObjectElement' in window,
+    userAgent: navigator.userAgent
+  });
+
+  // Panic test: render a tiny Markmap right now (no app plumbing)
+  window.mmSmokeTest = () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;inset:auto 12px 12px auto;z-index:9999;background:#fff;border:1px solid #ddd;width:360px;height:220px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);';
+    host.innerHTML = `<svg id="mm-smoke" style="width:100%;height:100%"></svg>`;
+    document.body.appendChild(host);
+    try {
+      const { Transformer, Markmap } = window.markmap;
+      const { root } = new Transformer().transform('# Smoke\n- A\n- B\n- C');
+      Markmap.create(host.querySelector('#mm-smoke'), { autoFit: true }, root);
+      log('smoke ok');
+    } catch (e) {
+      log('smoke FAILED', { e: String(e) });
+    }
+  };
+})();
+
 // markmap-integration.js
 
 // SAFER: convert {color:...} tags without breaking lists/blocks.
