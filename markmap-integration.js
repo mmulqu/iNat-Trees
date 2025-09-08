@@ -1,78 +1,13 @@
 // markmap-integration.js
 
-// Turn {color:#hex|name}…{/color} into HTML spans Markmap will render,
-// BUT leave PvP colors (red/blue/purple) untouched for the PvP pass.
+// Turn {color:#hex}…{/color} into HTML spans Markmap will render.
+// We inline the style so it works in both SVG <text> and foreignObject modes.
 window.mmPreprocessColors = function mmPreprocessColors(md) {
-  if (md == null) return md;
+  if (!md) return md;
   return String(md)
-    // do NOT eat PvP's three colors; everything else becomes <span class="mm-color" …>
-    .replace(/\{color:(?!red\b|blue\b|purple\b)([^}]+)\}/gi,
-             (_m, c) => `<span class="mm-color" style="color:${c}">`)
+    .replace(/\{color:([^}]+)\}/g, (_m, c) => `<span class="mm-color" style="color:${c}">`)
     .replace(/\{\/color\}/g, '</span>');
 };
-
-// --- Checklist-only edge painter (green/gray). Safe for all Markmap versions.
-window.mmColorEdgesFromLabels = function mmColorEdgesFromLabels(svgRoot) {
-  // ✅ Do nothing unless this SVG was rendered in checklist mode
-  if (!svgRoot || svgRoot.dataset.mode !== 'checklist') return;
-
-  const toHex = (c) => {
-    if (!c) return '';
-    c = String(c).trim().toLowerCase();
-    if (c.startsWith('#')) return c.length === 4
-      ? '#' + c.slice(1).split('').map(x => x + x).join('')
-      : c;
-    const m = c.match(/rgb\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/);
-    if (m) {
-      const [r,g,b] = m.slice(1).map(n => parseInt(n,10));
-      return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
-    }
-    return c;
-  };
-
-  try {
-    const links = svgRoot.querySelectorAll('path.markmap-link, path.link, .markmap-link, .link');
-    const nodes = svgRoot.querySelectorAll('g.markmap-node, g.node, .markmap-node, .node');
-
-    const byIndex = new Map();
-    nodes.forEach((n, i) => {
-      const idx = n.getAttribute('data-index') || n.dataset?.index || n.getAttribute('data-i') || String(i);
-      byIndex.set(String(idx), n);
-    });
-
-    links.forEach(link => {
-      const to = link.getAttribute('data-to') || link.dataset?.to || link.getAttribute('data-target') || link.dataset?.target;
-      const node = to != null ? byIndex.get(String(to)) : null;
-      if (!node) return;
-
-      const colored =
-        node.querySelector('.mm-color') ||
-        node.querySelector('[style*="color"]') ||
-        node.querySelector('foreignObject *') ||
-        node.querySelector('text');
-
-      let color = '';
-      if (colored) {
-        color =
-          (colored.getAttribute('style') || '').match(/color:\s*([^;]+)/i)?.[1] ||
-          colored.getAttribute('fill') ||
-          getComputedStyle(colored).color || '';
-      }
-      const hex = toHex(color);
-      if (!hex) return;
-
-      // ❗ Do NOT remove PvP classes anymore
-      link.classList.remove('seen-edge', 'unseen-edge', 'missing-edge');
-
-      if (hex === '#22c55e') {
-        link.classList.add('seen-edge');
-      } else if (hex === '#9ca3af') {
-        link.classList.add('unseen-edge', 'missing-edge');
-      }
-    });
-  } catch {}
-};
-
 
 
 document.addEventListener('DOMContentLoaded', function() {
