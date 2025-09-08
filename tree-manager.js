@@ -177,7 +177,7 @@ function listToHeadings(md, title) {
   md = md
     .replace(/\{\/?color:[^}]*\}/g, '')               // strip color
     .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')          // keep link text
-    .replace(/<[^>]+>/g, '')                          // kill other HTML, but leave {RANK:...}
+    .replace(/<[^>]+>/g, '')                          // kill other HTML (but leaves {RANK:...})
     .trim();
 
   const lines = md.split(/\r?\n/);
@@ -195,6 +195,7 @@ function listToHeadings(md, title) {
   }
   return out.join('\n');
 }
+
 
 
 class TreeManager {
