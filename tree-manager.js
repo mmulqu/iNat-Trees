@@ -538,6 +538,9 @@ class TreeManager {
 
     const mm = Markmap.create(svg, opts, root);
 
+    // Reinstate rank badges after Markmap renders
+    this._reinstateRankBadges(svg);
+
     // After create, sanity-check the render target size once it's visible
     setTimeout(() => {
       const nodes = svg.querySelectorAll('g.markmap-node').length;
@@ -547,6 +550,7 @@ class TreeManager {
         // paint links + classes (works for any mode)
         setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
         svg.addEventListener('click', () => {
+          this._reinstateRankBadges(svg);
           setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
         });
       }
@@ -1758,6 +1762,26 @@ _ensureMiniMap(treeId, svg) {
     if (f.querySelector('.seen-node'))   return '#22c55e';
     if (f.querySelector('.unseen-node')) return '#9ca3af';
     return null;
+  }
+
+  // Turn trailing rank letters back into a badge span *after* Markmap renders.
+  _reinstateRankBadges(svg){
+    const RANK_TITLES = {F:'family', G:'genus', S:'species', O:'order', C:'class', P:'phylum', K:'kingdom', D:'domain'};
+    svg.querySelectorAll('g.markmap-node').forEach(g => {
+      // Skip if this node already has a badge
+      if (g.querySelector('.mm-badge.mm-rank')) return;
+
+      const fo = g.querySelector('.markmap-foreign');
+      const host = fo?.firstElementChild || fo;
+      if (!host) return;
+
+      // Replace a trailing " F|G|S|O|C|P|K|D" (optionally before a camera emoji) with a badge
+      let html = host.innerHTML;
+      html = html.replace(/(\s)([FGSOCPKD])(?=(?:\s*(?:🖼️|$)))/, (_, sp, L) =>
+        `${sp}<span class="mm-badge mm-rank" title="${RANK_TITLES[L] || ''}">${L}</span>`
+      );
+      if (html !== host.innerHTML) host.innerHTML = html;
+    });
   }
 
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
