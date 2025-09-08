@@ -1708,23 +1708,25 @@ _ensureMiniMap(treeId, svg) {
   // Inject rank badges into AST nodes after Markmap transforms markdown
   _injectRankBadgesIntoAst(root) {
     if (!root || !root.children) return;
-
+  
     const TITLE = {
-      F:'family', G:'genus', S:'species',
-      O:'order', C:'class', P:'phylum',
-      K:'kingdom', D:'domain'
+      F: 'family', G: 'genus', S: 'species',
+      O: 'order', C: 'class', P: 'phylum',
+      K: 'kingdom', D: 'domain'
     };
-
+  
     const visit = (node) => {
       if (node.content) {
-        // Match a trailing rank letter at end of content
-        node.content = node.content.replace(/(\s)([FGSOCPKD])$/, (m, sp, L) =>
-          `${sp}<span class="mm-badge mm-rank" title="${TITLE[L]||''}">${L}</span>`
+        // UPDATED REGEX: Now matches a rank letter followed by optional whitespace at the end.
+        node.content = node.content.replace(
+          /(\s)([FGSOCPKD])\s*$/,
+          (match, precedingSpace, letter) =>
+            `${precedingSpace}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`
         );
       }
       if (node.children) node.children.forEach(visit);
     };
-
+  
     visit(root);
   }
   
