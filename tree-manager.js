@@ -456,8 +456,18 @@ class TreeManager {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
       // Explore: try raw first (preserves rank badges); DO NOT pre-wrap with spans.
-      // (If transform fails, we’ll sanitize in the fallback steps below.)
+      // (If transform fails, we'll sanitize in the fallback steps below.)
       md = mdRaw;
+    }
+
+    // Ensure Explore has a heading root; Markmap won't render a pure list as the document root.
+    const hasHeading = /^\s*#{1,6}\s+/m.test(md);
+    const hasList    = /^\s*[-*+]\s+/m.test(md);
+    if (!hasHeading && hasList) {
+      const rootTitle = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
+      // Indent everything so the bullets become children of the H1
+      md = `# ${rootTitle}\n` + String(md).replace(/^/gm, '  ');
+      console.debug('[MM] injected synthetic H1 root for Explore');
     }
   
     svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
