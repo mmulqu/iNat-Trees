@@ -174,11 +174,12 @@ async function resolveTaxonTitle(taxonId) {
 // Helper to convert bullet lists to heading hierarchies
 function listToHeadings(md, title) {
   md = String(md || '');
-  // Strip color + links, keep rank tokens
   md = md
-    .replace(/\{\/?color:[^}]*\}/g, '')
-    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
-    .replace(/<[^>]+>/g, '') // drop other HTML, but leaves {RANK:...}
+    .replace(/\{\/?color:[^}]*\}/g, '')               // strip color
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')          // keep link text
+    .replace(/<\/?span\b[^>]*>/gi, '')                // kill existing spans
+    .replace(/<[^>]+>/g, '')                          // kill other HTML
+    // ⚠️ do NOT touch {RANK:...} tokens
     .trim();
 
   const lines = md.split(/\r?\n/);
