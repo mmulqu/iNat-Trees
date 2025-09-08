@@ -1,7 +1,7 @@
 // markmap-integration.js
 
 // Turn {color:#hex}…{/color} into HTML spans Markmap will render.
-// We inline the style so it works in both SVG <text> and foreignObject modes.
+// This simple, generic version works for all cases, including the Explore tab's rank colors.
 window.mmPreprocessColors = function mmPreprocessColors(md) {
   if (!md) return md;
   return String(md)
@@ -238,12 +238,12 @@ document.addEventListener('DOMContentLoaded', function() {
     requestAnimationFrame(() => position(rect));
   }
 
-  // Hover prefetch (kept from your original)
+  // Hover prefetch
   let t=null;
   document.addEventListener('mouseenter', e=>{
-    const t = e && e.target;
-    if (!t || typeof t.closest !== 'function') return; // bail safely
-    const a = t.closest('a.first-obs-trigger');
+    const target = e && e.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const a = target.closest('a.first-obs-trigger');
     if(!a) return;
     const pane=closestPane(a);
     const username=a.dataset.username||pane?.dataset.username;
@@ -251,25 +251,24 @@ document.addEventListener('DOMContentLoaded', function() {
     if(!username||!taxonId) return;
     t=setTimeout(async ()=>{
       try{
-        const payload=await fetchFirstObs(username, taxonId);
-        if(!payload||payload.notFound||!payload.image_urls){ a.remove(); }
+        await fetchFirstObs(username, taxonId);
       }catch(_){}
     },250);
   }, true);
 
-  document.addEventListener('mouseleave', e=>{
+  document.addEventListener('mouseleave', ()=>{
     if(t){clearTimeout(t); t=null;}
   }, true);
 
   // Click to open
   document.addEventListener('click', async e=>{
-    const t = e && e.target;
-    if (!t || typeof t.closest !== 'function') return; // bail safely
-    const a = t.closest('a.first-obs-trigger');
+    const target = e && e.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const a = target.closest('a.first-obs-trigger');
     if(!a) return;
     e.preventDefault();
-    if (e.stopPropagation) e.stopPropagation();
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
 
     const pane=closestPane(a);
     const username=a.dataset.username||pane?.dataset.username||a.dataset.username1||a.dataset.username2;
@@ -281,15 +280,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     try{
       const payload=await fetchFirstObs(username, taxonId);
-
       if(e.metaKey||e.ctrlKey){
         if(payload&&payload.obs_url) window.open(payload.obs_url,'_blank');
-        ensurePreview().style.display='none';
-        return;
-      }
-
-      if(!payload||payload.notFound||!payload.image_urls){
-        a.remove();
         ensurePreview().style.display='none';
         return;
       }
@@ -311,7 +303,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const rect = box.getBoundingClientRect();
       sx = e.clientX; sy = e.clientY;
       sl = rect.left; st = rect.top;
-      box.dataset.dragged = '1'; // from now on, don't auto-snap on open
+      box.dataset.dragged = '1';
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
       e.preventDefault();
