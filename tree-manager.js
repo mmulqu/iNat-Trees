@@ -171,16 +171,33 @@ async function resolveTaxonTitle(taxonId) {
 })();
 
 
-// Helper to ensure markdown has a heading root
-function ensureHeadingRoot(md, title) {
+// Helper to convert bullet lists to heading hierarchies
+function listToHeadings(md, title) {
   md = String(md || '');
-  // If there's no heading at all, prepend an H1 and a blank line.
-  if (!/^\s*#{1,6}\s+/m.test(md)) {
-    const h1 = `# ${title || 'Taxonomy'}`;
-    md = `${h1}\n\n${md.replace(/^\n+/, '')}`;
-    console.debug('[MM] injected H1 root for Explore:', h1);
+  // Strip color tokens + HTML we don't need for labels
+  md = md
+    .replace(/\{\/?color:[^}]*\}/g, '')
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+    .replace(/<\/?span\b[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+
+  const lines = md.split(/\r?\n/);
+  const out = [`# ${title || 'Taxonomy'}`];
+
+  for (const line of lines) {
+    const m = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
+    if (!m) continue;                              // ignore non-bullet lines
+    const indent = m[1].replace(/\t/g, '  ').length;
+    const level = Math.min(6, 2 + Math.floor(indent / 2)); // H2+ based on indent
+    let text = m[2].trim();
+
+    // Optional: trim camera emoji / trailing badge clutter if present
+    text = text.replace(/\s*🖼️\s*$/u, '');
+
+    out.push(`${'#'.repeat(level)} ${text}`);
   }
-  return md;
+  return out.join('\n');
 }
 
 class TreeManager {
@@ -412,22 +429,15 @@ class TreeManager {
     const mdRaw = tree.markdown || tree.md || '';
     let md = mdRaw;
 
-    // Explore: normalize away risky HTML & {color:...} tokens to a clean list
-    if (!tree.isChecklist) {
-      const noColor  = String(md).replace(/\{\/?color:[^}]*\}/g, '');
-      const noATags  = noColor.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1');
-      const noSpans  = noATags.replace(/<\/?span\b[^>]*>/gi, '');
-      const noHtml   = noSpans.replace(/<[^>]+>/g, '');
-      md = noHtml.trim();
-      // ⬅️ NEW: ensure a heading root so Markmap actually draws nodes
-      const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
-      md = ensureHeadingRoot(md, title);
-      console.debug('[MM] Explore final md head:', md.slice(0, 140));
-    } else {
-      md = this.processChecklistMarkdown(mdRaw);
-    }
-  
     svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
+
+    if (tree.isChecklist) {
+      md = this.processChecklistMarkdown(mdRaw);
+    } else {
+      const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
+      md = listToHeadings(mdRaw, title); // ⬅️ convert bullets → headings
+      console.debug('[MM] Explore (headings) head:', md.slice(0, 160));
+    }
   
     const { Transformer, Markmap } = window.markmap;
   
@@ -457,8 +467,15 @@ class TreeManager {
     // --- 2) transform pipeline ---
     let root = null;
   
-    // Pass A: normalized with heading root
-    try { root = transform(md); console.debug('[MM][xform A] children:', root?.children?.length || 0); } catch (e) { console.error('xform A failed:', e); root = null; }
+    // Pass A: headings (best case)
+    try { root = transform(md); console.debug('[MM][xform A headings] children:', root?.children?.length || 0); } catch (e) { console.error('xform A failed:', e); root = null; }
+  
+    // Pass B: drop any leftover {color:...} (paranoia)
+    if (!root?.children?.length) {
+      try { root = transform(md.replace(/\{\/?color:[^}]*\}/g, '')); 
+           console.debug('[MM][xform B no-color] children:', root?.children?.length || 0); } 
+      catch (e) { console.error('xform B failed:', e); root = null; }
+    }
   
     if (!root?.children?.length) {
       console.error('Explore: empty AST after all passes. Preview:', String(mdRaw).slice(0, 400));
@@ -516,15 +533,10 @@ class TreeManager {
 
     // After create, sanity-check the render target size once it's visible
     setTimeout(() => {
-      const rect = svg.getBoundingClientRect();
-      const cs = getComputedStyle(svg);
-      console.debug('[MM] svg box', { w: rect.width, h: rect.height, display: cs.display, visibility: cs.visibility });
-      const nodeCount = svg.querySelectorAll('g.markmap-node').length;
-      console.debug('[MM] after-create nodes:', nodeCount);
-      if (!nodeCount && (rect.width === 0 || rect.height === 0)) {
-        console.warn('[MM] nothing drawn because SVG is size 0. Tab visible?', svg.closest('.tab-pane')?.className);
-      }
-      if (nodeCount > 0) {
+      const nodes = svg.querySelectorAll('g.markmap-node').length;
+      const paths = svg.querySelectorAll('path.markmap-link').length;
+      console.debug('[MM] after-create counts', { nodes, links: paths });
+      if (nodes > 0) {
         // paint links + classes (works for any mode)
         setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
         svg.addEventListener('click', () => {
