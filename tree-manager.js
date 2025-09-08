@@ -183,7 +183,8 @@ function listToHeadings(md, title) {
     .trim();
 
   const lines = md.split(/\r?\n/);
-  const out = [`# ${title || 'Taxonomy'}`];
+  const out = [];
+  if (title) out.push(`# ${title}`);
 
   for (const line of lines) {
     const m = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
@@ -434,9 +435,8 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
       md = this._applyRankBadgesToMarkdown(mdRaw); // convert rank letters to tokens first
-      md = listToHeadings(md, title); // ⬅️ convert bullets → headings (strips HTML but preserves tokens)
+      md = listToHeadings(md, null); // ⬅️ convert bullets → headings (strips HTML but preserves tokens), no synthetic root
       md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g,
         (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`); // convert tokens to spans after HTML stripping
       console.debug('[MM] Explore (headings) head:', md.slice(0, 160));
