@@ -250,6 +250,7 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
     }
 
     const markdown = result.markdown;
+    console.debug('[EXPLORE] API payload summary:', { ok: !!markdown, len: (markdown||'').length, head: String(markdown||'').slice(0, 220) });
     const plainMarkdown = result.plainMarkdown;
     if (!markdown || markdown.trim() === "" || markdown.includes("No observations found")) {
       showError("No observations found for the user under the selected taxon.");

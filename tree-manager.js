@@ -397,7 +397,14 @@ class TreeManager {
     svg.innerHTML = '';
   
     // --- 1) pick source markdown ---
-    const mdRaw = tree.markdown || tree.md || '';
+    const mdRaw0 = tree.markdown || tree.md || '';
+    window.lastExploreMarkdown = mdRaw0; // debug handle
+    console.debug('[MM] Explore raw md length:', mdRaw0.length, 'head:', String(mdRaw0).slice(0, 220));
+    const unwrapFenced = (s) => {
+      const m = String(s).match(/^\s*```[\w-]*\s*([\s\S]*?)\s*```\s*$/);
+      return m ? m[1] : s;
+    };
+    const mdRaw = unwrapFenced(mdRaw0);
     let md = mdRaw;
   
     // Explore should NOT inject HTML spans for color — rank colors are handled later.
@@ -418,6 +425,11 @@ class TreeManager {
       const t = new Transformer();
       return t.transform(String(s)).root;
     };
+    const dbgSummary = (label, root) => {
+      const c = root && Array.isArray(root.children) ? root.children.length : 0;
+      console.debug(`[MM][xform ${label}] children:`, c, root);
+      return c;
+    };
     const stripColorTokens = (s) => String(s).replace(/\{\/?color:[^}]*\}/g, '');
     const stripRiskyHtml = (s) => String(s)
       // keep link text, drop tags
@@ -435,26 +447,48 @@ class TreeManager {
     let root = null;
   
     // Pass A: raw (best chance to keep rank badges intact)
-    try { root = transform(md); } catch (e) { console.error('Explore xform A (raw) failed:', e); root = null; }
+    try { root = transform(md); dbgSummary('A raw', root); } catch (e) { console.error('xform A failed:', e); root = null; }
   
     // Pass B: raw + strip only {color:...} tokens (keep badges/HTML)
-    if (!root?.children?.length) {
-      try { root = transform(stripColorTokens(mdRaw)); } catch (e) { console.error('Explore xform B (strip colors) failed:', e); root = null; }
-    }
+    if (!root?.children?.length) { try { root = transform(stripColorTokens(mdRaw)); dbgSummary('B no-color', root); } catch (e) { console.error('xform B failed:', e); root = null; } }
   
     // Pass C: strip color tokens + risky HTML (drops badges if they’re malformed)
-    if (!root?.children?.length) {
-      try { root = transform(stripRiskyHtml(stripColorTokens(mdRaw))); } catch (e) { console.error('Explore xform C (strip HTML) failed:', e); root = null; }
-    }
+    if (!root?.children?.length) { const s = stripRiskyHtml(stripColorTokens(mdRaw)); try { root = transform(s); dbgSummary('C no-html', root); } catch (e) { console.error('xform C failed:', e); root = null; } }
   
     // Pass D: force bullets so Markmap definitely gets a list
-    if (!root?.children?.length) {
-      try { root = transform(bulletize(stripRiskyHtml(stripColorTokens(mdRaw)))); } catch (e) { console.error('Explore xform D (bulletize) failed:', e); root = null; }
-    }
+    if (!root?.children?.length) { const s = bulletize(stripRiskyHtml(stripColorTokens(mdRaw))); try { root = transform(s); dbgSummary('D bulletized', root); } catch (e) { console.error('xform D failed:', e); root = null; } }
   
     if (!root?.children?.length) {
       console.error('Explore: empty AST after all passes. Preview:', String(mdRaw).slice(0, 400));
-      return; // nothing to render; container stays up but no nodes (your exact symptom)
+      const tabContent = document.getElementById(`${tree.id}-content`);
+      const host = tabContent?.querySelector('.markmap-container');
+      if (host) {
+        const note = document.createElement('div');
+        note.className = 'alert alert-warning m-3';
+        note.innerHTML = `
+          <div class="d-flex align-items-start">
+            <div class="me-2">⚠️</div>
+            <div>
+              <strong>Couldn’t build a tree for this result.</strong><br/>
+              The API didn’t return hierarchical markdown (lists/headings). 
+              <a href="#" id="${tree.id}-dump">Click to copy the raw input</a> and check the /build-taxonomy payload.
+            </div>
+          </div>`;
+        host.innerHTML = '';
+        host.appendChild(note);
+        note.querySelector(`#${tree.id}-dump`)?.addEventListener('click', (e) => {
+          e.preventDefault();
+          try {
+            navigator.clipboard.writeText(window.lastExploreMarkdown || '');
+            note.classList.remove('alert-warning');
+            note.classList.add('alert-success');
+            note.innerHTML = '✅ Copied raw input markdown to clipboard. Paste into your editor and verify structure.';
+          } catch {
+            alert('Copy failed. Open console and use window.lastExploreMarkdown.');
+          }
+        });
+      }
+      return;
     }
   
     // --- 3) create markmap (draws nodes/edges), color function only for checklist
@@ -481,9 +515,17 @@ class TreeManager {
     // Extra post-create DOM visibility
     queueMicrotask(() => {
       const svgEl = document.getElementById(`${tree.id}-svg`);
-      const gCount = svgEl ? svgEl.querySelectorAll('g').length : 0;
-      const anyPath = svgEl ? svgEl.querySelector('path') : null;
-      console.log('[MM] post-create DOM', { gCount, hasPath: !!anyPath });
+      if (!svgEl) return;
+      const gCount = svgEl.querySelectorAll('g').length;
+      const hasNodes = !!svgEl.querySelector('g.markmap-node, g.node');
+      const hasLinks = !!svgEl.querySelector('path.markmap-link, path.link');
+      console.debug('[MM] post-create DOM', { gCount, hasNodes, hasLinks });
+      if (!hasNodes && !hasLinks) return;
+      // paint links + classes (works for any mode)
+      setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
+      svg.addEventListener('click', () => {
+        setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
+      });
     });
   
     // keep handles + fit
@@ -494,11 +536,7 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
   
-    // paint links + classes (works for any mode)
-    setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
-    svg.addEventListener('click', () => {
-      setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
-    });
+    // color/minimap scheduling moved into post-create guard above
   
     // --- 4) rank-based coloring (this ONLY runs after nodes exist) ---
     if (!tree.isChecklist) {
