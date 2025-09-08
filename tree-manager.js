@@ -387,16 +387,25 @@ class TreeManager {
     // Preprocess markdown
     let md = tree.markdown || tree.md || '';
     if (tree.isChecklist) {
-      // Checklist uses semantic spans like PvP does (skip generic preprocessor)
+      // Checklist: upgrade the two hexes to semantic classes
       md = this.processChecklistMarkdown(md);
     } else {
-      // Explore keeps generic {color:...} → .mm-color spans
-      if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
+      // EXPLORE: never run the generic preprocessor; just strip any color tokens
+      md = md.replace(/\{color:[^}]+\}/gi, '').replace(/\{\/color\}/gi, '');
     }
-  
+
+    // Tag the mode for any helpers that look at it (mini-map, etc.)
+    svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
+
     const { Transformer, Markmap } = window.markmap;
-    const transformer = new Transformer();
-    const { root } = transformer.transform(md);
+    let root;
+    try {
+      const transformer = new Transformer();
+      ({ root } = transformer.transform(md));
+    } catch (err) {
+      console.error('Markmap transform failed in Explore:', err, { preview: md.slice(0, 400) });
+      return; // bail gracefully so we don't blank the entire tab
+    }
   
     const mm = Markmap.create(svg, {
       htmlLabels: true,
@@ -422,7 +431,7 @@ class TreeManager {
 
     // Checklist-specific edge painting (mirror PvP timing)
     if (tree.isChecklist) {
-      const paint = () => { window.mmColorEdgesFromLabels && window.mmColorEdgesFromLabels(svg); };
+      const paint = () => { /* Edge painting now handled by _colorLinksAndTagEdges */ };
       setTimeout(paint, 80);
       setTimeout(paint, 180);
       setTimeout(() => { paint(); mm.fit(); }, 360);
@@ -439,11 +448,7 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
 
-    // Color edges based on label colors (checklist only)
-    if (tree.isChecklist && svg && window.mmColorEdgesFromLabels) {
-      // slight delay to let layout settle
-      setTimeout(() => window.mmColorEdgesFromLabels(svg), 50);
-    }
+    // Edge coloring now handled by _colorLinksAndTagEdges for all tree types
   
     // Color links and tag classes (single-user too)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
@@ -758,6 +763,10 @@ class TreeManager {
     // Then: let the generic preprocessor handle any other colors
     if (window.mmPreprocessColors) md = window.mmPreprocessColors(md);
     const processedMarkdown = md;
+
+    // Tag the mode for any helpers that look at it (mini-map, etc.)
+    svg.dataset.mode = 'pvp';
+
     const { Transformer, Markmap } = window.markmap;
     const transformer = new Transformer();
     const { root } = transformer.transform(processedMarkdown);

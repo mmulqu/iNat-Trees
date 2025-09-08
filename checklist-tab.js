@@ -46,11 +46,9 @@ function mmRender(svg, markdown){
   const mm = Markmap.create(svg, null, root);
   svg.dataset.mode = 'checklist';
 
-  // 4) Paint edges so their strokes mirror label color (green/gray)
+  // 4) Edge painting now handled by _colorLinksAndTagEdges
   const paint = () => {
-    if (typeof window.mmColorEdgesFromLabels === 'function') {
-      window.mmColorEdgesFromLabels(svg);
-    }
+    // Edge painting now handled by _colorLinksAndTagEdges
   };
 
   // Initial fit + multiple delayed paints to catch async layout
