@@ -434,14 +434,9 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      // Step 1: replace trailing rank letters → tokens
-      md = this._applyRankBadgesToMarkdown(mdRaw);
-      // Step 2: convert bullets → headings
-      md = listToHeadings(md, null);
-      // Step 3: tokens → span badges
-      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g,
-        (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`);
-      console.debug('[MM] Explore final md >>>', md.slice(0, 200));
+      // Convert bullets → headings (no token processing needed)
+      md = listToHeadings(mdRaw, null);
+      console.debug('[MM] Explore headings md >>>', md.slice(0, 200));
     }
   
     const { Transformer, Markmap } = window.markmap;
@@ -466,6 +461,12 @@ class TreeManager {
     try {
       root = transform(md);
       console.debug('[MM][xform A headings] children:', root?.children?.length || 0);
+
+      // ⬅️ inject badges AFTER AST exists (Explore only)
+      if (!tree.isChecklist) {
+        this._injectRankBadgesIntoAst(root);
+      }
+
     } catch (e) {
       console.error('xform A failed:', e);
       root = null;
@@ -475,6 +476,11 @@ class TreeManager {
       try {
         root = transform(stripColorTokens(md));
         console.debug('[MM][xform B no-color] children:', root?.children?.length || 0);
+        
+        // ⬅️ inject badges in fallback AST too (Explore only)
+        if (!tree.isChecklist && root) {
+          this._injectRankBadgesIntoAst(root);
+        }
       } catch (e) {
         console.error('xform B failed:', e);
         root = null;
@@ -1699,17 +1705,27 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-  // Replace trailing rank letters with a special token that survives HTML stripping.
-  _applyRankBadgesToMarkdown(md){
+  // Inject rank badges into AST nodes after Markmap transforms markdown
+  _injectRankBadgesIntoAst(root) {
+    if (!root || !root.children) return;
+
     const TITLE = {
       F:'family', G:'genus', S:'species',
       O:'order', C:'class', P:'phylum',
       K:'kingdom', D:'domain'
     };
-    return String(md).split(/\r?\n/).map(line =>
-      line.replace(/(\s)([FGSOCPKD])(\s*(?:🖼️)?\s*)$/,
-        (m, sp, L, tail) => `${sp}{RANK:${L}|${TITLE[L]||''}}${tail}`)
-    ).join('\n');
+
+    const visit = (node) => {
+      if (node.content) {
+        // Match a trailing rank letter at end of content
+        node.content = node.content.replace(/(\s)([FGSOCPKD])$/, (m, sp, L) =>
+          `${sp}<span class="mm-badge mm-rank" title="${TITLE[L]||''}">${L}</span>`
+        );
+      }
+      if (node.children) node.children.forEach(visit);
+    };
+
+    visit(root);
   }
   
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
