@@ -400,13 +400,54 @@ class TreeManager {
     svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
 
     const { Transformer, Markmap } = window.markmap;
-    let root;
+    // --- Defensive transform pipeline ---
+    let pre = md; // md already set earlier (Explore: after mmPreprocessColors)
+    let root = null;
+
+    const transform = (s) => {
+      const t = new Transformer();
+      return t.transform(s).root;
+    };
+
     try {
-      const transformer = new Transformer();
-      ({ root } = transformer.transform(md));
-    } catch (err) {
-      console.error('Markmap transform failed in Explore:', err, { preview: md.slice(0, 400) });
-      return; // bail gracefully so we don't blank the entire tab
+      root = transform(pre);
+    } catch (e) {
+      console.error('Markmap transform threw (pass 1)', e);
+      root = null;
+    }
+
+    // If parsing yielded no nodes, scrub color tokens + inline HTML and try again.
+    if (!root?.children?.length) {
+      const scrub = (s) => String(s)
+        .replace(/\{\/?color:[^}]*\}/g, '')             // remove {color:…} tokens
+        .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')        // keep link text
+        .replace(/<\/?span\b[^>]*>/gi, '')              // drop spans
+        .replace(/<[^>]+>/g, '');                       // drop any other HTML
+      try {
+        root = transform(scrub(pre));
+      } catch (e) {
+        console.error('Markmap transform threw (pass 2)', e);
+        root = null;
+      }
+    }
+
+    // Last-ditch: ensure every nonempty line is a list item
+    if (!root?.children?.length) {
+      const bulletize = (s) => s.split(/\r?\n/).map(l => {
+        if (!l.trim()) return l;
+        return /^(\s*(?:[-*+]|\d+\.))\s+/.test(l) ? l : `- ${l}`;
+      }).join('\n');
+      try {
+        root = transform(bulletize(pre));
+      } catch (e) {
+        console.error('Markmap transform threw (pass 3)', e);
+        root = null;
+      }
+    }
+
+    if (!root?.children?.length) {
+      console.error('Explore: still no nodes after all fallbacks. Preview:', (pre || '').slice(0, 400));
+      return; // bail gracefully
     }
   
     const mm = Markmap.create(svg, {
