@@ -380,99 +380,91 @@ class TreeManager {
   renderTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
-  
-    // Clear the SVG container before rendering
     svg.innerHTML = '';
   
-    // Preprocess markdown
-    let md = tree.markdown || tree.md || '';
+    // --- 1) pick source markdown ---
+    const mdRaw = tree.markdown || tree.md || '';
+    let md = mdRaw;
+  
+    // Explore should NOT inject HTML spans for color — rank colors are handled later.
     if (tree.isChecklist) {
-      // Checklist uses its own specific processor
-      md = this.processChecklistMarkdown(md);
+      md = this.processChecklistMarkdown(mdRaw);
     } else {
-      // Explore (the default) uses the generic color preprocessor
-      if (window.mmPreprocessColors) {
-        md = window.mmPreprocessColors(md);
-      }
-    }
-
-    // Tag the mode for any helpers that look at it (mini-map, etc.)
-    svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
-
-    const { Transformer, Markmap } = window.markmap;
-    // --- Defensive transform pipeline ---
-    let pre = md; // md already set earlier (Explore: after mmPreprocessColors)
-    let root = null;
-
-    const transform = (s) => {
-      const t = new Transformer();
-      return t.transform(s).root;
-    };
-
-    try {
-      root = transform(pre);
-    } catch (e) {
-      console.error('Markmap transform threw (pass 1)', e);
-      root = null;
-    }
-
-    // If parsing yielded no nodes, scrub color tokens + inline HTML and try again.
-    if (!root?.children?.length) {
-      const scrub = (s) => String(s)
-        .replace(/\{\/?color:[^}]*\}/g, '')             // remove {color:…} tokens
-        .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')        // keep link text
-        .replace(/<\/?span\b[^>]*>/gi, '')              // drop spans
-        .replace(/<[^>]+>/g, '');                       // drop any other HTML
-      try {
-        root = transform(scrub(pre));
-      } catch (e) {
-        console.error('Markmap transform threw (pass 2)', e);
-        root = null;
-      }
-    }
-
-    // Last-ditch: ensure every nonempty line is a list item
-    if (!root?.children?.length) {
-      const bulletize = (s) => s.split(/\r?\n/).map(l => {
-        if (!l.trim()) return l;
-        return /^(\s*(?:[-*+]|\d+\.))\s+/.test(l) ? l : `- ${l}`;
-      }).join('\n');
-      try {
-        root = transform(bulletize(pre));
-      } catch (e) {
-        console.error('Markmap transform threw (pass 3)', e);
-        root = null;
-      }
-    }
-
-    if (!root?.children?.length) {
-      console.error('Explore: still no nodes after all fallbacks. Preview:', (pre || '').slice(0, 400));
-      return; // bail gracefully
+      // Explore: try raw first (preserves rank badges); DO NOT pre-wrap with spans.
+      // (If transform fails, we’ll sanitize in the fallback steps below.)
+      md = mdRaw;
     }
   
+    svg.dataset.mode = tree.isChecklist ? 'checklist' : 'explore';
+  
+    const { Transformer, Markmap } = window.markmap;
+  
+    // --- helpers ---
+    const transform = (s) => {
+      const t = new Transformer();
+      return t.transform(String(s)).root;
+    };
+    const stripColorTokens = (s) => String(s).replace(/\{\/?color:[^}]*\}/g, '');
+    const stripRiskyHtml = (s) => String(s)
+      // keep link text, drop tags
+      .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+      // keep inner text of spans (e.g., rank badge letters go away only in this fallback)
+      .replace(/<\/?span\b[^>]*>/gi, '')
+      // nuke anything else that looks like HTML
+      .replace(/<[^>]+>/g, '');
+    const bulletize = (s) => String(s).split(/\r?\n/).map(l => {
+      if (!l.trim()) return l;
+      return /^(\s*(?:[-*+]|\d+\.))\s+/.test(l) ? l : `- ${l}`;
+    }).join('\n');
+  
+    // --- 2) resilient transform pipeline ---
+    let root = null;
+  
+    // Pass A: raw (best chance to keep rank badges intact)
+    try { root = transform(md); } catch (e) { console.error('Explore xform A (raw) failed:', e); root = null; }
+  
+    // Pass B: raw + strip only {color:...} tokens (keep badges/HTML)
+    if (!root?.children?.length) {
+      try { root = transform(stripColorTokens(mdRaw)); } catch (e) { console.error('Explore xform B (strip colors) failed:', e); root = null; }
+    }
+  
+    // Pass C: strip color tokens + risky HTML (drops badges if they’re malformed)
+    if (!root?.children?.length) {
+      try { root = transform(stripRiskyHtml(stripColorTokens(mdRaw))); } catch (e) { console.error('Explore xform C (strip HTML) failed:', e); root = null; }
+    }
+  
+    // Pass D: force bullets so Markmap definitely gets a list
+    if (!root?.children?.length) {
+      try { root = transform(bulletize(stripRiskyHtml(stripColorTokens(mdRaw)))); } catch (e) { console.error('Explore xform D (bulletize) failed:', e); root = null; }
+    }
+  
+    if (!root?.children?.length) {
+      console.error('Explore: empty AST after all passes. Preview:', String(mdRaw).slice(0, 400));
+      return; // nothing to render; container stays up but no nodes (your exact symptom)
+    }
+  
+    // --- 3) create markmap (draws nodes/edges), color function only for checklist
     const mm = Markmap.create(svg, {
       htmlLabels: true,
       duration: 500,
       autoFit: true,
       fitRatio: 0.98,
-      initialExpandLevel: -1,   // show full tree immediately
+      initialExpandLevel: -1,
       pan: true,
       zoom: true,
-      scrollForPan: false,   // wheel = zoom; gutters = page scroll
-      // Checklist-only node label color (like PvP does for users)
+      scrollForPan: false,
       color: tree.isChecklist ? (node) => {
         const hay = [node.v, node.content, node.payload?.content];
         for (const s of hay) {
           if (!s || typeof s !== 'string') continue;
-          // IMPORTANT: check UNSEEN first, and use class-style matching
-          if (/\bunseen-node\b/.test(s)) return '#9ca3af'; // gray
-          if (/\bseen-node\b/.test(s))   return '#22c55e'; // green
+          if (/\bunseen-node\b/.test(s)) return '#9ca3af';
+          if (/\bseen-node\b/.test(s))   return '#22c55e';
         }
         return undefined;
       } : undefined
     }, root);
   
-    // Keep a handle + keep fitting
+    // keep handles + fit
     tree._mm = mm;
     const pane = svg.closest('.tab-pane');
     if (tree._ro) try { tree._ro.disconnect(); } catch(_) {}
@@ -480,137 +472,85 @@ class TreeManager {
     if (pane) tree._ro.observe(pane);
     requestAnimationFrame(() => mm.fit());
   
-    // Color links and tag classes for ALL trees
+    // paint links + classes (works for any mode)
     setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 350);
-    // Reapply on expand/collapse
     svg.addEventListener('click', () => {
       setTimeout(() => requestAnimationFrame(() => this._colorLinksAndTagEdges(svg, mm)), 250);
     });
-
-    // ---------- rank-based edge coloring for single-user trees ----------
+  
+    // --- 4) rank-based coloring (this ONLY runs after nodes exist) ---
     if (!tree.isChecklist) {
-      // Palette per rank (tweak as you like)
       const RANK_COLOR = {
-      species:    '#22c55e',
-      subspecies: '#22c55e',
-      variety:    '#22c55e',
-      genus:      '#10b981',
-      subgenus:   '#10b981',
-      family:     '#06b6d4',
-      subfamily:  '#06b6d4',
-      order:      '#6366f1',
-      suborder:   '#6366f1',
-      class:      '#f59e0b',
-      subclass:   '#f59e0b',
-      phylum:     '#ef4444',
-      subphylum:  '#ef4444',
-      kingdom:    '#a855f7',
-      domain:     '#a855f7',
-      superkingdom: '#a855f7',
-      stateofmatter: '#64748b'
-    };
-  
-    const getRankColor = (gNode) => {
-      // We emit <span class="mm-badge mm-rank" title="Class">C</span> in labels.
-      const badge = gNode.querySelector('.mm-badge.mm-rank');
-      if (!badge) return null;
-      const rank = (badge.getAttribute('title') || '').trim().toLowerCase();
-      return RANK_COLOR[rank] || null;
-    };
-  
-    const colorByRank = () => {
-      const colorByPath = new Map();
-  
-      // Color node visuals and record color per data-path
-      svg.querySelectorAll('g.markmap-node').forEach((g) => {
-        const c = getRankColor(g);
-        if (!c) return;
-  
-        const pathKey = g.getAttribute('data-path');
-        if (pathKey) colorByPath.set(pathKey, c);
-  
-        const line = g.querySelector('line');
-        if (line) line.setAttribute('stroke', c);
-  
-        const circle = g.querySelector('circle');
-        if (circle) { circle.setAttribute('stroke', c); circle.setAttribute('fill', c); }
-      });
-  
-      // Paint the edges (real links)
-      svg.querySelectorAll('path.markmap-link').forEach((linkEl) => {
-        let pathKey = linkEl.getAttribute('data-path');
-        let gNode = pathKey ? svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`) : null;
-  
-        if (!gNode) {
-          const d = linkEl.__data__;
-          const target = d && d.target;
-          if (target && target.path) {
-            pathKey = target.path;
-            gNode = svg.querySelector(`g.markmap-node[data-path="${pathKey}"]`);
+        species:'#22c55e', subspecies:'#22c55e', variety:'#22c55e',
+        genus:'#10b981', subgenus:'#10b981',
+        family:'#06b6d4', subfamily:'#06b6d4',
+        order:'#6366f1', suborder:'#6366f1',
+        class:'#f59e0b', subclass:'#f59e0b',
+        phylum:'#ef4444', subphylum:'#ef4444',
+        kingdom:'#a855f7', domain:'#a855f7', superkingdom:'#a855f7',
+        stateofmatter:'#64748b'
+      };
+      const getRankColor = (gNode) => {
+        const badge = gNode.querySelector('.mm-badge.mm-rank');
+        if (!badge) return null;
+        const rank = (badge.getAttribute('title') || '').trim().toLowerCase();
+        return RANK_COLOR[rank] || null;
+      };
+      const colorByRank = () => {
+        const colorByPath = new Map();
+        svg.querySelectorAll('g.markmap-node').forEach((g) => {
+          const c = getRankColor(g);
+          if (!c) return;
+          const key = g.getAttribute('data-path');
+          if (key) colorByPath.set(key, c);
+          const ln = g.querySelector('line'); if (ln) ln.setAttribute('stroke', c);
+          const circle = g.querySelector('circle'); if (circle) { circle.setAttribute('stroke', c); circle.setAttribute('fill', c); }
+        });
+        svg.querySelectorAll('path.markmap-link').forEach((p) => {
+          let key = p.getAttribute('data-path');
+          let gNode = key ? svg.querySelector(`g.markmap-node[data-path="${key}"]`) : null;
+          if (!gNode) {
+            const d = p.__data__; const target = d && d.target;
+            if (target?.path) { key = target.path; gNode = svg.querySelector(`g.markmap-node[data-path="${key}"]`); }
           }
-        }
-  
-        const c =
-          (gNode && getRankColor(gNode)) ||
-          (pathKey && colorByPath.get(pathKey)) ||
-          null;
-  
-        if (!c) return;
-  
-        // Inline styles win over global CSS
-        linkEl.setAttribute('stroke', c);
-        linkEl.style.stroke = c;
-        linkEl.style.strokeOpacity = '1';
-        linkEl.style.fill = 'none';
-      });
-    };
-  
-      // Initial paint (after layout settles)
+          const c = (gNode && getRankColor(gNode)) || (key && colorByPath.get(key));
+          if (!c) return;
+          p.setAttribute('stroke', c);
+          p.style.stroke = c; p.style.strokeOpacity = '1'; p.style.fill = 'none';
+        });
+      };
       setTimeout(() => requestAnimationFrame(colorByRank), 400);
-      // Re-apply after expand/collapse
-      svg.addEventListener('click', () => {
-        setTimeout(() => requestAnimationFrame(colorByRank), 250);
-      });
-    } // end if (!tree.isChecklist)
-    // ------------------------------------------------------------------------
+      svg.addEventListener('click', () => setTimeout(() => requestAnimationFrame(colorByRank), 250));
+    }
   
-    // Install/update the floating toolbar
+    // toolbar, gutters, minimap, dark text polish, stats (unchanged)
     this.installToolbar(tree, mm, root);
-  
-    // Add scroll gutters and mini-map
     this._ensureScrollGutters(svg.closest('.markmap-container'));
     this._ensureMiniMap(tree.id, svg);
   
-    // Dark theme label polish
     try {
       const isDark = document.body.classList.contains('dark-theme');
       if (isDark) {
         setTimeout(() => {
-          const texts = svg.querySelectorAll('text, tspan, .markmap-node text');
-          texts.forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
-          const foreign = svg.querySelectorAll('.markmap-foreign *');
-          foreign.forEach(el => { el.style.color = '#f8fafc'; });
+          svg.querySelectorAll('text, tspan, .markmap-node text').forEach(t => { t.setAttribute('fill', '#f8fafc'); t.style.opacity = '0.96'; });
+          svg.querySelectorAll('.markmap-foreign *').forEach(el => { el.style.color = '#f8fafc'; });
         }, 0);
       }
-    } catch (_) {}
-
-    // Stats dashboard (unchanged)
+    } catch {}
+  
     try {
       const tabContent = document.getElementById(`${tree.id}-content`);
-      const existingStats = tabContent.querySelectorAll('.taxonomy-stats');
-      existingStats.forEach(el => el.remove());
+      tabContent.querySelectorAll('.taxonomy-stats').forEach(el => el.remove());
       if (tree.stats && window.taxonomyStats) {
         const statsContainer = this.createStatsDashboard(tree);
-        if (statsContainer) {
-          const treeInfo = tabContent.querySelector('.tree-info');
-          if (treeInfo) treeInfo.after(statsContainer);
-          else tabContent.appendChild(statsContainer);
-        }
+        const info = tabContent.querySelector('.tree-info');
+        if (statsContainer) (info ? info.after(statsContainer) : tabContent.appendChild(statsContainer));
       }
-    } catch (error) {
-      console.error('Error rendering statistics dashboard:', error);
+    } catch (e) {
+      console.error('Stats render error:', e);
     }
   }
+  
   
 
   // Create statistics dashboard for a single tree
