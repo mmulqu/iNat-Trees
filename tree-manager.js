@@ -400,11 +400,55 @@ class TreeManager {
     const mdRaw0 = tree.markdown || tree.md || '';
     window.lastExploreMarkdown = mdRaw0; // debug handle
     console.debug('[MM] Explore raw md length:', mdRaw0.length, 'head:', String(mdRaw0).slice(0, 220));
-    const unwrapFenced = (s) => {
-      const m = String(s).match(/^\s*```[\w-]*\s*([\s\S]*?)\s*```\s*$/);
-      return m ? m[1] : s;
+    
+    // --- NORMALIZE: turn HTML-y lists to markdown bullets, unwrap code fences, fix EOLs, etc.
+    const normalizeExploreMd = (s) => {
+      let out = String(s || '');
+
+      // 1) If the whole doc is fenced, unwrap it
+      const mWhole = out.match(/^\s*```[\w-]*\s*([\s\S]*?)\s*```\s*$/);
+      if (mWhole) out = mWhole[1];
+
+      // 2) Remove *inner* fenced code blocks entirely (they confuse the parser)
+      out = out.replace(/```[\w-]*[\s\S]*?```/g, '\n');
+
+      // 3) Convert common HTML to markdown-friendly text
+      //    – list items become separate lines with bullets
+      out = out
+        .replace(/<\/li>\s*/gi, '\n')
+        .replace(/<li[^>]*>/gi, '- ')
+        .replace(/<\/?(ul|ol)[^>]*>/gi, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
+        .replace(/<\/?p[^>]*>/gi, '\n');
+
+      // 4) Keep rank badges if you emit them; strip the rest of HTML tags
+      //    (If you don't rely on .mm-badge in the label, you can drop this keep.)
+      out = out.replace(
+        /<(span\b[^>]*class="[^"]*\bmm-badge\b[^"]*"[^>]*)>(.*?)<\/span>/gi,
+        (m, open, inner) => `<span class="mm-badge">${inner}</span>`
+      );
+      out = out.replace(/<[^>]+>/g, ''); // strip everything else
+
+      // 5) Normalize whitespace/EOLs, de-indent accidental code blocks
+      out = out.replace(/\r\n?/g, '\n');
+      out = out
+        .split('\n')
+        .map(line => line.replace(/^\t+/g, m => '  '.repeat(m.length)).replace(/^ {4,}/, '')) // kill code-block indents
+        .join('\n');
+
+      // 6) Ensure non-empty lines are bulletized if nothing looks like a list
+      if (!/^(\s*(?:[-*+]|\d+\.))\s+/m.test(out) && !/^\s*#{1,6}\s+/m.test(out)) {
+        out = out
+          .split('\n')
+          .map(l => l.trim() ? `- ${l.trim()}` : l)
+          .join('\n');
+      }
+
+      return out.trim();
     };
-    const mdRaw = unwrapFenced(mdRaw0);
+
+    const mdRaw = normalizeExploreMd(mdRaw0);
     let md = mdRaw;
   
     // Explore should NOT inject HTML spans for color — rank colors are handled later.
@@ -444,19 +488,26 @@ class TreeManager {
     }).join('\n');
   
     // --- 2) resilient transform pipeline ---
+    console.debug('[MM] Explore normalize summary:', {
+      rawLen: mdRaw0.length,
+      normLen: mdRaw.length,
+      rawHead: mdRaw0.slice(0, 140),
+      normHead: mdRaw.slice(0, 140),
+    });
+
     let root = null;
   
-    // Pass A: raw (best chance to keep rank badges intact)
-    try { root = transform(md); dbgSummary('A raw', root); } catch (e) { console.error('xform A failed:', e); root = null; }
+    // Pass A: normalized (best chance to keep rank badges intact)
+    try { root = transform(mdRaw); console.debug('[MM][xform A norm] children:', root?.children?.length || 0); } catch (e) { console.error('xform A failed:', e); root = null; }
   
-    // Pass B: raw + strip only {color:...} tokens (keep badges/HTML)
-    if (!root?.children?.length) { try { root = transform(stripColorTokens(mdRaw)); dbgSummary('B no-color', root); } catch (e) { console.error('xform B failed:', e); root = null; } }
+    // Pass B: normalized + strip only {color:...} tokens (keep badges/HTML)
+    if (!root?.children?.length) { try { root = transform(stripColorTokens(mdRaw)); console.debug('[MM][xform B no-color] children:', root?.children?.length || 0); } catch (e) { console.error('xform B failed:', e); root = null; } }
   
-    // Pass C: strip color tokens + risky HTML (drops badges if they’re malformed)
-    if (!root?.children?.length) { const s = stripRiskyHtml(stripColorTokens(mdRaw)); try { root = transform(s); dbgSummary('C no-html', root); } catch (e) { console.error('xform C failed:', e); root = null; } }
+    // Pass C: strip color tokens + risky HTML (drops badges if they're malformed)
+    if (!root?.children?.length) { const s = stripRiskyHtml(stripColorTokens(mdRaw)); try { root = transform(s); console.debug('[MM][xform C no-html] children:', root?.children?.length || 0); } catch (e) { console.error('xform C failed:', e); root = null; } }
   
     // Pass D: force bullets so Markmap definitely gets a list
-    if (!root?.children?.length) { const s = bulletize(stripRiskyHtml(stripColorTokens(mdRaw))); try { root = transform(s); dbgSummary('D bulletized', root); } catch (e) { console.error('xform D failed:', e); root = null; } }
+    if (!root?.children?.length) { const s = stripRiskyHtml(stripColorTokens(mdRaw)).split('\n').map(l => l.trim() ? `- ${l.trim()}` : l).join('\n'); try { root = transform(s); console.debug('[MM][xform D bulletized] children:', root?.children?.length || 0); } catch (e) { console.error('xform D failed:', e); root = null; } }
   
     if (!root?.children?.length) {
       console.error('Explore: empty AST after all passes. Preview:', String(mdRaw).slice(0, 400));
