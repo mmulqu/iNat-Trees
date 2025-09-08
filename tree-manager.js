@@ -307,15 +307,7 @@ class TreeManager {
     visibleTabs.forEach(tab => {
       const treeId = tab.id.replace('-content', '');
       const tree = this.trees.find(t => t.id === treeId);
-      if (tree) {
-        setTimeout(() => {
-          if (tree.isComparison) {
-            this.renderComparisonTree(tree);
-          } else {
-            this.renderTree(tree);
-          }
-        }, 100); // Small delay to ensure DOM is ready
-      }
+      if (tree) this._scheduleRender(tree, 80);
     });
   }
 
@@ -376,9 +368,7 @@ class TreeManager {
       if (svg) svg.innerHTML = '';
       this._scheduleRender(tree, 80);
     });
-    if (this.trees.length === 1) {
-      new bootstrap.Tab(tabTrigger).show();
-    }
+    // Note: do not auto-show here; activateTab handles showing
 
     // Resolve taxon name if missing or generic
     const span = tabHeader.querySelector('.tab-title');
@@ -403,7 +393,7 @@ class TreeManager {
   renderTree(tree) {
     const svg = document.getElementById(`${tree.id}-svg`);
     if (!svg) return;
-    console.log('[MM] renderTree begin', { id: tree.id, isChecklist: !!tree.isChecklist, mdLen: String(tree.markdown||tree.md||'').length });
+    console.count(`[MM] renderTree begin ${tree.id}`);
     svg.innerHTML = '';
   
     // --- 1) pick source markdown ---
@@ -708,19 +698,14 @@ class TreeManager {
       e.preventDefault();
       new bootstrap.Tab(tabTrigger).show();
     });
-    // When the compare tab is shown, re-render the comparison tree
+    // When the compare tab is shown, schedule re-render (guarded)
     tabTrigger.addEventListener('shown.bs.tab', () => {
       // Clear any existing renderers first to prevent memory leaks
       const svg = document.getElementById(`${tree.id}-svg`);
       if (svg) svg.innerHTML = '';
-
-      setTimeout(() => {
-        this.renderComparisonTree(tree);
-      }, 100);
+      this._scheduleRender(tree, 80);
     });
-    if (this.trees.length === 1) {
-      new bootstrap.Tab(tabTrigger).show();
-    }
+    // Note: do not auto-show here; activateTab handles showing
   }
 
   formatComparisonTabTitle(tree) {
@@ -1772,7 +1757,7 @@ _ensureMiniMap(treeId, svg) {
 
 
 // Individual trees (Explore)
-window.treeManager = new TreeManager({
+window.treeManager = window.treeManager || new TreeManager({
   idPrefix: 'tree',
   resultsCardId: 'resultsCard',
   tabsId: 'treeTabs',
@@ -1781,7 +1766,7 @@ window.treeManager = new TreeManager({
 });
 
 // PvP comparison trees (PvP tab)
-window.pvpManager = new TreeManager({
+window.pvpManager = window.pvpManager || new TreeManager({
   idPrefix: 'pvp',
   resultsCardId: 'pvpResultsCard',
   tabsId: 'pvpTreeTabs',
@@ -1790,7 +1775,7 @@ window.pvpManager = new TreeManager({
 });
 
 // Checklist trees (Checklist tab)
-window.checklistManager = new TreeManager({
+window.checklistManager = window.checklistManager || new TreeManager({
   idPrefix: 'checklist',
   resultsCardId: 'clResultsCard',
   tabsId: 'clTreeTabs',
