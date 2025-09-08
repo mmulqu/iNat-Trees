@@ -435,8 +435,10 @@ class TreeManager {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
       const title = tree.taxonName || `Taxon ${tree.taxonId}` || 'Taxonomy';
-      md = listToHeadings(mdRaw, title); // ⬅️ convert bullets → headings
-      md = this._applyRankBadgesToMarkdown(md); // put badges back into the MD
+      md = this._applyRankBadgesToMarkdown(mdRaw); // convert rank letters to tokens first
+      md = listToHeadings(md, title); // ⬅️ convert bullets → headings (strips HTML but preserves tokens)
+      md = md.replace(/\{RANK:([FGSOCPKD])\|([^}]*)\}/g,
+        (_, L, t) => `<span class="mm-badge mm-rank" title="${t}">${L}</span>`); // convert tokens to spans after HTML stripping
       console.debug('[MM] Explore (headings) head:', md.slice(0, 160));
     }
   
@@ -1761,14 +1763,12 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-  // Replace trailing rank letters with a badge span in the Markdown itself.
+  // Replace trailing rank letters with a special token that survives HTML stripping.
   _applyRankBadgesToMarkdown(md){
     const TITLE = {F:'family', G:'genus', S:'species', O:'order', C:'class', P:'phylum', K:'kingdom', D:'domain'};
     return String(md).split(/\r?\n/).map(line =>
-      line.replace(
-        /(\s)([FGSOCPKD])(\s*(?:🖼️)?\s*)$/,
-        (m, sp, L, tail) => `${sp}<span class="mm-badge mm-rank" title="${TITLE[L]||''}">${L}</span>${tail}`
-      )
+      line.replace(/(\s)([FGSOCPKD])(\s*(?:🖼️)?\s*)$/,
+        (m, sp, L, tail) => `${sp}{RANK:${L}|${TITLE[L]||''}}${tail}`)
     ).join('\n');
   }
 
