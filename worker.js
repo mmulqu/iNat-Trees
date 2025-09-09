@@ -519,7 +519,7 @@ async function getCachedOrFetch(env, username, taxonId, authHeader, placeId) {
 }
 
 
-async function fetchUserObservations(env, username, taxonId, authHeader, maxPages = Infinity, limiterKey) {
+async function fetchUserObservations(env, username, taxonId, authHeader, maxPages = Infinity, limiterKey, opts = {}) {
   let page = 1;
   const perPage = RATE_LIMIT_CONFIG.perPage;
   let all = [];
@@ -579,9 +579,9 @@ async function compareTaxa(request, env) {
   const authHeader = jwt ? `Bearer ${jwt}` : undefined; // only send JWT to v1 API
   const key = authHeader || `${username1}:${username2}:${taxonId}`;
 
-  const user1Obs = await fetchUserObservations(env, username1, taxonId, authHeader, Infinity, key);
+  const user1Obs = await fetchUserObservations(env, username1, taxonId, authHeader, Infinity, key, {});
   await sleep(RATE_LIMIT_CONFIG.delayBetweenUsers);
-  const user2Obs = await fetchUserObservations(env, username2, taxonId, authHeader, Infinity, key);
+  const user2Obs = await fetchUserObservations(env, username2, taxonId, authHeader, Infinity, key, {});
 
   if ((user1Obs.length === 0) && (user2Obs.length === 0)) return json({ markdown: `- No observations found for either user under taxon ID ${taxonId}` }, 200, request);
 
@@ -608,7 +608,7 @@ async function buildTaxonomy(request, env) {
     const debugHeaders = { 'X-Auth-Received': String(hadAuthHeader), 'X-Auth-UsableJWT': String(!!jwt) };
 
     // Force build-taxonomy to only request one page to reduce pressure
-    const observations = await fetchUserObservations(env, username, taxonId, authHeader, RATE_LIMIT_CONFIG.maxPagesBuild, authHeader || `${username}:${taxonId}`);
+    const observations = await fetchUserObservations(env, username, taxonId, authHeader, RATE_LIMIT_CONFIG.maxPagesBuild, authHeader || `${username}:${taxonId}`, {});
     if (!observations || observations.length === 0) return json({ markdown: `- No observations found for user ${username} under taxon ID ${taxonId}`, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
 
     const seen = new Map();
@@ -794,11 +794,12 @@ async function resolveTaxaNames(request, env) {
 
 // Checklist tree endpoint
 async function checklistTree(request, env) {
-  const body = await request.json().catch(() => ({}));
-  const { username, region_code, baseTaxonId, scope = 'global' } = body || {};
-  if (!username || !region_code || !baseTaxonId) {
-    return json({ error: 'Missing parameters: username, region_code, baseTaxonId' }, 400, request);
-  }
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { username, region_code, baseTaxonId, scope = 'global' } = body || {};
+    if (!username || !region_code || !baseTaxonId) {
+      return json({ error: 'Missing parameters: username, region_code, baseTaxonId' }, 400, request);
+    }
 
   // Optional auth (same pattern you use in /build-taxonomy)
   const rawAuth = request.headers.get('Authorization') || '';
@@ -871,6 +872,10 @@ async function checklistTree(request, env) {
   const seenInRegion = leafIds.reduce((n, sid) => n + (seenSet.has(sid) ? 1 : 0), 0);
 
   return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: leafIds.length }, scope }, 200, request);
+  } catch (err) {
+    console.error('checklistTree error:', err);
+    return json({ error: "Checklist tree error", detail: String(err) }, 500, request);
+  }
 }
 
 
@@ -1151,7 +1156,7 @@ async function timelineIndex(request, env) {
   const limiterKey = authHeader || `${username}:${taxonId}:timeline`;
 
   // Fetch all observations under base taxon
-  const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, limiterKey);
+  const observations = await fetchUserObservations(env, username, taxonId, authHeader, Infinity, limiterKey, {});
 
   let insertedEvents = 0, updatedSummaries = 0;
   const insertEvt = env.DB.prepare(
