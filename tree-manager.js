@@ -1705,30 +1705,38 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-  // Inject rank badges into AST nodes after Markmap transforms markdown
-  _injectRankBadgesIntoAst(root) {
-    if (!root || !root.children) return;
-  
-    const TITLE = {
-      F: 'family', G: 'genus', S: 'species',
-      O: 'order', C: 'class', P: 'phylum',
-      K: 'kingdom', D: 'domain'
-    };
-  
-    const visit = (node) => {
-      if (node.content) {
-        // UPDATED REGEX: Now matches a rank letter followed by optional whitespace at the end.
-        node.content = node.content.replace(
-          /(\s)([FGSOCPKD])\s*$/,
-          (match, precedingSpace, letter) =>
-            `${precedingSpace}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`
-        );
+// Inject rank badges into AST nodes after Markmap transforms markdown
+_injectRankBadgesIntoAst(root) {
+  if (!root || !root.children) return;
+
+  const TITLE = {
+    F: 'family', G: 'genus', S: 'species',
+    O: 'order', C: 'class', P: 'phylum',
+    K: 'kingdom', D: 'domain'
+  };
+
+  const visit = (node) => {
+    if (node.content) {
+      // Match a trailing rank letter, keep everything else (names, emoji, etc.)
+      const m = node.content.match(/^(.*?)(\s)([FGSOCPKD])\s*$/);
+      if (m) {
+        const [, base, sp, letter] = m;
+
+        // keep original as plain fallback (with emoji intact)
+        node.content = `${base}${sp}${letter}`;
+
+        // add HTML payload version with badge
+        node.payload = node.payload || {};
+        node.payload.content =
+          `${base}${sp}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
       }
-      if (node.children) node.children.forEach(visit);
-    };
-  
-    visit(root);
-  }
+    }
+    if (node.children) node.children.forEach(visit);
+  };
+
+  visit(root);
+}
+
   
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
