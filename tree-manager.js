@@ -434,8 +434,17 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      // Convert bullets → headings (no token processing needed)
-      md = listToHeadings(mdRaw, null);
+      // ===================================================================
+      // NEW STEP 1: Convert image links to a token BEFORE cleaning
+      // This finds <a href="URL">🖼️</a> and turns it into {IMG:URL}
+      // ===================================================================
+      const mdWithTokens = mdRaw.replace(
+        /<a\s+href="([^"]+)"[^>]*>\s*🖼️\s*<\/a>/gi,
+        ' {IMG:$1}'
+      );
+
+      // Now, convert the tokenized markdown to headings
+      md = listToHeadings(mdWithTokens, null);
       console.debug('[MM] Explore headings md >>>', md.slice(0, 200));
     }
   
@@ -1705,9 +1714,7 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-// REPLACE the entire _injectRankBadgesIntoAst function with this new version:
-
-// Inject rank badges and picture icons into AST nodes
+// REPLACE the entire function with this new logic.
 _injectRankBadgesIntoAst(root) {
   if (!root || !root.children) return;
 
@@ -1718,23 +1725,32 @@ _injectRankBadgesIntoAst(root) {
   };
 
   const visit = (node) => {
-    if (node.content) {
-      // Step 1: Replace the picture emoji with its own styled span.
-      // This runs first, turning the emoji into a predictable HTML element.
-      node.content = node.content.replace(
-        /(\s*🖼️\s*)$/u,
-        ' <span class="mm-badge mm-picture" title="Has photo">🖼️</span>'
-      );
+    if (!node.content) return;
 
-      // Step 2: Replace the rank letter. This regex now looks for a letter
-      // that is followed by either our new picture span or the end of the string.
-      node.content = node.content.replace(
-        /(\s)([FGSOCPKD])(?=\s*<span|\s*$)/,
-        (match, precedingSpace, letter) =>
-          `${precedingSpace}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`
-      );
+    let content = node.content;
+    let imageUrl = null;
+
+    // Step 1: Find our special image token, store the URL, and remove the token.
+    content = content.replace(/\{IMG:([^}]+)\}/, (match, url) => {
+      imageUrl = url;
+      return ''; // The token is removed from the content string
+    });
+
+    // Step 2: Find the rank letter and replace it with a badge span.
+    // This regex is now simpler and more reliable.
+    content = content.replace(/(\s)([FGSOCPKD])\s*$/, (match, space, letter) => {
+      const badgeHtml = `<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
+      return `${space}${badgeHtml}`;
+    });
+
+    // Step 3: If we found an image URL, build the final link and append it.
+    if (imageUrl) {
+      const pictureLinkHtml = ` <a href="${imageUrl}" target="_blank" class="mm-picture-link" title="View observation photo">🖼️</a>`;
+      content += pictureLinkHtml;
     }
-    if (node.children) node.children.forEach(visit);
+
+    // Step 4: Assign the fully reconstructed content back to the node.
+    node.content = content.trim();
   };
 
   visit(root);
