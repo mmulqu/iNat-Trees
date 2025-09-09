@@ -174,12 +174,30 @@ async function resolveTaxonTitle(taxonId) {
 // Helper to convert bullet lists to heading hierarchies
 function listToHeadings(md, title) {
   md = String(md || '');
+  md = md.replace(/\{\/?color:[^}]*\}/g, ''); // Strip color tokens first
+
+  // Step 1: Temporarily replace image links with a unique, safe placeholder.
+  const placeholders = new Map();
+  let placeholderId = 0;
+  md = md.replace(/<a\s+href="[^"]+"[^>]*>\s*🖼️\s*<\/a>/gi, (match) => {
+    const key = `__IMG_LINK_PLACEHOLDER_${placeholderId++}__`;
+    placeholders.set(key, match);
+    return key;
+  });
+
+  // Step 2: Now, safely strip all OTHER HTML tags.
+  // The placeholder is just plain text, so it will survive this step.
   md = md
-    .replace(/\{\/?color:[^}]*\}/g, '')              // strip color tokens
-    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')         // keep link text
-    .replace(/<[^>]+>/g, '')                         // drop other HTML (tokens survive)
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1') // Keep text from other links
+    .replace(/<[^>]+>/g, '')                 // Strip all remaining tags
     .trim();
 
+  // Step 3: Restore the protected image links from the placeholders.
+  for (const [key, value] of placeholders.entries()) {
+    md = md.replace(key, value);
+  }
+
+  // The rest of the function continues as before, converting the cleaned list to headings.
   const lines = md.split(/\r?\n/);
   const out = [];
   if (title) out.push(`# ${title}`);
@@ -189,8 +207,7 @@ function listToHeadings(md, title) {
     if (!m) continue;
     const indent = m[1].replace(/\t/g, '  ').length;
     const level = Math.min(6, 2 + Math.floor(indent / 2));
-    let text = m[2].trim();
-    //text = text.replace(/\s*🖼️\s*$/u, ''); // strip camera emoji
+    const text = m[2].trim();
     out.push(`${'#'.repeat(level)} ${text}`);
   }
   return out.join('\n');
@@ -434,17 +451,9 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      // ===================================================================
-      // NEW STEP 1: Convert image links to a token BEFORE cleaning
-      // This finds <a href="URL">🖼️</a> and turns it into {IMG:URL}
-      // ===================================================================
-      const mdWithTokens = mdRaw.replace(
-        /<a\s+href="([^"]+)"[^>]*>\s*🖼️\s*<\/a>/gi,
-        ' {IMG:$1}'
-      );
-
-      // Now, convert the tokenized markdown to headings
-      md = listToHeadings(mdWithTokens, null);
+      // SIMPLIFIED: Remove the tokenization step.
+      // We now pass the raw markdown directly to our new, smarter listToHeadings function.
+      md = listToHeadings(mdRaw, null);
       console.debug('[MM] Explore headings md >>>', md.slice(0, 200));
     }
   
@@ -1714,7 +1723,8 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-// REPLACE the entire function with this new logic.
+// REPLACE the entire _injectRankBadgesIntoAst function with this definitive version.
+
 _injectRankBadgesIntoAst(root) {
   if (!root || !root.children) return;
 
@@ -1725,32 +1735,21 @@ _injectRankBadgesIntoAst(root) {
   };
 
   const visit = (node) => {
-    if (!node.content) return;
-
-    let content = node.content;
-    let imageUrl = null;
-
-    // Step 1: Find our special image token, store the URL, and remove the token.
-    content = content.replace(/\{IMG:([^}]+)\}/, (match, url) => {
-      imageUrl = url;
-      return ''; // The token is removed from the content string
-    });
-
-    // Step 2: Find the rank letter and replace it with a badge span.
-    // This regex is now simpler and more reliable.
-    content = content.replace(/(\s)([FGSOCPKD])\s*$/, (match, space, letter) => {
-      const badgeHtml = `<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
-      return `${space}${badgeHtml}`;
-    });
-
-    // Step 3: If we found an image URL, build the final link and append it.
-    if (imageUrl) {
-      const pictureLinkHtml = ` <a href="${imageUrl}" target="_blank" class="mm-picture-link" title="View observation photo">🖼️</a>`;
-      content += pictureLinkHtml;
+    if (node.content) {
+      // This single, powerful regex finds a rank letter followed by either:
+      //  - An optional image link and the end of the line.
+      //  - Just the end of the line.
+      // It replaces ONLY the letter, leaving the link untouched.
+      node.content = node.content.replace(
+        /(\s)([FGSOCPKD])((?:\s*<a\s+href.*<\/a>)?\s*)$/,
+        (match, space, letter, trailingPart) => {
+          const badgeHtml = `<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
+          // Reconstruct the line: the space before, the new badge, and whatever came after (the link or nothing).
+          return `${space}${badgeHtml}${trailingPart}`;
+        }
+      );
     }
-
-    // Step 4: Assign the fully reconstructed content back to the node.
-    node.content = content.trim();
+    if (node.children) node.children.forEach(visit);
   };
 
   visit(root);
