@@ -69,6 +69,11 @@ async function listRegionSpeciesUnder(env, regionCode, baseTaxonId) {
   return (results || []).map(r => r.species_id);
 }
 
+async function getPlaceIdForRegion(env, code) {
+  const row = await env.DB.prepare(`SELECT place_id FROM regions WHERE code = ?`).bind(code).first();
+  return row?.place_id ? Number(row.place_id) : null;
+}
+
 
 async function listMissingTaxaIds(env, ids, sz=400) {
   const missing = new Set(ids);
@@ -497,19 +502,22 @@ async function requireLogin(request) {
   return { login: null, jwt: null };
 }
 
-function getCacheKey(username, taxonId) { return `${username}:${taxonId}`; }
+function getCacheKey(username, taxonId, placeId) {
+  return `${username}:${taxonId}:${placeId ? `place:${placeId}` : 'global'}`;
+}
 
-async function getCachedOrFetch(env, username, taxonId, authHeader) {
-  const cacheKey = getCacheKey(username, taxonId);
+async function getCachedOrFetch(env, username, taxonId, authHeader, placeId) {
+  const cacheKey = getCacheKey(username, taxonId, placeId);
   if (RATE_LIMIT_CONFIG.cacheEnabled && requestCache.has(cacheKey)) {
     const cached = requestCache.get(cacheKey);
     if (Date.now() - cached.timestamp < RATE_LIMIT_CONFIG.cacheTTL * 1000) return cached.data;
   }
-  const limiterKey = authHeader || `${username}:${taxonId}`;
-  const data = await fetchUserObservations(env, username, taxonId, authHeader, RATE_LIMIT_CONFIG.maxPagesBuild, limiterKey);
+  const limiterKey = authHeader || `${username}:${taxonId}:${placeId || 'global'}`;
+  const data = await fetchUserObservations(env, username, taxonId, authHeader, RATE_LIMIT_CONFIG.maxPagesBuild, limiterKey, { placeId });
   if (RATE_LIMIT_CONFIG.cacheEnabled) requestCache.set(cacheKey, { data, timestamp: Date.now() });
   return data;
 }
+
 
 async function fetchUserObservations(env, username, taxonId, authHeader, maxPages = Infinity, limiterKey) {
   let page = 1;
@@ -519,6 +527,7 @@ async function fetchUserObservations(env, username, taxonId, authHeader, maxPage
     const url = new URL('https://api.inaturalist.org/v1/observations');
     url.searchParams.set('user_login', username);
     url.searchParams.set('taxon_id', String(taxonId));
+    if (opts.placeId) url.searchParams.set('place_id', String(opts.placeId));
     url.searchParams.set('per_page', String(perPage));
     url.searchParams.set('page', String(page));
     url.searchParams.set('include', 'taxon');
@@ -786,7 +795,7 @@ async function resolveTaxaNames(request, env) {
 // Checklist tree endpoint
 async function checklistTree(request, env) {
   const body = await request.json().catch(() => ({}));
-  const { username, region_code, baseTaxonId } = body || {};
+  const { username, region_code, baseTaxonId, scope = 'global' } = body || {};
   if (!username || !region_code || !baseTaxonId) {
     return json({ error: 'Missing parameters: username, region_code, baseTaxonId' }, 400, request);
   }
@@ -815,39 +824,53 @@ async function checklistTree(request, env) {
     return json({ debug: dbg, leafIds }, 200, request);
   }
 
-  // 2) seen set (keep your existing summary/cached path)
+  // NEW: resolve place_id when region-scoped lifelist is requested
+  let placeId = null;
+  if (scope === 'region') {
+    placeId = await getPlaceIdForRegion(env, region_code);
+  }
+
+  // Build seenSet
   let seenSet = new Set();
-  try {
+  if (scope === 'global') {
+    // existing fast path from summary table
     const sum = await env.DB.prepare(
       `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
     ).bind(username, baseId).all();
+
     if (sum.results?.length) {
       seenSet = new Set(sum.results.map(r => r.species_id));
     } else {
-      // Fallback: fetch and map to species-level IDs
-      const obs = await getCachedOrFetch(env, username, baseId, authHeader)  // or your fetchUserObservations()
-                  || [];
-      const uniqueTaxonIds = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
+      const obs = await getCachedOrFetch(env, username, baseId, authHeader, null) || [];
+      const unique = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
       const speciesIds = [];
-      for (const id of uniqueTaxonIds) {
+      for (const id of unique) {
         const sid = await resolveSpeciesIdFromAny(env, id);
         if (sid) speciesIds.push(sid);
       }
       seenSet = new Set(speciesIds);
     }
-  } catch (_) {}
+  } else { // scope === 'region'
+    // place-filtered fetch; build species set from those obs
+    const obs = await getCachedOrFetch(env, username, baseId, authHeader, placeId) || [];
+    const unique = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
+    const speciesIds = [];
+    for (const id of unique) {
+      const sid = await resolveSpeciesIdFromAny(env, id);
+      if (sid) speciesIds.push(sid);
+    }
+    seenSet = new Set(speciesIds);
+  }
 
-  // 3) build tree from canonical taxa table
+  // Intersect implicitly by painting only leafIds (region checklist)
   const root = await buildTreeFromDatabase(env, leafIds, baseId);
   annotateSeenMissing(root, seenSet);
 
   const markdown = treeToMarkdown(root, 0, { mode: 'checklist', username });
   const plainMarkdown = toPlainMarkdown?.(markdown) || markdown;
+  const seenInRegion = leafIds.reduce((n, sid) => n + (seenSet.has(sid) ? 1 : 0), 0);
 
-  let seenInRegion = 0;
-  for (const sid of leafIds) if (seenSet.has(sid)) seenInRegion++;
-
-  return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: leafIds.length } }, 200, request);
+  return json({ markdown, plainMarkdown, totals: { seen: seenInRegion, total: leafIds.length }, scope }, 200, request);
 }
 
 
