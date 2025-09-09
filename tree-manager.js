@@ -190,7 +190,7 @@ function listToHeadings(md, title) {
     const indent = m[1].replace(/\t/g, '  ').length;
     const level = Math.min(6, 2 + Math.floor(indent / 2));
     let text = m[2].trim();
-    text = text.replace(/\s*🖼️\s*$/u, ''); // strip camera emoji
+    //text = text.replace(/\s*🖼️\s*$/u, ''); // strip camera emoji
     out.push(`${'#'.repeat(level)} ${text}`);
   }
   return out.join('\n');
@@ -1705,7 +1705,9 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-// Inject rank badges into AST nodes after Markmap transforms markdown
+// REPLACE the entire _injectRankBadgesIntoAst function with this new version:
+
+// Inject rank badges and picture icons into AST nodes
 _injectRankBadgesIntoAst(root) {
   if (!root || !root.children) return;
 
@@ -1717,26 +1719,26 @@ _injectRankBadgesIntoAst(root) {
 
   const visit = (node) => {
     if (node.content) {
-      // Match a trailing rank letter, keep everything else (names, emoji, etc.)
-      const m = node.content.match(/^(.*?)(\s)([FGSOCPKD])\s*$/);
-      if (m) {
-        const [, base, sp, letter] = m;
+      // Step 1: Replace the picture emoji with its own styled span.
+      // This runs first, turning the emoji into a predictable HTML element.
+      node.content = node.content.replace(
+        /(\s*🖼️\s*)$/u,
+        ' <span class="mm-badge mm-picture" title="Has photo">🖼️</span>'
+      );
 
-        // keep original as plain fallback (with emoji intact)
-        node.content = `${base}${sp}${letter}`;
-
-        // add HTML payload version with badge
-        node.payload = node.payload || {};
-        node.payload.content =
-          `${base}${sp}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
-      }
+      // Step 2: Replace the rank letter. This regex now looks for a letter
+      // that is followed by either our new picture span or the end of the string.
+      node.content = node.content.replace(
+        /(\s)([FGSOCPKD])(?=\s*<span|\s*$)/,
+        (match, precedingSpace, letter) =>
+          `${precedingSpace}<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`
+      );
     }
     if (node.children) node.children.forEach(visit);
   };
 
   visit(root);
 }
-
   
   /** Paint markmap links to match node/user colors and tag classes for mini-map. */
   _colorLinksAndTagEdges(svg, mm) {
