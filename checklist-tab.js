@@ -125,6 +125,7 @@ async function initChecklistUI(){
     const username = document.getElementById('clUsername').value.trim();
     const region   = clRegion.value;
     const baseId   = (clTaxId.value || '').trim();
+    const scope = (window.getLifelistScope ? window.getLifelistScope() : 'global');
 
     if (!username || !region || !baseId) {
       alert('Please provide username, region, and a base taxon ID.');
@@ -133,10 +134,17 @@ async function initChecklistUI(){
 
     setSpinner(true);
     try {
+      const payload = {
+        username,
+        region_code: region,
+        baseTaxonId: parseInt(baseId, 10),
+        scope
+      };
+      
       const r = await fetch(`${API}/checklist/tree`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ username, region_code: region, baseTaxonId: parseInt(baseId, 10) })
+        body: JSON.stringify(payload)
       });
       const j = await r.json().catch(()=>({}));
       if (!r.ok) {

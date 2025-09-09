@@ -420,6 +420,42 @@
     /* Existing rules stay */
     body.in-pvp #resultsCard { display: none !important; }
     body:not(.in-pvp) #pvpResultsCard { display: none !important; }
+
+    /* Lifelist switch with inline text */
+    .lifelist-switch .form-check-input.lifelist-toggle {
+      width: 7.25rem;  /* big enough for text */
+      height: 2.25rem;
+      cursor: pointer;
+      position: relative;
+      background-color: #d1e7dd;
+      border-color: var(--border-color);
+    }
+    body.dark-theme .lifelist-switch .form-check-input.lifelist-toggle {
+      background-color: #22423a;
+      border-color: #35504a;
+    }
+
+    .lifelist-switch .form-check-input.lifelist-toggle::after {
+      content: attr(data-off);
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #0f5132; /* green-ish text for "Regional" */
+    }
+    body.dark-theme .lifelist-switch .form-check-input.lifelist-toggle::after {
+      color: #c4f1dd;
+    }
+
+    /* When checked, show Global */
+    .lifelist-switch .form-check-input.lifelist-toggle:checked::after {
+      content: attr(data-on);
+      color: white;
+    }
+
+    /* Make the knob subtle so text stays readable */
+    .lifelist-switch .form-check-input.lifelist-toggle:focus { box-shadow: none; }
   </style>
 </head>
 <body>
@@ -643,6 +679,23 @@
               </div>
               <div id="clAutocomplete" class="autocomplete-results"></div>
               <div class="form-text">Pick a higher rank (e.g., Birds=3) for faster trees.</div>
+            </div>
+          </div>
+          <div class="row g-3 align-items-end mt-2">
+            <div class="col-md-4">
+              <label class="form-label d-block">Lifelist</label>
+              <div class="form-switch lifelist-switch">
+                <input
+                  class="form-check-input lifelist-toggle"
+                  type="checkbox"
+                  id="lifelistScope"
+                  data-on="Global"
+                  data-off="Regional"
+                  aria-describedby="lifelistScopeHelp"
+                  checked
+                >
+                <small id="lifelistScopeHelp" class="text-muted ms-2">Choose which lifelist to paint onto the region's checklist.</small>
+              </div>
             </div>
           </div>
           <div class="mt-3 d-flex gap-2">
@@ -929,6 +982,25 @@
         }
       }
     }
+
+    // Lifelist scope toggle: default to previous choice, else "global" (back-compat)
+    (function initLifelistToggle(){
+      const el = document.getElementById('lifelistScope');
+      if (!el) return;
+      const saved = localStorage.getItem('lifelistScope'); // 'global' | 'region'
+      if (saved === 'region') el.checked = false;
+      else if (saved === 'global') el.checked = true;
+      else el.checked = true; // default = global
+
+      el.addEventListener('change', () => {
+        localStorage.setItem('lifelistScope', el.checked ? 'global' : 'region');
+      });
+
+      // convenient getter for other modules
+      window.getLifelistScope = function getLifelistScope() {
+        return (document.getElementById('lifelistScope')?.checked) ? 'global' : 'region';
+      };
+    })();
 
     // Initialize everything properly when the page loads
     window.addEventListener('load', function() {
