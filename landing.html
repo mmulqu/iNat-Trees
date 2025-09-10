@@ -28,6 +28,7 @@
     @media (prefers-color-scheme: dark){
       :root{ --text:#e6e6e6; --scrim: rgba(7,10,12,0.55); }
     }
+    html { scroll-behavior: smooth; }
     html, body { height: 100%; }
     body{
       margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
@@ -136,6 +137,15 @@
       }
     }
 
+    /* Inline version when placed inside the hero card */
+    .hero-card .scroll-hint{
+      position: static;       /* cancel absolute */
+      transform: none;
+      top: auto; left: auto;
+      margin: 14px auto 10px; /* space under the intro text */
+      z-index: auto;
+    }
+
     /* Features */
     .features{
       position: relative; z-index: 1;
@@ -177,17 +187,18 @@
 
   <!-- Hero -->
   <main class="hero">
-    <a href="#features" class="scroll-hint" aria-label="Learn more">
-      <span>Learn more</span> <i class="bi bi-chevron-double-down"></i>
-    </a>
     <div class="hero-card text-center text-light">
       <span class="brand-badge">
         <i class="bi bi-tree"></i> iNaturalist Taxa Trees
       </span>
       <h1 class="display-5">Visualize, compare, map, and track your biodiversity</h1>
       <p class="lead mb-1">
-        Build taxonomic trees from your iNaturalist observations, compare two users side-by-side, explore region checklists with interactive maps to find species you haven’t recorded yet, and replay your first-seen timeline.
+        Build taxonomic trees from your iNaturalist observations, compare two users side-by-side, explore region checklists with interactive maps to find species you haven't recorded yet, and replay your first-seen timeline.
       </p>
+
+      <a href="#features" class="scroll-hint" aria-label="Learn more">
+        <span>Learn more</span> <i class="bi bi-chevron-double-down"></i>
+      </a>
 
       <div class="cta">
         <button id="inatLogin" class="btn btn-inat">
