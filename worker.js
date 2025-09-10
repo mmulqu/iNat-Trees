@@ -74,6 +74,35 @@ async function getPlaceIdForRegion(env, code) {
   return row?.place_id ? Number(row.place_id) : null;
 }
 
+async function resolvePlaceId(env, code){
+  await ensureRegionTables(env);
+  // 1) check DB
+  const row = await env.DB.prepare(
+    `SELECT code, name, inat_place_id FROM regions WHERE code = ?`
+  ).bind(code).first();
+
+  if (row?.inat_place_id) {
+    return { code: row.code, name: row.name, place_id: row.inat_place_id };
+  }
+
+  // 2) look up via iNat Places API (best effort by name)
+  if (!row?.name) return null;
+  const q = encodeURIComponent(row.name);
+  const r = await fetch(`https://api.inaturalist.org/v1/places/autocomplete?q=${q}&per_page=5`);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const guess = j?.results?.[0];
+  if (!guess?.id) return null;
+
+  // 3) persist back to DB for next time
+  try {
+    await env.DB.prepare(`UPDATE regions SET inat_place_id=? WHERE code=?`)
+      .bind(guess.id, code).run();
+  } catch {}
+
+  return { code: row.code, name: row.name, place_id: guess.id };
+}
+
 
 async function listMissingTaxaIds(env, ids, sz=400) {
   const missing = new Set(ids);
@@ -340,6 +369,16 @@ export default {
           .prepare(`SELECT code, name, country, type, inat_place_id FROM regions ORDER BY country, name`)
           .all();
         return json({ regions: results || [] }, 200, request);
+      }
+
+      // -- Resolve place_id for a region code --
+      if (pathname === '/regions/resolve_place_id' && request.method === 'GET') {
+        const url = new URL(request.url);
+        const code = url.searchParams.get('code');
+        if (!code) return json({ error: 'code required' }, 400, request);
+        const out = await resolvePlaceId(env, code);
+        if (!out) return json({ error: 'not found' }, 404, request);
+        return json(out, 200, request);
       }
 
       // -- Bulk resolve scientific names -> taxon_id from your local D1 (no external calls) --

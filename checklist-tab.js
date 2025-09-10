@@ -198,7 +198,9 @@ async function addSpeciesToMap(pane, taxonId, name){
   if (!state || state.addedIds.has(taxonId)) return;
 
   const color = nextColor(state);
-  const placeId = pane.dataset.placeId || '';
+
+  // 🔒 make sure we have a place_id if a region was selected
+  const placeId = await ensurePlaceIdForPane(pane); // ← ensures numeric id or ''
 
   // Range GeoJSON
   let rangeLayer = null, hasRange = false;
@@ -215,23 +217,26 @@ async function addSpeciesToMap(pane, taxonId, name){
     rangeLayer.addTo(state.rangeGroup);
   }
 
-  // Observations (region-filtered if placeId)
+  // Observations (scoped to region if placeId)
   let obsLayer = null, hasObs = false;
   try {
     const u = new URL('https://api.inaturalist.org/v1/observations');
     u.searchParams.set('taxon_id', taxonId);
-    if (placeId) u.searchParams.set('place_id', placeId);
-    u.searchParams.set('per_page','200'); u.searchParams.set('geo','true');
-    u.searchParams.set('quality_grade','research'); u.searchParams.set('order_by','observed_on'); u.searchParams.set('order','desc');
+    if (placeId) u.searchParams.set('place_id', placeId);   // ✅ guarantee constraint
+    u.searchParams.set('per_page', '200');
+    u.searchParams.set('geo', 'true');
+    u.searchParams.set('quality_grade', 'research');
+    u.searchParams.set('order_by','observed_on');
+    u.searchParams.set('order','desc');
 
     const j = await fetch(u, { headers: authHeaders() }).then(r => r.json());
     const pts = (j.results||[]).map(r => {
       if (r.location) {
         const [lat, lon] = String(r.location).split(',').map(Number);
-        return isFinite(lat)&&isFinite(lon) ? {lat,lon,r} : null;
+        return (isFinite(lat)&&isFinite(lon)) ? {lat,lon,r} : null;
       } else if (r.geojson?.coordinates?.length===2){
         const [lon, lat] = r.geojson.coordinates.map(Number);
-        return isFinite(lat)&&isFinite(lon) ? {lat,lon,r} : null;
+        return (isFinite(lat)&&isFinite(lon)) ? {lat,lon,r} : null;
       }
       return null;
     }).filter(Boolean);
@@ -241,15 +246,10 @@ async function addSpeciesToMap(pane, taxonId, name){
         pts.map(p => L.circleMarker([p.lat,p.lon], {
           radius:5, color, fillColor:color, fillOpacity:.8, weight:1
         }).bindPopup(renderObsPopup(p.r)))
-      );
+      ).addTo(state.obsGroup);
       hasObs = true;
     }
   } catch {}
-
-  // Add observations layer to group
-  if (obsLayer) {
-    obsLayer.addTo(state.obsGroup);
-  }
 
   // store per-species for later removal
   state.perSpecies[taxonId] = { rangeLayer, obsLayer, color, name };
@@ -271,14 +271,20 @@ async function addSpeciesToMap(pane, taxonId, name){
 }
 
 function renderObsPopup(r){
+  const id = r?.id;
+  const url = id ? `https://www.inaturalist.org/observations/${id}` : null;
   const sci = r?.taxon?.name || '';
   const com = r?.taxon?.preferred_common_name || '';
   const when = r?.observed_on || r?.time_observed_at || '';
   const who = r?.user?.login || '';
   const photo = (r?.photos?.[0]?.url || '').replace('square','medium');
   const img = photo ? `<img src="${photo}" style="max-width:220px;width:100%;border-radius:6px;margin-top:6px">` : '';
-  return `<b>${com || sci}</b>${com && sci ? ` <i>(${sci})</i>` : ''}<br/>
-          Observed: ${when}<br/>Observer: ${who}${img}`;
+  const link = url ? `<div style="margin-top:6px"><a href="${url}" target="_blank" rel="noopener">Open in iNaturalist ↗</a></div>` : '';
+  return `<b>${escapeHtml(com || sci)}</b>${com && sci ? ` <i>(${escapeHtml(sci)})</i>` : ''}
+          <br/>Observed: ${escapeHtml(when)}
+          <br/>Observer: ${escapeHtml(who)}
+          ${img}
+          ${link}`;
 }
 
 function addNMore(pane, n){
@@ -516,6 +522,22 @@ function clearLegend(pane){
 }
 
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+async function ensurePlaceIdForPane(pane){
+  if (pane.dataset.placeId) return pane.dataset.placeId;
+  const code = pane.dataset.regionCode;
+  if (!code) return ''; // no region → no filter
+  try {
+    const r = await fetch(`${API}/regions/resolve_place_id?code=${encodeURIComponent(code)}`, { headers: authHeaders() });
+    if (!r.ok) return '';
+    const j = await r.json();
+    if (j?.place_id) {
+      pane.dataset.placeId = String(j.place_id);
+      return pane.dataset.placeId;
+    }
+  } catch {}
+  return '';
+}
 
 // Helper functions
 function showResultsCard() {
