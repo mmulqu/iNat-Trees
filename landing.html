@@ -60,6 +60,7 @@
       place-items: center;
       padding: clamp(24px, 4vw, 56px);
       text-align: center;
+      position: relative;
     }
     .hero-card{
       backdrop-filter: blur(4px);
@@ -114,6 +115,26 @@
     @media (prefers-color-scheme: light){ .why{ color:#374151; } }
     .why li{ margin:.25rem 0; }
 
+    /* Learn more scroll cue */
+    .scroll-hint{
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      display:inline-flex; align-items:center; gap:.5rem;
+      padding:.55rem .9rem; border-radius:999px;
+      font-weight:700; font-size: clamp(1rem, 1.8vw, 1.15rem);
+      background: rgba(255,255,255,.88); color:#0f172a;
+      border:1px solid rgba(15,23,42,.15);
+      text-decoration:none; box-shadow:0 6px 18px rgba(0,0,0,.18);
+    }
+    .scroll-hint:hover{ background:#fff; }
+    .scroll-hint .bi{ animation: bounce 1.3s infinite; }
+    @keyframes bounce{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
+    @media (prefers-color-scheme: dark){
+      .scroll-hint{
+        background: rgba(23,26,27,.92); color:#f8fafc;
+        border-color: rgba(255,255,255,.12);
+      }
+    }
+
     /* Features */
     .features{
       position: relative; z-index: 1;
@@ -155,6 +176,9 @@
 
   <!-- Hero -->
   <main class="hero">
+    <a href="#features" class="scroll-hint" aria-label="Learn more">
+      <span>Learn more</span> <i class="bi bi-chevron-double-down"></i>
+    </a>
     <div class="hero-card text-center text-light">
       <span class="brand-badge">
         <i class="bi bi-tree"></i> iNaturalist Taxa Trees
@@ -181,12 +205,6 @@
   <!-- Features -->
   <section class="features">
     <div class="container">
-      <div class="text-center mb-4">
-        <a href="#features" class="text-decoration-none text-light">
-          <i class="bi bi-chevron-double-down"></i> Learn more
-        </a>
-      </div>
-
       <div id="features" class="row g-3">
         <!-- LEFT: battle_img.jpg -->
         <div class="col-12 col-md-4">
