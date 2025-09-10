@@ -198,65 +198,61 @@ async function addSpeciesToMap(pane, taxonId, name){
   if (!state || state.addedIds.has(taxonId)) return;
 
   const color = nextColor(state);
-  const placeId = pane.dataset.placeId || '';  // empty => skip region filter on obs
+  const placeId = pane.dataset.placeId || '';
 
-  // 1) Range polygon (from Open Range Maps S3)
-  const rangeUrl = `https://inaturalist-open-data.s3.us-east-1.amazonaws.com/geomodel/geojsons/latest/${taxonId}.geojson`;
-  let rangeLayer = null;
+  // Range GeoJSON
+  let rangeLayer = null, hasRange = false;
   try {
-    const gj = await fetch(rangeUrl).then(r => {
-      if (!r.ok) throw new Error('No range available'); return r.json();
-    });
-    rangeLayer = L.geoJSON(gj, {
-      style: { color, weight: 2, fillOpacity: 0.25 }
-    }).addTo(state.rangeGroup);
-    rangeLayer.bindPopup(`<b>${name}</b><br/>Range (iNat Open Range Maps)`);
-  } catch { /* no range available, ignore */ }
+    const rangeUrl = `https://inaturalist-open-data.s3.us-east-1.amazonaws.com/geomodel/geojsons/latest/${taxonId}.geojson`;
+    const gj = await fetch(rangeUrl).then(r => { if(!r.ok) throw 0; return r.json(); });
+    rangeLayer = L.geoJSON(gj, { style:{ color, weight:2, fillOpacity:.25 } }).addTo(state.rangeGroup);
+    rangeLayer.bindPopup(`<b>${escapeHtml(name)}</b><br/>Range (Open Range Maps)`);
+    hasRange = true;
+  } catch {/* no range */}
 
-  // 2) Observations (scoped to region if we have a placeId)
-  let obsLayer = null;
+  // Observations (region-filtered if placeId)
+  let obsLayer = null, hasObs = false;
   try {
     const u = new URL('https://api.inaturalist.org/v1/observations');
     u.searchParams.set('taxon_id', taxonId);
     if (placeId) u.searchParams.set('place_id', placeId);
-    u.searchParams.set('per_page','200');
-    u.searchParams.set('geo','true');
-    u.searchParams.set('quality_grade','research');
-    u.searchParams.set('order_by','observed_on');
-    u.searchParams.set('order','desc');
+    u.searchParams.set('per_page','200'); u.searchParams.set('geo','true');
+    u.searchParams.set('quality_grade','research'); u.searchParams.set('order_by','observed_on'); u.searchParams.set('order','desc');
 
-    const headers = authHeaders();
-    const j = await fetch(u, { headers }).then(r => r.json());
-    const pts = (j.results||[])
-      .map(r => {
-        // prefer r.location string "lat,lon"
-        if (r.location) {
-          const [lat, lon] = String(r.location).split(',').map(Number);
-          return { lat, lon, r };
-        } else if (r.geojson?.coordinates?.length === 2) {
-          const [lon, lat] = r.geojson.coordinates.map(Number);
-          return { lat, lon, r };
-        }
-        return null;
-      })
-      .filter(Boolean);
+    const j = await fetch(u, { headers: authHeaders() }).then(r => r.json());
+    const pts = (j.results||[]).map(r => {
+      if (r.location) {
+        const [lat, lon] = String(r.location).split(',').map(Number);
+        return isFinite(lat)&&isFinite(lon) ? {lat,lon,r} : null;
+      } else if (r.geojson?.coordinates?.length===2){
+        const [lon, lat] = r.geojson.coordinates.map(Number);
+        return isFinite(lat)&&isFinite(lon) ? {lat,lon,r} : null;
+      }
+      return null;
+    }).filter(Boolean);
 
-    if (pts.length) {
+    if (pts.length){
       obsLayer = L.layerGroup(
-        pts.map(p => L.circleMarker([p.lat, p.lon], {
-          radius: 5, color, fillColor: color, fillOpacity: 0.8, weight: 1
+        pts.map(p => L.circleMarker([p.lat,p.lon], {
+          radius:5, color, fillColor:color, fillOpacity:.8, weight:1
         }).bindPopup(renderObsPopup(p.r)))
       ).addTo(state.obsGroup);
+      hasObs = true;
     }
-  } catch { /* quietly ignore */ }
+  } catch {}
 
+  // store per-species for later removal
+  state.perSpecies[taxonId] = { rangeLayer, obsLayer, color, name };
   state.addedIds.add(taxonId);
 
-  // Fit map to whatever we added first
+  // legend row
+  addLegendItem(pane, taxonId, name, color, hasRange, hasObs);
+
+  // fit once
   const bounds = L.latLngBounds([]);
-  if (rangeLayer) bounds.extend(rangeLayer.getBounds());
-  if (state.obsGroup.getLayers().length) {
-    state.obsGroup.getLayers().forEach(l => {
+  if (rangeLayer?.getBounds) bounds.extend(rangeLayer.getBounds());
+  if (obsLayer){
+    obsLayer.getLayers().forEach(l => {
       if (l.getBounds) bounds.extend(l.getBounds());
       else if (l.getLatLng) bounds.extend([l.getLatLng()]);
     });
@@ -287,84 +283,172 @@ function addNMore(pane, n){
   }
 }
 
+function removeSpeciesFromMap(pane, taxonId){
+  const s = pane?._mapState; if (!s) return;
+  const entry = s.perSpecies[taxonId]; if (!entry) return;
+  if (entry.rangeLayer) s.rangeGroup.removeLayer(entry.rangeLayer);
+  if (entry.obsLayer) s.obsGroup.removeLayer(entry.obsLayer);
+  s.addedIds.delete(taxonId);
+  delete s.perSpecies[taxonId];
+}
+
 function clearAllLayers(pane){
-  const s = pane._mapState;
-  if (!s) return;
+  const s = pane._mapState; if (!s) return;
   s.rangeGroup.clearLayers();
   s.obsGroup.clearLayers();
+  s.perSpecies = Object.create(null);
   s.addedIds.clear();
   s.colorIdx = 0;
+  clearLegend(pane);
 }
 
 function addChecklistTreeTab(title, markdown){
   showResultsCard();
   const id = uid();
 
-  // read selected region + place_id at creation time
+  // Read region info at creation time
   const clRegion = document.getElementById('clRegion');
   const regionCode = clRegion.value;
+  const regionName = clRegion.selectedOptions[0]?.textContent || regionCode;
   const placeId = clRegion.selectedOptions[0]?.dataset?.placeId || '';
 
-  // header
+  // Tab + pane
   const tabs = document.getElementById('clTreeTabs');
   const li = document.createElement('li'); li.className = 'nav-item';
   li.innerHTML = `<a class="nav-link" id="${id}-tab" data-bs-toggle="tab" href="#${id}-content" role="tab" aria-controls="${id}-content" aria-selected="false">${title}</a>`;
   tabs.appendChild(li);
 
-  // content: map toolbar + map + markmap svg
   const content = document.getElementById('clTreeTabContent');
   const pane = document.createElement('div');
   pane.className = 'tab-pane';
   pane.id = `${id}-content`;
   pane.setAttribute('role','tabpanel');
+
+  // stash for controls
   pane.dataset.regionCode = regionCode;
+  pane.dataset.regionName = regionName;
   pane.dataset.placeId = placeId;
+  pane.dataset.baseTitle = title;
+
   pane.innerHTML = `
-    <div class="mb-2 d-flex gap-2">
-      <button class="btn btn-sm btn-outline-primary" id="${id}-addMoreBtn" title="Add 4 more ranges">+4 More</button>
-      <button class="btn btn-sm btn-outline-secondary" id="${id}-clearMapBtn" title="Remove all layers">Clear Map</button>
+    <div class="mb-2 d-flex gap-2 align-items-center">
+      <button class="btn btn-sm btn-outline-primary" id="${id}-addMoreBtn">+4 More</button>
+      <button class="btn btn-sm btn-outline-secondary" id="${id}-clearMapBtn">Clear Map</button>
+      <span class="text-muted small">Tip: click 🗺️ next to a species in the tree to add its range & observations.</span>
     </div>
     <div id="${id}-map" style="height:420px;border-radius:10px;overflow:hidden;margin-bottom:12px;"></div>
-    <div class="markmap-container">
-      <svg id="${id}-svg" width="100%" height="700"></svg>
-    </div>
+    <div class="markmap-container"><svg id="${id}-svg" width="100%" height="700"></svg></div>
   `;
   content.appendChild(pane);
 
-  // show markdown in side accordion
   document.getElementById('clMarkdownResult').textContent = markdown;
-
-  // activate, then render both map and markmap
   activateTab(id);
+
   setTimeout(() => {
-    // 1) Leaflet init
+    // Leaflet map
     const map = L.map(`${id}-map`, { zoomControl: true });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
-    map.setView([20,0], 2); // world view; we'll fit on first layer
-    // keep state per pane
+    map.setView([20,0], 2);
+
+    // map state
     pane._mapState = {
       map,
       rangeGroup: L.layerGroup().addTo(map),
       obsGroup: L.layerGroup().addTo(map),
+      perSpecies: Object.create(null),
       addedIds: new Set(),
       colorIdx: 0
     };
 
-    // 2) Markmap
+    // Add map title & legend controls
+    addMapTitleControl(pane);
+    addLegendControl(pane);
+
+    // Markmap render
     const svg = document.getElementById(`${id}-svg`);
     svg.innerHTML = '';
     mmRender(svg, markdown);
 
-    // 3) Wire 🗺️ clicks and auto-add up to 4 to avoid overload
+    // Wire 🗺️ and initial +4
     wireRangeButtons(pane);
     addNMore(pane, 4);
-    // toolbar
+
+    // Toolbar
     document.getElementById(`${id}-addMoreBtn`).onclick = () => addNMore(pane, 4);
     document.getElementById(`${id}-clearMapBtn`).onclick = () => clearAllLayers(pane);
-  }, 60);
+  }, 50);
 }
+
+// Map control functions
+function addMapTitleControl(pane){
+  const title = pane.dataset.baseTitle || 'Checklist';
+  const region = pane.dataset.regionName || '';
+  const text = `<div><strong>Gap Finder Map</strong></div>
+                <div class="small">Missing species for <em>${escapeHtml(title)}</em> in <em>${escapeHtml(region)}</em></div>`;
+  const TitleCtl = L.Control.extend({
+    options:{ position:'topleft' },
+    onAdd: function(){
+      const div = L.DomUtil.create('div', 'leaflet-control map-title');
+      div.innerHTML = text;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  const ctl = new TitleCtl();
+  ctl.addTo(pane._mapState.map);
+  pane._mapState.titleCtl = ctl;
+}
+
+function addLegendControl(pane){
+  const LegendCtl = L.Control.extend({
+    options:{ position:'bottomright' },
+    onAdd: function(){
+      const div = L.DomUtil.create('div', 'leaflet-control missing-legend');
+      div.innerHTML = `
+        <div class="legend-title">Missing species layers</div>
+        <div class="legend-items"></div>
+        <div class="legend-hint">Colors match tree badges. Click × to remove.</div>`;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  const ctl = new LegendCtl();
+  ctl.addTo(pane._mapState.map);
+  pane._mapState.legendCtl = ctl;
+  pane._mapState.legendEl = ctl.getContainer().querySelector('.legend-items');
+
+  // delegate remove
+  pane._mapState.legendEl.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.legend-remove');
+    if (!btn) return;
+    const item = btn.closest('.legend-item');
+    const taxonId = item?.dataset?.taxonId;
+    if (taxonId) removeSpeciesFromMap(pane, taxonId);
+    item?.remove();
+  });
+}
+
+function addLegendItem(pane, taxonId, name, color, hasRange, hasObs){
+  const el = pane._mapState.legendEl;
+  const row = document.createElement('div');
+  row.className = 'legend-item';
+  row.dataset.taxonId = taxonId;
+  row.innerHTML = `
+    <span class="swatch" style="background:${color}"></span>
+    <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+    <span class="pill ${hasRange?'on':''}">Range</span>
+    <span class="pill ${hasObs?'on':''}">Obs</span>
+    <button class="legend-remove" title="Remove this species">&times;</button>`;
+  el.appendChild(row);
+}
+
+function clearLegend(pane){
+  if (pane?._mapState?.legendEl) pane._mapState.legendEl.innerHTML = '';
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 // Helper functions
 function showResultsCard() {
