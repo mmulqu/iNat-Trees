@@ -205,10 +205,16 @@ async function addSpeciesToMap(pane, taxonId, name){
   try {
     const rangeUrl = `https://inaturalist-open-data.s3.us-east-1.amazonaws.com/geomodel/geojsons/latest/${taxonId}.geojson`;
     const gj = await fetch(rangeUrl).then(r => { if(!r.ok) throw 0; return r.json(); });
-    rangeLayer = L.geoJSON(gj, { style:{ color, weight:2, fillOpacity:.25 } }).addTo(state.rangeGroup);
+    rangeLayer = L.geoJSON(gj, { style:{ color, weight:2, fillOpacity:.25 } });
     rangeLayer.bindPopup(`<b>${escapeHtml(name)}</b><br/>Range (Open Range Maps)`);
     hasRange = true;
   } catch {/* no range */}
+
+  // Register range layer with control
+  if (rangeLayer) {
+    rangeLayer.addTo(state.rangeGroup);
+    state.layersCtl.addOverlay(rangeLayer, `Range — ${name}`);
+  }
 
   // Observations (region-filtered if placeId)
   let obsLayer = null, hasObs = false;
@@ -236,10 +242,17 @@ async function addSpeciesToMap(pane, taxonId, name){
         pts.map(p => L.circleMarker([p.lat,p.lon], {
           radius:5, color, fillColor:color, fillOpacity:.8, weight:1
         }).bindPopup(renderObsPopup(p.r)))
-      ).addTo(state.obsGroup);
+      );
       hasObs = true;
     }
   } catch {}
+
+  // Register observations layer with control
+  if (obsLayer) {
+    obsLayer.addTo(state.obsGroup);
+    const regionHint = pane.dataset.regionName ? ` (${pane.dataset.regionName})` : '';
+    state.layersCtl.addOverlay(obsLayer, `Obs — ${name}${regionHint}`);
+  }
 
   // store per-species for later removal
   state.perSpecies[taxonId] = { rangeLayer, obsLayer, color, name };
@@ -286,8 +299,16 @@ function addNMore(pane, n){
 function removeSpeciesFromMap(pane, taxonId){
   const s = pane?._mapState; if (!s) return;
   const entry = s.perSpecies[taxonId]; if (!entry) return;
-  if (entry.rangeLayer) s.rangeGroup.removeLayer(entry.rangeLayer);
-  if (entry.obsLayer) s.obsGroup.removeLayer(entry.obsLayer);
+
+  if (entry.rangeLayer) {
+    s.layersCtl.removeLayer(entry.rangeLayer);   // unregister
+    s.rangeGroup.removeLayer(entry.rangeLayer);
+  }
+  if (entry.obsLayer) {
+    s.layersCtl.removeLayer(entry.obsLayer);     // unregister
+    s.obsGroup.removeLayer(entry.obsLayer);
+  }
+
   s.addedIds.delete(taxonId);
   delete s.perSpecies[taxonId];
 }
@@ -300,6 +321,10 @@ function clearAllLayers(pane){
   s.addedIds.clear();
   s.colorIdx = 0;
   clearLegend(pane);
+
+  // reset the layers control so it has no stale checkboxes
+  s.map.removeControl(s.layersCtl);
+  s.layersCtl = L.control.layers(null, null, { collapsed: false }).addTo(s.map);
 }
 
 function addChecklistTreeTab(title, markdown){
@@ -361,6 +386,9 @@ function addChecklistTreeTab(title, markdown){
       addedIds: new Set(),
       colorIdx: 0
     };
+
+    // Add layers control
+    pane._mapState.layersCtl = L.control.layers(null, null, { collapsed: false }).addTo(map);
 
     // Add map title & legend controls
     addMapTitleControl(pane);
@@ -428,6 +456,23 @@ function addLegendControl(pane){
     if (taxonId) removeSpeciesFromMap(pane, taxonId);
     item?.remove();
   });
+
+  // delegate checkbox changes
+  pane._mapState.legendEl.addEventListener('change', (e)=>{
+    const item = e.target.closest('.legend-item'); if (!item) return;
+    const taxonId = item.dataset.taxonId;
+    const s = pane._mapState; const entry = s.perSpecies[taxonId];
+    if (!entry) return;
+
+    if (e.target.classList.contains('tog-range') && entry.rangeLayer){
+      if (e.target.checked) { s.rangeGroup.addLayer(entry.rangeLayer); }
+      else { s.rangeGroup.removeLayer(entry.rangeLayer); }
+    }
+    if (e.target.classList.contains('tog-obs') && entry.obsLayer){
+      if (e.target.checked) { s.obsGroup.addLayer(entry.obsLayer); }
+      else { s.obsGroup.removeLayer(entry.obsLayer); }
+    }
+  });
 }
 
 function addLegendItem(pane, taxonId, name, color, hasRange, hasObs){
@@ -438,8 +483,8 @@ function addLegendItem(pane, taxonId, name, color, hasRange, hasObs){
   row.innerHTML = `
     <span class="swatch" style="background:${color}"></span>
     <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-    <span class="pill ${hasRange?'on':''}">Range</span>
-    <span class="pill ${hasObs?'on':''}">Obs</span>
+    <label class="pill"><input type="checkbox" class="tog-range" checked> Range</label>
+    <label class="pill"><input type="checkbox" class="tog-obs" checked> Obs</label>
     <button class="legend-remove" title="Remove this species">&times;</button>`;
   el.appendChild(row);
 }
