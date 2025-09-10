@@ -337,7 +337,7 @@ export default {
       if (pathname === '/regions' && request.method === 'GET') {
         await ensureRegionTables(env);
         const { results } = await env.DB
-          .prepare(`SELECT code, name, country, type FROM regions ORDER BY country, name`)
+          .prepare(`SELECT code, name, country, type, inat_place_id FROM regions ORDER BY country, name`)
           .all();
         return json({ regions: results || [] }, 200, request);
       }
@@ -762,6 +762,9 @@ async function ensureRegionTables(env) {
   await env.DB.prepare(createChecklist).run();
   await env.DB.prepare(idx1).run();
   await env.DB.prepare(idx2).run();
+  
+  // Try to add place id column if missing
+  try { await env.DB.prepare(`ALTER TABLE regions ADD COLUMN inat_place_id INTEGER`).run(); } catch {}
 }
 
 // Bulk name→ID resolver (uses your D1 taxa table)
@@ -867,7 +870,7 @@ async function checklistTree(request, env) {
   const root = await buildTreeFromDatabase(env, leafIds, baseId);
   annotateSeenMissing(root, seenSet);
 
-  const markdown = treeToMarkdown(root, 0, { mode: 'checklist', username });
+  const markdown = treeToMarkdown(root, 0, { mode: 'checklist', username, region_code });
   const plainMarkdown = toPlainMarkdown?.(markdown) || markdown;
   const seenInRegion = leafIds.reduce((n, sid) => n + (seenSet.has(sid) ? 1 : 0), 0);
 
@@ -1698,6 +1701,7 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
   }
   const isSpecies = (node.rank || '').toLowerCase() === 'species';
   let photoChips = '';
+  let rangeChip = '';
   if (isSpecies) {
     if (ctx.mode === 'compare') {
       if (node.user1Has && ctx.username1) photoChips += ` <a href="#" class="mm-badge mm-photo first-obs-trigger user1" data-taxon-id="${node.id}" data-username="${ctx.username1}" title="First RG photo for ${escapeHtml(ctx.username1)}">🖼️</a>`;
@@ -1705,9 +1709,14 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
     } else if (ctx.username) {
       photoChips = ` <a href="#" class="mm-badge mm-photo first-obs-trigger user1" data-taxon-id="${node.id}" data-username="${ctx.username}" title="First research‑grade photo">🖼️</a>`;
     }
+    
+    // Add range chip for species in checklist mode
+    if (ctx.mode === 'checklist') {
+      rangeChip = ` <a href="#" class="mm-badge mm-range range-trigger" data-taxon-id="${node.id}" data-taxon-name="${escapeHtml(node.name)}" data-region-code="${ctx.region_code || ''}" title="Add range & observations to the map">🗺️</a>`;
+    }
   }
 
-  let line = `${indent}- ${colorStart}${nameHtml}${common}${rankChip}${countChip}${photoChips}${colorEnd}`;
+  let line = `${indent}- ${colorStart}${nameHtml}${common}${rankChip}${countChip}${photoChips}${rangeChip}${colorEnd}`;
   let md = line + '\n';
   if (node.children && Object.keys(node.children).length > 0) {
     const children = Object.values(node.children).sort((a,b) => {
