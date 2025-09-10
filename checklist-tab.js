@@ -210,10 +210,9 @@ async function addSpeciesToMap(pane, taxonId, name){
     hasRange = true;
   } catch {/* no range */}
 
-  // Register range layer with control
+  // Add range layer to group
   if (rangeLayer) {
     rangeLayer.addTo(state.rangeGroup);
-    state.layersCtl.addOverlay(rangeLayer, `Range — ${name}`);
   }
 
   // Observations (region-filtered if placeId)
@@ -247,11 +246,9 @@ async function addSpeciesToMap(pane, taxonId, name){
     }
   } catch {}
 
-  // Register observations layer with control
+  // Add observations layer to group
   if (obsLayer) {
     obsLayer.addTo(state.obsGroup);
-    const regionHint = pane.dataset.regionName ? ` (${pane.dataset.regionName})` : '';
-    state.layersCtl.addOverlay(obsLayer, `Obs — ${name}${regionHint}`);
   }
 
   // store per-species for later removal
@@ -299,16 +296,8 @@ function addNMore(pane, n){
 function removeSpeciesFromMap(pane, taxonId){
   const s = pane?._mapState; if (!s) return;
   const entry = s.perSpecies[taxonId]; if (!entry) return;
-
-  if (entry.rangeLayer) {
-    s.layersCtl.removeLayer(entry.rangeLayer);   // unregister
-    s.rangeGroup.removeLayer(entry.rangeLayer);
-  }
-  if (entry.obsLayer) {
-    s.layersCtl.removeLayer(entry.obsLayer);     // unregister
-    s.obsGroup.removeLayer(entry.obsLayer);
-  }
-
+  if (entry.rangeLayer) s.rangeGroup.removeLayer(entry.rangeLayer);
+  if (entry.obsLayer) s.obsGroup.removeLayer(entry.obsLayer);
   s.addedIds.delete(taxonId);
   delete s.perSpecies[taxonId];
 }
@@ -321,10 +310,6 @@ function clearAllLayers(pane){
   s.addedIds.clear();
   s.colorIdx = 0;
   clearLegend(pane);
-
-  // reset the layers control so it has no stale checkboxes
-  s.map.removeControl(s.layersCtl);
-  s.layersCtl = L.control.layers(null, null, { collapsed: false }).addTo(s.map);
 }
 
 function addChecklistTreeTab(title, markdown){
@@ -387,9 +372,6 @@ function addChecklistTreeTab(title, markdown){
       colorIdx: 0
     };
 
-    // Add layers control
-    pane._mapState.layersCtl = L.control.layers(null, null, { collapsed: false }).addTo(map);
-
     // Add map title & legend controls
     addMapTitleControl(pane);
     addLegendControl(pane);
@@ -411,15 +393,17 @@ function addChecklistTreeTab(title, markdown){
 
 // Map control functions
 function addMapTitleControl(pane){
-  const title = pane.dataset.baseTitle || 'Checklist';
-  const region = pane.dataset.regionName || '';
-  const text = `<div><strong>Gap Finder Map</strong></div>
-                <div class="small">Missing species for <em>${escapeHtml(title)}</em> in <em>${escapeHtml(region)}</em></div>`;
+  // title was your tab label like "Targets: US-NC — Robber Flies (Asilidae)"
+  const base = (pane.dataset.baseTitle || '').replace(/^Targets:\s*/,'');
+  const html = `
+    <div class="mt-line1">Missing species for <strong>Targets:</strong></div>
+    <div class="mt-line2">${escapeHtml(base)}</div>
+  `;
   const TitleCtl = L.Control.extend({
     options:{ position:'topleft' },
     onAdd: function(){
       const div = L.DomUtil.create('div', 'leaflet-control map-title');
-      div.innerHTML = text;
+      div.innerHTML = html;
       L.DomEvent.disableClickPropagation(div);
       return div;
     }
@@ -436,8 +420,7 @@ function addLegendControl(pane){
       const div = L.DomUtil.create('div', 'leaflet-control missing-legend');
       div.innerHTML = `
         <div class="legend-title">Missing species layers</div>
-        <div class="legend-items"></div>
-        <div class="legend-hint">Colors match tree badges. Click × to remove.</div>`;
+        <div class="legend-items"></div>`;
       L.DomEvent.disableClickPropagation(div);
       return div;
     }
@@ -447,31 +430,26 @@ function addLegendControl(pane){
   pane._mapState.legendCtl = ctl;
   pane._mapState.legendEl = ctl.getContainer().querySelector('.legend-items');
 
-  // delegate remove
+  // toggle & remove handlers
+  pane._mapState.legendEl.addEventListener('change', (e)=>{
+    const item = e.target.closest('.legend-item'); if (!item) return;
+    const taxonId = item.dataset.taxonId;
+    const s = pane._mapState; const entry = s.perSpecies[taxonId]; if (!entry) return;
+    if (e.target.classList.contains('tog-range') && entry.rangeLayer){
+      if (e.target.checked) s.rangeGroup.addLayer(entry.rangeLayer);
+      else s.rangeGroup.removeLayer(entry.rangeLayer);
+    }
+    if (e.target.classList.contains('tog-obs') && entry.obsLayer){
+      if (e.target.checked) s.obsGroup.addLayer(entry.obsLayer);
+      else s.obsGroup.removeLayer(entry.obsLayer);
+    }
+  });
   pane._mapState.legendEl.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.legend-remove');
-    if (!btn) return;
+    const btn = e.target.closest('.legend-remove'); if (!btn) return;
     const item = btn.closest('.legend-item');
     const taxonId = item?.dataset?.taxonId;
     if (taxonId) removeSpeciesFromMap(pane, taxonId);
     item?.remove();
-  });
-
-  // delegate checkbox changes
-  pane._mapState.legendEl.addEventListener('change', (e)=>{
-    const item = e.target.closest('.legend-item'); if (!item) return;
-    const taxonId = item.dataset.taxonId;
-    const s = pane._mapState; const entry = s.perSpecies[taxonId];
-    if (!entry) return;
-
-    if (e.target.classList.contains('tog-range') && entry.rangeLayer){
-      if (e.target.checked) { s.rangeGroup.addLayer(entry.rangeLayer); }
-      else { s.rangeGroup.removeLayer(entry.rangeLayer); }
-    }
-    if (e.target.classList.contains('tog-obs') && entry.obsLayer){
-      if (e.target.checked) { s.obsGroup.addLayer(entry.obsLayer); }
-      else { s.obsGroup.removeLayer(entry.obsLayer); }
-    }
   });
 }
 
@@ -483,8 +461,8 @@ function addLegendItem(pane, taxonId, name, color, hasRange, hasObs){
   row.innerHTML = `
     <span class="swatch" style="background:${color}"></span>
     <span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-    <label class="pill"><input type="checkbox" class="tog-range" checked> Range</label>
-    <label class="pill"><input type="checkbox" class="tog-obs" checked> Obs</label>
+    <label class="tog"><input type="checkbox" class="tog-range" ${hasRange?'checked':''}> Range</label>
+    <label class="tog"><input type="checkbox" class="tog-obs" ${hasObs?'checked':''}> Obs</label>
     <button class="legend-remove" title="Remove this species">&times;</button>`;
   el.appendChild(row);
 }
