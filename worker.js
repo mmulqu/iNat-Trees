@@ -78,11 +78,11 @@ async function resolvePlaceId(env, code){
   await ensureRegionTables(env);
   // 1) check DB
   const row = await env.DB.prepare(
-    `SELECT code, name, inat_place_id FROM regions WHERE code = ?`
+    `SELECT code, name, place_id FROM regions WHERE code = ?`
   ).bind(code).first();
 
-  if (row?.inat_place_id) {
-    return { code: row.code, name: row.name, place_id: row.inat_place_id };
+  if (row?.place_id) {
+    return { code: row.code, name: row.name, place_id: row.place_id };
   }
 
   // 2) look up via iNat Places API (best effort by name)
@@ -96,7 +96,7 @@ async function resolvePlaceId(env, code){
 
   // 3) persist back to DB for next time
   try {
-    await env.DB.prepare(`UPDATE regions SET inat_place_id=? WHERE code=?`)
+    await env.DB.prepare(`UPDATE regions SET place_id=? WHERE code=?`)
       .bind(guess.id, code).run();
   } catch {}
 
@@ -366,7 +366,7 @@ export default {
       if (pathname === '/regions' && request.method === 'GET') {
         await ensureRegionTables(env);
         const { results } = await env.DB
-          .prepare(`SELECT code, name, country, type, inat_place_id FROM regions ORDER BY country, name`)
+          .prepare(`SELECT code, name, country, type, place_id FROM regions ORDER BY country, name`)
           .all();
         return json({ regions: results || [] }, 200, request);
       }
@@ -780,7 +780,8 @@ async function ensureRegionTables(env) {
     code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     country TEXT NOT NULL,
-    type TEXT NOT NULL
+    type TEXT NOT NULL,
+    place_id INTEGER
   )`;
   const createChecklist = `CREATE TABLE IF NOT EXISTS region_checklist (
     region_code TEXT NOT NULL,
@@ -802,8 +803,8 @@ async function ensureRegionTables(env) {
   await env.DB.prepare(idx1).run();
   await env.DB.prepare(idx2).run();
   
-  // Try to add place id column if missing
-  try { await env.DB.prepare(`ALTER TABLE regions ADD COLUMN inat_place_id INTEGER`).run(); } catch {}
+  // Try to add place_id column if missing (migration from inat_place_id)
+  try { await env.DB.prepare(`ALTER TABLE regions ADD COLUMN place_id INTEGER`).run(); } catch {}
 }
 
 // Bulk name→ID resolver (uses your D1 taxa table)

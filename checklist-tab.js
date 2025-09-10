@@ -48,7 +48,7 @@ async function initChecklistUI(){
       const opt = document.createElement('option');
       opt.value = r.code;
       opt.textContent = `${r.name} (${r.code})`;
-      if (r.inat_place_id != null) opt.dataset.placeId = String(r.inat_place_id);
+      if (r.place_id != null) opt.dataset.placeId = String(r.place_id);
       clRegion.appendChild(opt);
     });
   } catch { clRegion.innerHTML = '<option value="">(failed to load regions)</option>'; }
@@ -199,9 +199,6 @@ async function addSpeciesToMap(pane, taxonId, name){
 
   const color = nextColor(state);
 
-  // 🔒 make sure we have a place_id if a region was selected
-  const placeId = await ensurePlaceIdForPane(pane); // ← ensures numeric id or ''
-
   // Range GeoJSON
   let rangeLayer = null, hasRange = false;
   try {
@@ -222,10 +219,10 @@ async function addSpeciesToMap(pane, taxonId, name){
   try {
     const u = new URL('https://api.inaturalist.org/v1/observations');
     u.searchParams.set('taxon_id', taxonId);
-    if (placeId) u.searchParams.set('place_id', placeId);   // ✅ guarantee constraint
-    u.searchParams.set('per_page', '200');
-    u.searchParams.set('geo', 'true');
-    u.searchParams.set('quality_grade', 'research');
+    if (pane.dataset.placeId) u.searchParams.set('place_id', pane.dataset.placeId); // ✅ constrained
+    u.searchParams.set('per_page','200');
+    u.searchParams.set('geo','true');
+    u.searchParams.set('quality_grade','research');
     u.searchParams.set('order_by','observed_on');
     u.searchParams.set('order','desc');
 
@@ -522,22 +519,6 @@ function clearLegend(pane){
 }
 
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-async function ensurePlaceIdForPane(pane){
-  if (pane.dataset.placeId) return pane.dataset.placeId;
-  const code = pane.dataset.regionCode;
-  if (!code) return ''; // no region → no filter
-  try {
-    const r = await fetch(`${API}/regions/resolve_place_id?code=${encodeURIComponent(code)}`, { headers: authHeaders() });
-    if (!r.ok) return '';
-    const j = await r.json();
-    if (j?.place_id) {
-      pane.dataset.placeId = String(j.place_id);
-      return pane.dataset.placeId;
-    }
-  } catch {}
-  return '';
-}
 
 // Helper functions
 function showResultsCard() {
