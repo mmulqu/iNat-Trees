@@ -517,6 +517,19 @@
       width:1.25rem; height:1.25rem; border-radius:999px; cursor:pointer; opacity:.75;
     }
     .missing-legend .legend-remove:hover{ opacity:1; }
+
+    /* Make Leaflet's container fill the screen when toggled */
+    .leaflet-container.is-fullscreen{
+      position: fixed !important;
+      inset: 0 !important;           /* top:0; right:0; bottom:0; left:0 */
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 1000 !important;
+      border-radius: 0 !important;
+    }
+
+    /* Optional: compact the title a hair so it sits neatly above zoom */
+    .leaflet-control.map-title{ margin-bottom: .25rem; }
   </style>
 </head>
 <body>

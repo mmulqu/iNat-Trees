@@ -356,7 +356,7 @@ function addChecklistTreeTab(title, markdown){
 
   setTimeout(() => {
     // Leaflet map
-    const map = L.map(`${id}-map`, { zoomControl: true });
+    const map = L.map(`${id}-map`, { zoomControl: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
@@ -372,8 +372,16 @@ function addChecklistTreeTab(title, markdown){
       colorIdx: 0
     };
 
-    // Add map title & legend controls
+    // 1) Title above everything
     addMapTitleControl(pane);
+
+    // 2) Then the standard +/- (will appear *below* the title)
+    L.control.zoom({ position: 'topleft' }).addTo(map);
+
+    // 3) Then our fullscreen button (below zoom)
+    addFullscreenControl(pane);
+
+    // Add legend control
     addLegendControl(pane);
 
     // Markmap render
@@ -408,9 +416,45 @@ function addMapTitleControl(pane){
       return div;
     }
   });
-  const ctl = new TitleCtl();
-  ctl.addTo(pane._mapState.map);
-  pane._mapState.titleCtl = ctl;
+  new TitleCtl().addTo(pane._mapState.map);
+}
+
+function addFullscreenControl(pane){
+  const map = pane._mapState.map;
+  const targetEl = document.getElementById(`${pane.id||pane.getAttribute?.('id')||''}`); // fallback if needed
+  const mapEl = document.getElementById(`${pane.id?.replace('-content','')}-map`) || pane.querySelector('[id$="-map"]');
+
+  const FullscreenCtl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function(){
+      // Use Leaflet's "bar" style for a native look
+      const wrap = L.DomUtil.create('div', 'leaflet-bar');
+      const a = L.DomUtil.create('a', '', wrap);
+      a.href = '#';
+      a.title = 'Full screen';
+      a.setAttribute('aria-label','Full screen');
+      a.style.lineHeight = '26px';
+      a.style.width = '26px';
+      a.style.textAlign = 'center';
+      a.style.fontSize = '16px';
+      a.textContent = '⛶';
+
+      L.DomEvent.on(a, 'click', (e) => {
+        L.DomEvent.preventDefault(e);
+        if (!mapEl) return;
+        const on = !mapEl.classList.contains('is-fullscreen');
+        mapEl.classList.toggle('is-fullscreen', on);
+        // lock page scroll while fullscreen
+        document.body.style.overflow = on ? 'hidden' : '';
+        // Reflow the map after CSS change
+        setTimeout(() => map.invalidateSize(true), 150);
+      });
+
+      return wrap;
+    }
+  });
+
+  new FullscreenCtl().addTo(map);
 }
 
 function addLegendControl(pane){
