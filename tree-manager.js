@@ -1388,6 +1388,23 @@ _ensureMiniMap(treeId, svg) {
   _serializeSvgForExport(svg) {
     const clone = svg.cloneNode(true);
 
+    // Inline bright label colors for dark theme so exports keep contrast
+    try {
+      const isDark = document.body.classList.contains('dark-theme');
+      if (isDark) {
+        // SVG text nodes
+        clone.querySelectorAll('text, tspan, .markmap-node text').forEach(t => {
+          t.setAttribute('fill', '#f8fafc');
+          t.style.fill = '#f8fafc';
+          t.style.opacity = '0.96';
+        });
+        // HTML inside foreignObject (don't override PvP red/blue/purple)
+        clone
+          .querySelectorAll('.markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node)')
+          .forEach(el => { el.style.color = '#f8fafc'; });
+      }
+    } catch {}
+
     // Normalize the content group: drop any pan/zoom transform
     const g = this._getContentGroup(clone);
     if (g) g.removeAttribute('transform');
