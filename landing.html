@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>iNaturalist Taxa Trees — Connect your account</title>
-  <meta name="description" content="Visualize and compare your iNaturalist observations as taxonomic trees. Connect your iNaturalist account to unlock higher API limits and reliable builds." />
+  <title>iNaturalist Taxa Trees — Explore (Public mode)</title>
+  <meta name="description" content="Visualize and compare your iNaturalist observations as taxonomic trees. Enter without signing in to use public iNaturalist data; sign in later if you want private features." />
   <meta name="color-scheme" content="light dark" />
 
   <!-- Bootstrap & Icons -->
@@ -202,13 +202,15 @@
       </div>
 
       <div class="cta">
-        <button id="inatLogin" class="btn btn-inat">
-          <span class="inat-favicon" aria-hidden="true"></span>
-          Connect my iNaturalist account
-        </button>
-        <a id="enterApp" href="/index.html" class="btn btn-ghost d-none">
-          <i class="bi bi-arrow-right-circle"></i> Enter the app
+        <!-- Primary: Enter (public API, no auth required) -->
+        <a id="enterAppPrimary" href="/index.html" class="btn btn-inat">
+          <i class="bi bi-arrow-right-circle"></i> Enter
         </a>
+        <!-- Secondary: optional sign-in -->
+        <button id="inatLogin" class="btn btn-ghost">
+          <span class="inat-favicon" aria-hidden="true"></span>
+          Sign in with iNaturalist (optional)
+        </button>
       </div>
     </div>
   </main>
@@ -267,15 +269,15 @@
       </div>
 
       <div class="text-center mt-4">
-        <a id="enterAppBottom" href="/index.html" class="btn btn-outline-light d-none">
-          <i class="bi bi-arrow-right"></i> I'm connected — take me to the app
+        <a id="enterAppBottom" href="/index.html" class="btn btn-outline-light">
+          <i class="bi bi-arrow-right"></i> Enter
         </a>
       </div>
     </div>
   </section>
 
   <footer>
-    <small>Built for naturalists. Uses iNaturalist OAuth2 (PKCE). </small>
+    <small>Built for naturalists. Public mode uses only public iNaturalist data; sign in (optional) enables private features.</small>
   </footer>
 
   <!-- Scripts -->
@@ -288,12 +290,14 @@
     import { fetchCurrentUser } from '/auth.js';
 
     async function syncAuthUI(){
+      // Public mode: always show Enter buttons; sign-in remains optional
+      document.getElementById('enterAppBottom')?.classList.remove('d-none');
+      // If you keep a secondary #enterApp elsewhere, ensure it's visible too:
+      document.getElementById('enterApp')?.classList.remove('d-none');
+      // Optionally, still resolve the current user if a token exists (no UI gating)
       if (!localStorage.getItem('inat_username') && localStorage.getItem('inat_token')) {
         try { await fetchCurrentUser(); } catch {}
       }
-      const hasToken = !!localStorage.getItem('inat_token');
-      document.getElementById('enterApp')?.classList.toggle('d-none', !hasToken);
-      document.getElementById('enterAppBottom')?.classList.toggle('d-none', !hasToken);
     }
 
     function maybeDisableVideo(){
