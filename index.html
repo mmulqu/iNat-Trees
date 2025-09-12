@@ -530,6 +530,20 @@
 
     /* Optional: compact the title a hair so it sits neatly above zoom */
     .leaflet-control.map-title{ margin-bottom: .25rem; }
+
+    /* Remove SVG export options from the Markmap toolbar */
+    .mm-toolbar [data-act="export-svg"],
+    .mm-toolbar [data-act="copy-svg"],
+    .mm-toolbar .dropdown-item[data-act="export-svg"],
+    .mm-toolbar .dropdown-item[data-act="copy-svg"] {
+      display: none !important;
+    }
+
+    /* Fallback: hide any actions whose data-act contains "svg" */
+    .mm-toolbar [data-act*="svg"],
+    .mm-toolbar .dropdown-item[data-act*="svg"] { 
+      display: none !important; 
+    }
   </style>
 </head>
 <body>
