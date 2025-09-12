@@ -10,12 +10,42 @@ document.getElementById('inatLogin')?.addEventListener('click', startLogin);
 
 // Force Cloudflare Worker API base
 const API_BASE = window.CF_API_BASE;
+const PUBLIC_MODE = !!window.PUBLIC_MODE;
 if (!API_BASE) {
   console.error('CF_API_BASE is not set. Set window.CF_API_BASE to your Worker URL.');
 }
 const searchTaxaUrl = `${API_BASE}/search-taxa`;
 const edgeFunctionUrl = `${API_BASE}/build-taxonomy`;
 window.API_BASE = API_BASE;
+
+// --- Public-mode browser fetch helper (shared with compare/checklist) ---
+async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 }) {
+  const per=200; let page=1, all=[];
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  while (page<=maxPages) {
+    const u = new URL('https://api.inaturalist.org/v1/observations');
+    u.searchParams.set('user_login', username);
+    u.searchParams.set('taxon_id', String(taxonId));
+    if (placeId) u.searchParams.set('place_id', String(placeId));
+    u.searchParams.set('include','taxon');
+    u.searchParams.set('quality_grade','any');
+    u.searchParams.set('verifiable','any');
+    u.searchParams.set('per_page', String(per));
+    u.searchParams.set('page', String(page));
+    const r = await fetch(u);
+    if (r.status===429 || (r.status>=500 && r.status<600)) { await sleep(1200 + Math.random()*600); continue; }
+    const j = await r.json().catch(()=>({results:[]}));
+    const batch = j.results || [];
+    all.push(...batch);
+    if (batch.length < per) break;
+    page++; await sleep(650 + Math.random()*200);
+  }
+  const ids = [...new Set(all.map(o=>o?.taxon?.id).filter(Boolean))];
+  const seen = new Map(); for (const o of all) if (o?.taxon?.id && !seen.has(o.taxon.id)) seen.set(o.taxon.id, (o.taxon.rank||'').toLowerCase());
+  const rankCounts = {}; for (const r of seen.values()) rankCounts[r]=(rankCounts[r]||0)+1;
+  const highWatermarkUpdatedAt = all.reduce((m,o)=>{ const t=o.updated_at||o.observed_on||o.created_at; return t && (!m||t>m)?t:m; }, null);
+  return { taxonIds: ids, rankCounts, highWatermarkUpdatedAt };
+}
 
 const loadingMessages = [
   "Coaxing DNA to tell its evolutionary secrets...",
@@ -226,20 +256,27 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
   const messageInterval = showLoadingSpinner();
 
   try {
-    // Call build-taxonomy on Cloudflare API
-    const response = await fetch(edgeFunctionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify({
-        username,
-        taxonId
-      })
-    });
-
-    const result = await response.json();
+    // Public mode: fetch in browser → send IDs to Worker; else use /build-taxonomy
+    let result;
+    if (PUBLIC_MODE) {
+      const { taxonIds, rankCounts, highWatermarkUpdatedAt } = await fetchUserObsMinimal({ username, taxonId });
+      const r2 = await fetch(`${API_BASE}/tree-from-species`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speciesTaxonIds: taxonIds, baseTaxonId: taxonId })
+      });
+      const j2 = await r2.json();
+      if (!r2.ok) throw new Error(j2?.error || 'tree-from-species failed');
+      result = { markdown: j2.markdown, plainMarkdown: j2.plainMarkdown, speciesTaxonIds: taxonIds, rankCounts, highWatermarkUpdatedAt };
+    } else {
+      const response = await fetch(edgeFunctionUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ username, taxonId })
+      });
+      result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'build-taxonomy failed');
+    }
 
     clearInterval(messageInterval);
     hideLoadingSpinner();

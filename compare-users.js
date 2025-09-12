@@ -1,6 +1,32 @@
 // compare-users.js
 // (Note: TreeManager is defined only in tree-manager.js.)
 
+// --- Public-mode browser fetch helper ---
+async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 }) {
+  const per=200; let page=1, all=[];
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  while (page<=maxPages) {
+    const u = new URL('https://api.inaturalist.org/v1/observations');
+    u.searchParams.set('user_login', username);
+    u.searchParams.set('taxon_id', String(taxonId));
+    if (placeId) u.searchParams.set('place_id', String(placeId));
+    u.searchParams.set('include','taxon');
+    u.searchParams.set('quality_grade','any');
+    u.searchParams.set('verifiable','any');
+    u.searchParams.set('per_page', String(per));
+    u.searchParams.set('page', String(page));
+    const r = await fetch(u);
+    if (r.status===429 || (r.status>=500 && r.status<600)) { await sleep(1200 + Math.random()*600); continue; }
+    const j = await r.json().catch(()=>({results:[]}));
+    const batch = j.results || [];
+    all.push(...batch);
+    if (batch.length < per) break;
+    page++; await sleep(650 + Math.random()*200);
+  }
+  const ids = [...new Set(all.map(o=>o?.taxon?.id).filter(Boolean))];
+  return { taxonIds: ids };
+}
+
 // ---- Taxon name resolver ----
 async function resolveTaxonTitle(taxonId) {
   const cache = (resolveTaxonTitle._cache ||= new Map());
@@ -54,6 +80,7 @@ function hideCompareLoadingSpinner() {
 import { getAuthHeaders } from './auth.js';
 
 const API_BASE = window.CF_API_BASE;
+const PUBLIC_MODE = !!window.PUBLIC_MODE;
 if (!API_BASE) {
   console.error('CF_API_BASE is not set. Set window.CF_API_BASE to your Worker URL.');
 }
@@ -190,22 +217,36 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       const messageInterval = showCompareLoadingSpinner();
       try {
-        const response = await fetch(compareUsersUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-          },
-          body: JSON.stringify({ 
-            username1, 
-            username2, 
-            taxonId 
-          })
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          const authInfo = result && result.auth ? ` (auth received: ${result.auth.received}, usableJWT: ${result.auth.usableJWT})` : '';
-          throw new Error(`${result.error || 'Request failed'}${authInfo}`);
+        let result;
+        if (PUBLIC_MODE) {
+          const [{ taxonIds: u1 }, { taxonIds: u2 }] = await Promise.all([
+            fetchUserObsMinimal({ username: username1, taxonId }),
+            fetchUserObsMinimal({ username: username2, taxonId })
+          ]);
+          const r2 = await fetch(`${API_BASE}/compare-from-species`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username1, username2, baseTaxonId: taxonId,
+              user1SpeciesIds: u1, user2SpeciesIds: u2
+            })
+          });
+          result = await r2.json();
+          if (!r2.ok) throw new Error(result?.error || 'compare-from-species failed');
+        } else {
+          const response = await fetch(compareUsersUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
+            body: JSON.stringify({ username1, username2, taxonId })
+          });
+          result = await response.json();
+          if (!response.ok) {
+            const authInfo = result && result.auth ? ` (auth received: ${result.auth.received}, usableJWT: ${result.auth.usableJWT})` : '';
+            throw new Error(`${result.error || 'Request failed'}${authInfo}`);
+          }
         }
         clearInterval(messageInterval);
         hideCompareLoadingSpinner();

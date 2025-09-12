@@ -1,5 +1,6 @@
 // checklist-tab.js
 const API = (window.CF_API_BASE || '').replace(/\/+$/, '');
+const PUBLIC_MODE = !!window.PUBLIC_MODE;
 
 function authHeaders(){
   const headers = { 'Accept': 'application/json' };
@@ -10,6 +11,32 @@ function authHeaders(){
     else if (token) headers['Authorization'] = `Bearer ${token}`;
   } catch {}
   return headers;
+}
+
+// Minimal browser-side iNat fetch for checklist mode
+async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 }) {
+  const per=200; let page=1, all=[];
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  while (page<=maxPages) {
+    const u = new URL('https://api.inaturalist.org/v1/observations');
+    u.searchParams.set('user_login', username);
+    u.searchParams.set('taxon_id', String(taxonId));
+    if (placeId) u.searchParams.set('place_id', String(placeId));
+    u.searchParams.set('include','taxon');
+    u.searchParams.set('quality_grade','any');
+    u.searchParams.set('verifiable','any');
+    u.searchParams.set('per_page', String(per));
+    u.searchParams.set('page', String(page));
+    const r = await fetch(u);
+    if (r.status===429 || (r.status>=500 && r.status<600)) { await sleep(1200+Math.random()*500); continue; }
+    const j = await r.json().catch(()=>({results:[]}));
+    const batch = j.results || [];
+    all.push(...batch);
+    if (batch.length < per) break;
+    page++; await sleep(650 + Math.random()*200);
+  }
+  const ids = [...new Set(all.map(o=>o?.taxon?.id).filter(Boolean))];
+  return { speciesIds: ids };
 }
 
 async function loadRegions(){
@@ -135,12 +162,18 @@ async function initChecklistUI(){
 
     setSpinner(true);
     try {
-      const payload = {
+      let payload = {
         username,
         region_code: region,
         baseTaxonId: parseInt(baseId, 10),
         scope
       };
+      
+      if (PUBLIC_MODE) {
+        // If/when region-scoped fetch is needed, pass placeId here.
+        const { speciesIds } = await fetchUserObsMinimal({ username, taxonId: parseInt(baseId,10), placeId: null });
+        payload.seenSpeciesIds = speciesIds;
+      }
       
       const r = await fetch(`${API}/checklist/tree`, {
         method: 'POST',

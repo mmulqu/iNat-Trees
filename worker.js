@@ -318,6 +318,11 @@ export default {
         return compareTaxa(request, env);
       }
 
+      // New: compare from precomputed species ids (client-side fetch)
+      if (pathname === '/compare-from-species' && request.method === 'POST') {
+        return compareFromSpecies(request, env);
+      }
+
       // Checkpoint API
       if (pathname === '/checkpoints/save' && request.method === 'POST') {
         await ensureCheckpointTables(env);
@@ -343,6 +348,10 @@ export default {
       if (pathname === '/timeline/index' && request.method === 'POST') {
         await ensureCheckpointTables(env);
         return timelineIndex(request, env);
+      }
+      if (pathname === '/timeline/ingest' && request.method === 'POST') {
+        await ensureCheckpointTables(env);
+        return timelineIngest(request, env);
       }
       if (pathname === '/timeline/date-range' && request.method === 'GET') {
         await ensureCheckpointTables(env);
@@ -875,8 +884,21 @@ async function checklistTree(request, env) {
   }
 
   // Build seenSet
-  let seenSet = new Set();
-  if (scope === 'global') {
+  let seenSet = null;
+
+  // Fast-path: client provided species IDs already seen; skip any iNat calls
+  const fromClient = Array.isArray(body?.seenSpeciesIds) ? body.seenSpeciesIds : null;
+  if (fromClient && fromClient.length) {
+    const norm = [];
+    for (const id of fromClient) {
+      const sid = await resolveSpeciesIdFromAny(env, Number(id));
+      if (sid) norm.push(sid);
+    }
+    seenSet = new Set(norm);
+  } else {
+    // (existing logic continues below; Worker may fetch if client didn't send IDs)
+    seenSet = new Set();
+    if (scope === 'global') {
     // existing fast path from summary table
     const sum = await env.DB.prepare(
       `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
@@ -905,6 +927,7 @@ async function checklistTree(request, env) {
     }
     seenSet = new Set(speciesIds);
   }
+  } // end client fast-path else
 
   // Intersect implicitly by painting only leafIds (region checklist)
   const root = await buildTreeFromDatabase(env, leafIds, baseId);
@@ -1774,6 +1797,65 @@ function shortRankCode(rank) {
   const r = String(rank).toLowerCase();
   const map = { kingdom: 'K', phylum: 'P', class: 'C', order: 'O', family: 'F', genus: 'G', species: 'S' };
   return map[r] || '';
+}
+
+// POST /compare-from-species  { username1, username2, baseTaxonId, user1SpeciesIds[], user2SpeciesIds[] }
+async function compareFromSpecies(request, env) {
+  try {
+    const body = await request.json().catch(()=>({}));
+    const { username1, username2, baseTaxonId, user1SpeciesIds, user2SpeciesIds } = body || {};
+    if (!username1 || !username2 || !baseTaxonId || !Array.isArray(user1SpeciesIds) || !Array.isArray(user2SpeciesIds)) {
+      return json({ error: 'Missing parameters: username1, username2, baseTaxonId, user1SpeciesIds[], user2SpeciesIds[]' }, 400, request);
+    }
+    // Normalize to species (handles infra ranks) using local taxa table
+    const norm = async (arr)=>{ const out=[]; for (const id of arr){ const sid = await resolveSpeciesIdFromAny(env, Number(id)); if (sid) out.push(sid);} return Array.from(new Set(out)); };
+    const uniq1 = await norm(user1SpeciesIds);
+    const uniq2 = await norm(user2SpeciesIds);
+    const tree = await buildComparisonTree(env, uniq1, uniq2, Number(baseTaxonId));
+    const stats = generateComparisonStats(uniq1, uniq2);
+    const markdown = treeToMarkdown(tree, 0, { username1, username2, mode: 'compare' });
+    const plainMarkdown = toPlainMarkdown(markdown);
+    return json({ markdown, plainMarkdown, stats, user1Count: uniq1.length, user2Count: uniq2.length }, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
+}
+
+// POST /timeline/ingest  { username, taxonId, events:[{ taxon_id, observed_on }] }  (requires login)
+async function timelineIngest(request, env) {
+  try {
+    const { login } = await requireLogin(request);
+    if (!login) return json({ error: 'Unauthorized' }, 401, request);
+    const body = await request.json().catch(()=>({}));
+    const { username, taxonId, events } = body || {};
+    if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
+    if (username !== login) return json({ error: 'Forbidden' }, 403, request);
+    if (!Array.isArray(events) || !events.length) return json({ ok: true, inserted: 0, updated: 0 }, 200, request);
+
+    await ensureCheckpointTables(env);
+    const insertEvt = env.DB.prepare(
+      `INSERT OR IGNORE INTO user_obs_events (user_login, taxon_id, species_id, observed_on) VALUES (?, ?, ?, ?)`
+    );
+    const upsertSum = env.DB.prepare(
+      `INSERT INTO user_obs_summary (user_login, taxon_id, species_id, first_seen, last_seen)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_login, taxon_id, species_id) DO UPDATE SET
+         first_seen = MIN(COALESCE(first_seen, excluded.first_seen), excluded.first_seen),
+         last_seen  = MAX(COALESCE(last_seen,  excluded.last_seen),  excluded.last_seen)`
+    );
+    const toISO = s => { try { const d = new Date(s); return isNaN(d) ? null : d.toISOString().slice(0,10);} catch { return null; } };
+    let inserted=0, updated=0;
+    for (const e of events) {
+      const sid = await resolveSpeciesIdFromAny(env, Number(e?.taxon_id));
+      const iso = toISO(e?.observed_on);
+      if (!sid || !iso) continue;
+      const r1 = await insertEvt.bind(username, Number(taxonId), sid, iso).run(); if (r1?.meta?.changes) inserted++;
+      const r2 = await upsertSum.bind(username, Number(taxonId), sid, iso, iso).run(); if (r2?.meta?.changes) updated++;
+    }
+    return json({ ok: true, inserted, updated }, 200, request);
+  } catch (e) {
+    return json({ error: e?.message || String(e) }, 500, request);
+  }
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
