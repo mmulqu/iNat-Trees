@@ -5,10 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>iNaturalist Taxonomic Tree Viewer</title>
   <script>
+    // Enable public mode in dev (no login needed). You can remove this
+    // in prod and rely on the query/localStorage flags instead.
+    window.PUBLIC_MODE = true;
+  </script>
+  <script>
     (function(){
       try{
         const params = new URLSearchParams(window.location.search);
-        if (!localStorage.getItem('inat_token') && !params.has('noLanding')) {
+        // Public mode is true if any of these are set:
+        const publicMode =
+          (window.PUBLIC_MODE === true) ||
+          (localStorage.getItem('PUBLIC_MODE') === '1') ||
+          (params.get('mode') === 'public') ||
+          params.has('noLanding');
+        // Only redirect to landing if NOT public mode and NOT logged in
+        if (!publicMode && !localStorage.getItem('inat_token')) {
           window.location.replace('landing.html');
         }
       }catch(e){}
