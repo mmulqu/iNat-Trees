@@ -263,7 +263,8 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
       const r2 = await fetch(`${API_BASE}/tree-from-species`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ speciesTaxonIds: taxonIds, baseTaxonId: taxonId })
+        // Send username so Worker can render photo chips
+        body: JSON.stringify({ speciesTaxonIds: taxonIds, baseTaxonId: taxonId, username })
       });
       const j2 = await r2.json();
       if (!r2.ok) throw new Error(j2?.error || 'tree-from-species failed');

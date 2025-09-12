@@ -1153,12 +1153,13 @@ async function deleteCheckpoint(request, env) {
 async function treeFromSpecies(request, env) {
   try {
     const body = await request.json();
-    const { speciesTaxonIds, baseTaxonId } = body || {};
+    const { speciesTaxonIds, baseTaxonId, username } = body || {};
     if (!Array.isArray(speciesTaxonIds) || !baseTaxonId) {
       return json({ error: 'Missing parameters: speciesTaxonIds[], baseTaxonId' }, 400, request);
     }
     const tree = await buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId);
-    const markdown = treeToMarkdown(tree);
+    // IMPORTANT: include username so single-user photo chips render
+    const markdown = treeToMarkdown(tree, 0, { username });
     const plainMarkdown = toPlainMarkdown(markdown);
     return json({ markdown, plainMarkdown }, 200, request);
   } catch (e) {
