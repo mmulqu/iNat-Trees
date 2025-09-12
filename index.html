@@ -10,20 +10,24 @@
     window.PUBLIC_MODE = true;
   </script>
   <script>
-    (function(){
-      try{
+    (function () {
+      try {
         const params = new URLSearchParams(window.location.search);
-        // Public mode is true if any of these are set:
+        const qMode = (params.get('mode') || '').toLowerCase();
         const publicMode =
-          (window.PUBLIC_MODE === true) ||
-          (localStorage.getItem('PUBLIC_MODE') === '1') ||
-          (params.get('mode') === 'public') ||
-          params.has('noLanding');
-        // Only redirect to landing if NOT public mode and NOT logged in
+          qMode === 'public' ||
+          params.has('noLanding') ||
+          localStorage.getItem('PUBLIC_MODE') === '1' ||
+          (window.PUBLIC_MODE === true);
+        // If URL explicitly sets public mode, persist it for next visits
+        if (qMode === 'public') {
+          try { localStorage.setItem('PUBLIC_MODE', '1'); } catch {}
+        }
+        // Only bounce to landing if NOT public mode and NOT logged in
         if (!publicMode && !localStorage.getItem('inat_token')) {
           window.location.replace('landing.html');
         }
-      }catch(e){}
+      } catch (e) {}
     })();
   </script>
   <!-- Bootstrap CSS -->
