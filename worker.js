@@ -1799,23 +1799,38 @@ function shortRankCode(rank) {
   return map[r] || '';
 }
 
-// POST /compare-from-species  { username1, username2, baseTaxonId, user1SpeciesIds[], user2SpeciesIds[] }
+// POST /compare-from-species
+// Body: { username1, username2, baseTaxonId, user1SpeciesIds: number[], user2SpeciesIds: number[] }
 async function compareFromSpecies(request, env) {
   try {
-    const body = await request.json().catch(()=>({}));
+    const body = await request.json().catch(() => ({}));
     const { username1, username2, baseTaxonId, user1SpeciesIds, user2SpeciesIds } = body || {};
-    if (!username1 || !username2 || !baseTaxonId || !Array.isArray(user1SpeciesIds) || !Array.isArray(user2SpeciesIds)) {
-      return json({ error: 'Missing parameters: username1, username2, baseTaxonId, user1SpeciesIds[], user2SpeciesIds[]' }, 400, request);
+    const baseId = Number(baseTaxonId);
+    if (!username1 || !username2 || !Number.isFinite(baseId)) {
+      return json({ error: 'Missing parameters: username1, username2, baseTaxonId' }, 400, request);
     }
-    // Normalize to species (handles infra ranks) using local taxa table
-    const norm = async (arr)=>{ const out=[]; for (const id of arr){ const sid = await resolveSpeciesIdFromAny(env, Number(id)); if (sid) out.push(sid);} return Array.from(new Set(out)); };
-    const uniq1 = await norm(user1SpeciesIds);
-    const uniq2 = await norm(user2SpeciesIds);
-    const tree = await buildComparisonTree(env, uniq1, uniq2, Number(baseTaxonId));
-    const stats = generateComparisonStats(uniq1, uniq2);
+    const norm = (arr) => Array.from(new Set((Array.isArray(arr) ? arr : []).map(n => Number(n)).filter(Number.isFinite)));
+    const u1 = norm(user1SpeciesIds);
+    const u2 = norm(user2SpeciesIds);
+
+    // Best-effort: ensure taxa exist in D1 so we have names/ranks (public iNat /v1/taxa; no auth needed)
+    try {
+      const allIds = Array.from(new Set([...u1, ...u2]));
+      const missing = await listMissingTaxaIds(env, allIds, 400);
+      if (missing.length) await fetchAndUpsertTaxa(env, missing, "");
+      const anc = await collectAncestorIds(env, allIds, 400);
+      const missingAnc = await listMissingTaxaIds(env, anc, 400);
+      if (missingAnc.length) await fetchAndUpsertTaxa(env, missingAnc, "");
+    } catch (_) { /* non-fatal */ }
+
+    const tree = await buildComparisonTree(env, u1, u2, baseId);
+    const stats = generateComparisonStats(u1, u2);
+
+    // IMPORTANT: set compare mode so photo chips render
     const markdown = treeToMarkdown(tree, 0, { username1, username2, mode: 'compare' });
     const plainMarkdown = toPlainMarkdown(markdown);
-    return json({ markdown, plainMarkdown, stats, user1Count: uniq1.length, user2Count: uniq2.length }, 200, request);
+
+    return json({ markdown, plainMarkdown, stats, user1Count: u1.length, user2Count: u2.length }, 200, request);
   } catch (e) {
     return json({ error: e?.message || String(e) }, 500, request);
   }
