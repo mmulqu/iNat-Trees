@@ -1358,6 +1358,45 @@ _ensureMiniMap(treeId, svg) {
     return String(s || '').replace(/[^\w\-]+/g, '_').replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
   }
 
+  prepareSvgCloneForExport(svg) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const clone = svg.cloneNode(true);
+
+    // Size
+    const vb = svg.viewBox?.baseVal;
+    const w = vb ? vb.width  : svg.getBoundingClientRect().width  || 1200;
+    const h = vb ? vb.height : svg.getBoundingClientRect().height || 800;
+    if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    clone.setAttribute('width',  String(w));
+    clone.setAttribute('height', String(h));
+
+    const isDark = document.body.classList.contains('dark-theme');
+
+    // Background (match theme)
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('x','0'); bg.setAttribute('y','0');
+    bg.setAttribute('width', String(w)); bg.setAttribute('height', String(h));
+    bg.setAttribute('fill', isDark ? '#1d1f20' : '#ffffff');
+    clone.insertBefore(bg, clone.firstChild);
+
+    // Inline label colors so they survive export
+    const textColor = isDark ? '#f8fafc' : '#111827';
+    clone.querySelectorAll('text, tspan, .markmap-node text').forEach(t => {
+      t.setAttribute('fill', textColor);
+      t.style.fill = textColor;
+      t.style.opacity = isDark ? '0.96' : '1';
+    });
+    // HTML labels inside foreignObject (don't clobber PvP colors)
+    clone.querySelectorAll('.markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node)')
+         .forEach(el => { el.style.color = textColor; });
+
+    // Re-assert PvP label colors (if present)
+    [['.user1-node','#dc2626'],['.user2-node','#2563eb'],['.shared-node','#9333ea']]
+      .forEach(([sel,col]) => clone.querySelectorAll(sel).forEach(el => { el.style.color = col; }));
+
+    return clone;
+  }
+
   _treeLabel(tree) {
     const who = tree.isComparison ? `${tree.username1}_vs_${tree.username2}` : (tree.username || 'user');
     const what = tree.taxonName || `Taxon_${tree.taxonId}`;
@@ -1386,24 +1425,8 @@ _ensureMiniMap(treeId, svg) {
 
   /** Clone the SVG with pan/zoom neutralized (remove transform on content group) and a tight viewBox. */
   _serializeSvgForExport(svg) {
-    const clone = svg.cloneNode(true);
-
-    // Inline bright label colors for dark theme so exports keep contrast
-    try {
-      const isDark = document.body.classList.contains('dark-theme');
-      if (isDark) {
-        // SVG text nodes
-        clone.querySelectorAll('text, tspan, .markmap-node text').forEach(t => {
-          t.setAttribute('fill', '#f8fafc');
-          t.style.fill = '#f8fafc';
-          t.style.opacity = '0.96';
-        });
-        // HTML inside foreignObject (don't override PvP red/blue/purple)
-        clone
-          .querySelectorAll('.markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node)')
-          .forEach(el => { el.style.color = '#f8fafc'; });
-      }
-    } catch {}
+    // Use the new helper to prepare the clone with proper theme handling
+    const clone = this.prepareSvgCloneForExport(svg);
 
     // Normalize the content group: drop any pan/zoom transform
     const g = this._getContentGroup(clone);
