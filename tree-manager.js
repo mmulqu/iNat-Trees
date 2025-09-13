@@ -55,6 +55,7 @@ function colorForRank(rank) {
 
 // ---- Bands & helpers -------------------------------------------------------
 const GENUS_BAND = new Set(['genus','genushybrid','subgenus','section','subsection']);
+const SPECIES_BAND = new Set(['complex','species','hybrid','infrahybrid','subspecies','variety','form']);
 
 const BAND_ORDER = ['state','kingdom','phylum','class','order','family','tribe','genus','species'];
 const BAND_INDEX = BAND_ORDER.reduce((m,b,i)=> (m[b]=i,m), {});
@@ -359,26 +360,31 @@ class TreeManager {
 
     // choose best display parent for a row (uses only ids present in this payload)
     const pickDisplayParent = (row) => {
-      // 1) keep the declared parent if it's in the payload
+      // 0) Always keep the explicit parent if it's in the current payload.
       if (row.parent_id && nodeById.has(row.parent_id)) return row.parent_id;
 
-      // 2) for species-band, prefer nearest GENUS_BAND ancestor present in payload
-      if (bandOf(row.rank) === 'species') {
-        for (let i = row.ancestor_ids.length - 1; i >= 0; i--) {
-          const a = row.ancestor_ids[i];
-          const ancRow = nodeById.get(a);
-          if (!ancRow) continue;
-          if (GENUS_BAND.has(bandOf(ancRow.rank))) return a; // subgenus/section/subsection/genus
+      const anc = Array.isArray(row.ancestor_ids) ? row.ancestor_ids : [];
+      const band = (RANK_BAND[row.rank] || row.rank || '').toLowerCase();
+
+      if (band === 'species') {
+        // 1) Prefer nearest *species-band* ancestor present (keeps complexes/infraspecific structure)
+        for (let i = anc.length - 1; i >= 0; i--) {
+          const a = anc[i], ar = nodeById.get(a);
+          if (!ar) continue;
+          const aBand = (RANK_BAND[ar.rank] || ar.rank || '').toLowerCase();
+          if (SPECIES_BAND.has(aBand)) return a;
+        }
+        // 2) Otherwise, nearest *genus-band* ancestor (puts species under subgenus/genus)
+        for (let i = anc.length - 1; i >= 0; i--) {
+          const a = anc[i], ar = nodeById.get(a);
+          if (!ar) continue;
+          const aBand = (RANK_BAND[ar.rank] || ar.rank || '').toLowerCase();
+          if (GENUS_BAND.has(aBand)) return a;
         }
       }
 
-      // 3) fallback: first ancestor that exists in payload (nearest)
-      for (let i = row.ancestor_ids.length - 1; i >= 0; i--) {
-        const a = row.ancestor_ids[i];
-        if (nodeById.has(a)) return a;
-      }
-
-      // 4) no available parent → treat as top-level under synthetic root
+      // 3) Fallback: first ancestor in the set
+      for (let i = anc.length - 1; i >= 0; i--) if (nodeById.has(anc[i])) return anc[i];
       return null;
     };
 
