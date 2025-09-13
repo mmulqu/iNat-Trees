@@ -1648,18 +1648,40 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
     }
     ancestorIds = Array.from(new Set(ancestorIds));
 
-    // Trim everything above the new root (startId)
-    const idx = ancestorIds.indexOf(startId);
-    const path = idx >= 0 ? ancestorIds.slice(idx) : [startId, ...ancestorIds];
+    // Normalize path so it starts *below* the chosen root and never bounces up to Life.
+    let pathIds = ancestorIds.slice();
+    let idx = pathIds.indexOf(startId);
+
+    // Fetch rows once so we can reason about ranks
+    let ancRows = await fetchTaxaByIds(env, pathIds);
+    const aMap = new Map(ancRows.map(a => [a.taxon_id, a]));
+    const rootRank = String(startNode.rank || '').toLowerCase();
+
+    if (idx >= 0) {
+      // Start *after* the root (skip the root itself)
+      pathIds = pathIds.slice(idx + 1);
+    } else {
+      // If a same-rank ancestor exists (e.g., a different Superfamily id), start after it.
+      const j = pathIds.findIndex(id => (aMap.get(id)?.rank || '').toLowerCase() === rootRank);
+      if (j >= 0) {
+        pathIds = pathIds.slice(j + 1);
+      } else {
+        // Fallback: if baseTaxon is present, start at (or just above) it; otherwise drop any leading Life.
+        const k = pathIds.indexOf(baseTaxonId);
+        pathIds = (k > 0) ? pathIds.slice(k) : pathIds.filter(id => id !== 48460);
+      }
+    }
 
     let current = root;
-    if (path.length > 0) {
-      const ancestorRows = await fetchTaxaByIds(env, path);
-      const map = new Map(ancestorRows.map(a => [a.taxon_id, a]));
-      for (const ancId of path) {
-        if (ancId === startId) continue;
-        const anc = map.get(ancId);
+    if (pathIds.length) {
+      // (We already fetched ancRows for the full list; reuse)
+      for (const ancId of pathIds) {
+        const anc = aMap.get(ancId);
         if (!anc) continue;
+        // Guard: never add ancestors above the root (e.g., Life) just in case.
+        const ancRank = String(anc.rank || '').toLowerCase();
+        if (getRankOrder(ancRank) > getRankOrder(rootRank)) continue;
+
         if (!current.children[ancId]) {
           current.children[ancId] = { id: anc.taxon_id, name: anc.name, rank: anc.rank, common_name: anc.common_name || '', color, children: {} };
         } else if (current.children[ancId].color !== color && current.children[ancId].color !== SHARED_COLOR) {
@@ -1717,18 +1739,40 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
     }
     ancestorIds = Array.from(new Set(ancestorIds));
 
-    // Trim everything above the new root (startId)
-    const idx = ancestorIds.indexOf(startId);
-    const path = idx >= 0 ? ancestorIds.slice(idx) : [startId, ...ancestorIds];
+    // Normalize path so it starts *below* the chosen root and never bounces up to Life.
+    let pathIds = ancestorIds.slice();
+    let idx = pathIds.indexOf(startId);
+
+    // Fetch rows once so we can reason about ranks
+    let ancRows = await fetchTaxaByIds(env, pathIds);
+    const aMap = new Map(ancRows.map(a => [a.taxon_id, a]));
+    const rootRank = String(startNode.rank || '').toLowerCase();
+
+    if (idx >= 0) {
+      // Start *after* the root (skip the root itself)
+      pathIds = pathIds.slice(idx + 1);
+    } else {
+      // If a same-rank ancestor exists (e.g., a different Superfamily id), start after it.
+      const j = pathIds.findIndex(id => (aMap.get(id)?.rank || '').toLowerCase() === rootRank);
+      if (j >= 0) {
+        pathIds = pathIds.slice(j + 1);
+      } else {
+        // Fallback: if baseTaxon is present, start at (or just above) it; otherwise drop any leading Life.
+        const k = pathIds.indexOf(baseTaxonId);
+        pathIds = (k > 0) ? pathIds.slice(k) : pathIds.filter(id => id !== 48460);
+      }
+    }
 
     let current = root;
-    if (path.length > 0) {
-      const ancestorRows = await fetchTaxaByIds(env, path);
-      const map = new Map(ancestorRows.map(a => [a.taxon_id, a]));
-      for (const ancId of path) {
-        if (ancId === startId) continue; // we already ARE at the trimmed root
-        const anc = map.get(ancId);
+    if (pathIds.length) {
+      // (We already fetched ancRows for the full list; reuse)
+      for (const ancId of pathIds) {
+        const anc = aMap.get(ancId);
         if (!anc) continue;
+        // Guard: never add ancestors above the root (e.g., Life) just in case.
+        const ancRank = String(anc.rank || '').toLowerCase();
+        if (getRankOrder(ancRank) > getRankOrder(rootRank)) continue;
+
         if (!current.children[ancId]) {
           current.children[ancId] = { id: anc.taxon_id, name: anc.name, rank: anc.rank, common_name: anc.common_name || '', children: {} };
         }
