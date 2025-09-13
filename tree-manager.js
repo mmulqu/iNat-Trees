@@ -250,6 +250,12 @@ function listToHeadings(md, title) {
   md = String(md || '');
   md = md.replace(/\{\/?color:[^}]*\}/g, ''); // Strip color tokens first
 
+  // Convert <span class="mm-badge mm-rank" ...> into a stable {rank:*} token
+  md = md.replace(
+    /<span\s+class="mm-badge\s+mm-rank"[^>]*?(?:data-rank="([^"]+)"|title="([^"]+)")[^>]*>[\s\S]*?<\/span>/gi,
+    (_, dRank, title) => ` {rank:${(dRank || title || '').toLowerCase()}}`
+  );
+
   // Step 1: Temporarily replace image links with a unique, safe placeholder.
   const placeholders = new Map();
   let placeholderId = 0;
@@ -627,10 +633,11 @@ class TreeManager {
     if (tree.isChecklist) {
       md = this.processChecklistMarkdown(mdRaw);
     } else {
-      // SIMPLIFIED: Remove the tokenization step.
-      // We now pass the raw markdown directly to our new, smarter listToHeadings function.
-      md = listToHeadings(mdRaw, null);
-      console.debug('[MM] Explore headings md >>>', md.slice(0, 200));
+      const looksBulleted = /^\s*(?:[-*+]|\d+\.)\s+/m.test(mdRaw);
+      md = looksBulleted ? mdRaw : listToHeadings(mdRaw, null);
+      if (!looksBulleted) {
+        console.debug('[MM] Explore headings md >>>', md.slice(0, 200));
+      }
     }
   
     const { Transformer, Markmap } = window.markmap;
@@ -1952,10 +1959,11 @@ _injectRankBadgesIntoAst(root) {
       let s = node.content;
 
       // 1) If an explicit {rank:...} token exists, use it and strip it.
-      const mToken = s.match(/\{rank:([a-zA-Z]+)\}\s*$/);
+      // Accept {rank:*} anywhere, not only at EOL
+      const mToken = s.match(/\{rank:([a-z]+)\}/i);
       if (mToken) {
         const fine = mToken[1].toLowerCase();
-        s = s.replace(/\{rank:[a-zA-Z]+\}\s*$/, '');
+        s = s.replace(/\s*\{rank:[a-z]+\}\s*/gi, ' ');
         node.content = s;
         addBadge(node, fine);                  // badge with data-rank=fine
       } else {

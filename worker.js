@@ -1754,7 +1754,10 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
   const nameHtml = `<a class="taxon-link" href="${taxonUrl}" target="_blank" rel="noopener">${escapeHtml(node.name)}</a>`;
   const common = node.common_name ? ` <span class="mm-common">(${escapeHtml(node.common_name)})</span>` : '';
   const shortRank = shortRankCode(node.rank);
-  const rankChip = shortRank ? ` <span class="mm-badge mm-rank" title="${escapeHtml(node.rank)}">${shortRank}</span>` : '';
+  const rankLower = (node.rank || '').toLowerCase();
+  const rankChip = shortRank
+    ? ` <span class="mm-badge mm-rank" data-rank="${escapeHtml(rankLower)}" title="${escapeHtml(node.rank)}">${shortRank}</span>`
+    : '';
   let countChip = '';
   if (Number.isFinite(node.sppCount)) {
     if (ctx.mode === 'checklist' && Number.isFinite(node.sppSeen)) {
