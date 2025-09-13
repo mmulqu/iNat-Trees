@@ -53,6 +53,26 @@ function colorForRank(rank) {
   return BAND_COLOR[band] || null;
 }
 
+// ---- Bands & helpers -------------------------------------------------------
+const GENUS_BAND = new Set(['genus','genushybrid','subgenus','section','subsection']);
+
+const BAND_ORDER = ['state','kingdom','phylum','class','order','family','tribe','genus','species'];
+const BAND_INDEX = BAND_ORDER.reduce((m,b,i)=> (m[b]=i,m), {});
+
+function bandOf(rank){
+  const r = String(rank||'').toLowerCase();
+  return RANK_BAND[r] || r; // if already a band (e.g. 'family')
+}
+
+function parseAncestors(a){
+  if (!a) return [];
+  if (Array.isArray(a)) return a.map(Number).filter(n=>Number.isFinite(n));
+  // "{1,2,3}" → [1,2,3]
+  const m = String(a).match(/\{([^}]*)\}/);
+  if (!m) return [];
+  return m[1].split(',').map(s=>parseInt(s.trim(),10)).filter(n=>Number.isFinite(n));
+}
+
 // ---- Taxon name resolver ----
 async function resolveTaxonTitle(taxonId) {
   const cache = (resolveTaxonTitle._cache ||= new Map());
@@ -315,6 +335,95 @@ class TreeManager {
     }
   }
 
+  /**
+   * Build markdown from flat taxon rows, ensuring species attach under the nearest
+   * available GENUS_BAND ancestor (subgenus/section/subsection/genus).
+   * Each row should have: { taxon_id, name, rank, parent_id, ancestor_ids }
+   * ancestor_ids may be "{...}" or an array.
+   */
+  _rowsToMarkdown(rows, baseId) {
+    // normalize & index
+    const nodeById = new Map();
+    for (const r of rows || []) {
+      if (!r || !r.taxon_id) continue;
+      const anc = parseAncestors(r.ancestor_ids).filter(x => x !== 48460); // drop Life
+      nodeById.set(+r.taxon_id, {
+        id: +r.taxon_id,
+        name: String(r.name || `Taxon ${r.taxon_id}`),
+        rank: String(r.rank || '').toLowerCase(),
+        parent_id: r.parent_id != null ? +r.parent_id : null,
+        ancestor_ids: anc
+      });
+    }
+    if (nodeById.size === 0) return '';
+
+    // choose best display parent for a row (uses only ids present in this payload)
+    const pickDisplayParent = (row) => {
+      // 1) keep the declared parent if it's in the payload
+      if (row.parent_id && nodeById.has(row.parent_id)) return row.parent_id;
+
+      // 2) for species-band, prefer nearest GENUS_BAND ancestor present in payload
+      if (bandOf(row.rank) === 'species') {
+        for (let i = row.ancestor_ids.length - 1; i >= 0; i--) {
+          const a = row.ancestor_ids[i];
+          const ancRow = nodeById.get(a);
+          if (!ancRow) continue;
+          if (GENUS_BAND.has(bandOf(ancRow.rank))) return a; // subgenus/section/subsection/genus
+        }
+      }
+
+      // 3) fallback: first ancestor that exists in payload (nearest)
+      for (let i = row.ancestor_ids.length - 1; i >= 0; i--) {
+        const a = row.ancestor_ids[i];
+        if (nodeById.has(a)) return a;
+      }
+
+      // 4) no available parent → treat as top-level under synthetic root
+      return null;
+    };
+
+    // build parent→children edges
+    const children = new Map(); // id -> []
+    const roots = new Set(nodeById.keys());
+    for (const row of nodeById.values()) {
+      const p = pickDisplayParent(row);
+      if (p != null && nodeById.has(p)) {
+        if (!children.has(p)) children.set(p, []);
+        children.get(p).push(row.id);
+        roots.delete(row.id);
+      }
+    }
+
+    // prefer the requested baseId as the single root when present
+    let topIds = Array.from(roots);
+    if (baseId && nodeById.has(+baseId)) {
+      topIds = [ +baseId ];
+    }
+
+    // sort helper: band→order, then alpha by name
+    const cmp = (aId, bId) => {
+      const a = nodeById.get(aId), b = nodeById.get(bId);
+      const ba = BAND_INDEX[bandOf(a.rank)] ?? 999;
+      const bb = BAND_INDEX[bandOf(b.rank)] ?? 999;
+      if (ba !== bb) return ba - bb;
+      return a.name.localeCompare(b.name, undefined, { sensitivity:'base' });
+    };
+
+    // DFS emit into bullet markdown; append {rank:*} token for badge injector
+    const out = [];
+    const emit = (id, depth) => {
+      const r = nodeById.get(id); if (!r) return;
+      const label = `${r.name} {rank:${r.rank||bandOf(r.rank)||''}}`;
+      out.push(`${'  '.repeat(depth)}- ${label}`);
+      const kids = (children.get(id) || []).slice().sort(cmp);
+      for (const k of kids) emit(k, depth + 1);
+    };
+
+    // walk all roots
+    topIds.sort(cmp).forEach(id => emit(id, 0));
+    return out.join('\n');
+  }
+
   generateTreeId() {
     return `${this.idPrefix}-${++this.currentId}`;
   }
@@ -350,11 +459,20 @@ class TreeManager {
   addTree(username, taxonName, taxonId, markdown, opts = {}) {
     const treeId = this.generateTreeId();
 
+    // NEW: if caller passed raw rows, build correct markdown first
+    if (!markdown && Array.isArray(opts.rows) && opts.rows.length) {
+      try {
+        markdown = this._rowsToMarkdown(opts.rows, taxonId);
+      } catch (e) {
+        console.error('rows→markdown failed:', e);
+      }
+    }
+
     // Process markdown to extract statistics if not already provided
     let stats = null;
     try {
       if (window.taxonomyStats && typeof window.taxonomyStats.processMarkdown === 'function') {
-        stats = window.taxonomyStats.processMarkdown(markdown);
+        stats = window.taxonomyStats.processMarkdown(markdown || '');
       }
     } catch (error) {
       console.error('Error in TreeManager.addTree calculating statistics:', error);
@@ -365,15 +483,14 @@ class TreeManager {
       username,
       taxonName,
       taxonId,
-      markdown,
-      stats, // Store the calculated statistics (might be null)
+      markdown: markdown || '',   // <- use the built or provided markdown
+      stats,
       isChecklist: opts.mode === 'checklist',
       timestamp: new Date()
     };
     this.trees.push(tree);
     this.createTreeTab(tree);
     this.activateTab(treeId);
-    // Only schedule one render; shown.bs.tab will also schedule if needed
     this._scheduleRender(tree, 100);
     return treeId;
   }
