@@ -1,5 +1,58 @@
 // tree-manager.js
 
+// ----- Canonical rank mapping (fine rank -> band) -----
+const RANK_BAND = Object.freeze({
+  // very high
+  stateofmatter: 'state',
+
+  // kingdom tier
+  domain: 'kingdom', superkingdom: 'kingdom', kingdom: 'kingdom',
+
+  // phylum tier
+  phylum: 'phylum', subphylum: 'phylum',
+
+  // class tier
+  superclass: 'class', class: 'class', subclass: 'class', subterclass: 'class', infraclass: 'class',
+
+  // order tier
+  superorder: 'order', order: 'order', suborder: 'order', infraorder: 'order', parvorder: 'order',
+  zoosection: 'order', zoosubsection: 'order',
+
+  // family tier
+  superfamily: 'family', epifamily: 'family', family: 'family', subfamily: 'family',
+
+  // tribe tier (optional band between family and genus)
+  supertribe: 'tribe', tribe: 'tribe', subtribe: 'tribe',
+
+  // genus tier
+  genus: 'genus', genushybrid: 'genus', subgenus: 'genus', section: 'genus', subsection: 'genus',
+
+  // species tier
+  complex: 'species', species: 'species', hybrid: 'species', infrahybrid: 'species',
+  subspecies: 'species', variety: 'species', form: 'species'
+});
+
+// ----- Colors by band (reuse your palette; add a tribe tint) -----
+const BAND_COLOR = Object.freeze({
+  state:   '#64748b',   // stateofmatter
+  kingdom: '#a855f7',   // kingdom/domain/superkingdom
+  phylum:  '#ef4444',   // phylum/subphylum
+  class:   '#f59e0b',   // class/sub-/infra-/subterclass/superclass
+  order:   '#6366f1',   // order family of ranks incl. zoo(section)s
+  family:  '#06b6d4',   // super/epi/family/subfamily
+  tribe:   '#0ea5e9',   // super/tribe/subtribe (between family & genus)
+  genus:   '#10b981',   // genus/genushybrid/subgenus/section/subsection
+  species: '#22c55e'    // complex/species/*infraspecific*
+});
+
+// Convert a fine rank to a color (falls back to band name already)
+function colorForRank(rank) {
+  if (!rank) return null;
+  const r = String(rank).toLowerCase();
+  const band = RANK_BAND[r] || r;       // if already a band like "family"
+  return BAND_COLOR[band] || null;
+}
+
 // ---- Taxon name resolver ----
 async function resolveTaxonTitle(taxonId) {
   const cache = (resolveTaxonTitle._cache ||= new Map());
@@ -554,22 +607,14 @@ class TreeManager {
   
     // --- 4) rank-based coloring ---
     if (!tree.isChecklist) {
-      const RANK_COLOR = {
-        species:'#22c55e', subspecies:'#22c55e', variety:'#22c55e',
-        genus:'#10b981', subgenus:'#10b981',
-        family:'#06b6d4', subfamily:'#06b6d4',
-        order:'#6366f1', suborder:'#6366f1',
-        class:'#f59e0b', subclass:'#f59e0b',
-        phylum:'#ef4444', subphylum:'#ef4444',
-        kingdom:'#a855f7', domain:'#a855f7', superkingdom:'#a855f7',
-        stateofmatter:'#64748b'
-      };
       const getRankColor = (gNode) => {
         const badge = gNode.querySelector('.mm-badge.mm-rank');
         if (!badge) return null;
-        const rank = (badge.getAttribute('title') || '').trim().toLowerCase();
-        return RANK_COLOR[rank] || null;
+        // Prefer explicit data-rank if present, else the badge title ("family", "order", etc.)
+        const rank = (badge.getAttribute('data-rank') || badge.getAttribute('title') || '').trim().toLowerCase();
+        return colorForRank(rank);
       };
+
       const colorByRank = () => {
         const colorByPath = new Map();
         svg.querySelectorAll('g.markmap-node').forEach((g) => {
@@ -583,12 +628,13 @@ class TreeManager {
         svg.querySelectorAll('path.markmap-link').forEach((p) => {
           let key = p.getAttribute('data-path');
           let gNode = key ? svg.querySelector(`g.markmap-node[data-path="${key}"]`) : null;
-          const c = (gNode && getRankColor(gNode)) || (key && colorByPath.get(key));
-          if (!c) return;
-          p.setAttribute('stroke', c);
-          p.style.stroke = c; p.style.strokeOpacity = '1'; p.style.fill = 'none';
+          const rankColor = (gNode && getRankColor(gNode)) || (key && colorByPath.get(key));
+          if (!rankColor) return;
+          p.setAttribute('stroke', rankColor);
+          p.style.stroke = rankColor; p.style.strokeOpacity = '1'; p.style.fill = 'none';
         });
       };
+
       setTimeout(() => requestAnimationFrame(colorByRank), 400);
       svg.addEventListener('click', () => setTimeout(() => requestAnimationFrame(colorByRank), 250));
     }
@@ -1763,31 +1809,41 @@ _ensureMiniMap(treeId, svg) {
     return null;
   }
 
-// REPLACE the entire _injectRankBadgesIntoAst function with this definitive version.
-
 _injectRankBadgesIntoAst(root) {
   if (!root || !root.children) return;
 
-  const TITLE = {
-    F: 'family', G: 'genus', S: 'species',
-    O: 'order', C: 'class', P: 'phylum',
-    K: 'kingdom', D: 'domain'
+  // Map single letters to broad bands (same as before)
+  const LETTER_TO_BAND = { F:'family', G:'genus', S:'species', O:'order', C:'class', P:'phylum', K:'kingdom', D:'kingdom' };
+
+  const addBadge = (node, rankOrBand, glyph) => {
+    const fine = (rankOrBand || '').toLowerCase();
+    const band = RANK_BAND[fine] || fine;      // normalize to band if needed
+    const title = fine || band;                // show the fine rank if we know it
+    const letter = glyph || (band[0] || '').toUpperCase(); // fallback letter
+    const badge = `<span class="mm-badge mm-rank" title="${title}" data-rank="${fine || band}" data-band="${band}">${letter}</span>`;
+    node.content = (node.content || '').replace(/\s*$/, ' ') + badge;
   };
 
   const visit = (node) => {
     if (node.content) {
-      // This single, powerful regex finds a rank letter followed by either:
-      //  - An optional image link and the end of the line.
-      //  - Just the end of the line.
-      // It replaces ONLY the letter, leaving the link untouched.
-      node.content = node.content.replace(
-        /(\s)([FGSOCPKD])((?:\s*<a\s+href.*<\/a>)?\s*)$/,
-        (match, space, letter, trailingPart) => {
-          const badgeHtml = `<span class="mm-badge mm-rank" title="${TITLE[letter] || ''}">${letter}</span>`;
-          // Reconstruct the line: the space before, the new badge, and whatever came after (the link or nothing).
-          return `${space}${badgeHtml}${trailingPart}`;
+      let s = node.content;
+
+      // 1) If an explicit {rank:...} token exists, use it and strip it.
+      const mToken = s.match(/\{rank:([a-zA-Z]+)\}\s*$/);
+      if (mToken) {
+        const fine = mToken[1].toLowerCase();
+        s = s.replace(/\{rank:[a-zA-Z]+\}\s*$/, '');
+        node.content = s;
+        addBadge(node, fine);                  // badge with data-rank=fine
+      } else {
+        // 2) Back-compat: trailing letter code (F G S O C P K D)
+        const mLetter = s.match(/(\s)([FGSOCPKD])\s*$/);
+        if (mLetter) {
+          node.content = s.replace(/(\s)[FGSOCPKD]\s*$/, '$1'); // drop raw letter
+          const band = LETTER_TO_BAND[mLetter[2]];
+          addBadge(node, band, mLetter[2]);
         }
-      );
+      }
     }
     if (node.children) node.children.forEach(visit);
   };
