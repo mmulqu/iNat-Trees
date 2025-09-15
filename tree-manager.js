@@ -516,6 +516,20 @@ class TreeManager {
     this.createTreeTab(tree);
     this.activateTab(treeId);
     this._scheduleRender(tree, 100);
+    
+    // Tag new trees with cache info so the ✖ can delete them from IDB
+    const scope = (window.getLifelistScope?.() || 'global');
+    const region = scope === 'region' ? (window.currentRegionCode || '') : '';
+    tree.scope = tree.scope || scope;
+    tree.region_code = tree.region_code || region;
+    tree.cacheKey = tree.cacheKey || window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope, tree.region_code);
+
+    const tabEl = document.getElementById(`${tree.id}-tab`);
+    if (tabEl && tree.cacheKey) {
+      tabEl.dataset.cacheKey = tree.cacheKey;
+      console.log('[addTree] tagged new tab with cacheKey:', tree.cacheKey);
+    }
+    
     return treeId;
   }
 
@@ -590,6 +604,14 @@ class TreeManager {
     tabContent.appendChild(treeInfo);
     this.tabsContainer.appendChild(tabHeader);
     this.tabContentContainer.appendChild(tabContent);
+    
+    // Add cache key data attribute if available
+    const tabBtn = document.getElementById(`${tree.id}-tab`);
+    if (tabBtn) {
+      tabBtn.dataset.cacheKey = tree.cacheKey
+        || (window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope || 'global', tree.region_code || '') ?? '');
+    }
+    
     const closeBtn = tabHeader.querySelector('.btn-close');
     closeBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -803,9 +825,29 @@ class TreeManager {
     }
   }
 
-  removeTree(treeId) {
+  async removeTree(treeId) {
     const index = this.trees.findIndex(t => t.id === treeId);
     if (index === -1) return;
+    
+    const tree = this.trees[index];
+    
+    // Delete from cache before removing from UI
+    try {
+      const key =
+        tree.cacheKey ||
+        document.getElementById(`${treeId}-tab`)?.dataset.cacheKey ||
+        (window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope || 'global', tree.region_code || '') ?? '');
+
+      if (key) {
+        console.log('[tabs] closing; deleting cache key:', key);
+        await window.deleteCachedTreeByKey?.(key);
+      } else {
+        console.log('[tabs] closing; no cache key on tree', tree);
+      }
+    } catch (e) {
+      console.warn('[tabs] cache delete on close failed', e);
+    }
+
     this.trees.splice(index, 1);
     const tabHeader = document.getElementById(`${treeId}-tab`).parentNode;
     const tabContent = document.getElementById(`${treeId}-content`);

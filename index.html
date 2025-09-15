@@ -1058,6 +1058,22 @@
     window.getFirstObs    = getFirstObs;
     window.clearUserCache = clearUserCache;
 
+    // expose per-tree delete helpers
+    window.deleteCachedTreeByKey = async function deleteCachedTreeByKey(key){
+      if (!key) return;
+      try {
+        await del(key);
+        console.log('[cache] deleted tree key:', key);
+      } catch (e) {
+        console.warn('[cache] delete failed for', key, e);
+      }
+    };
+
+    window.deleteCachedTree = async function deleteCachedTree({ username, baseTaxonId, scope='global', region='' } = {}){
+      const key = window.treeKey?.(username, baseTaxonId, scope, region);
+      return window.deleteCachedTreeByKey(key);
+    };
+
     // Clear ALL saved trees from IDB
     window.clearAllTreeCaches = async function clearAllTreeCaches() {
       for (const k of await keys()) {
@@ -1083,18 +1099,34 @@
           if (window.__restoredKeys.has(sk)) continue;
 
           // key: tree:v1:{username}:{taxonId}:{scope}:{region}
-          const parts = sk.split(':');
-          const username = parts[2], taxonId = parts[3];
+          const parts   = sk.split(':');
+          const username = parts[2];
+          const taxonId  = Number(parts[3]);
+          const scope    = parts[4] || 'global';
+          const region   = parts[5] || '';
 
           const bin = await get(k);
           if (!bin) continue;
 
-          const payload = JSON.parse(dec(bin));         // { t, md, tree? }
+          const payload = JSON.parse(dec(bin)); // { t, md, tree? }
           const md = payload.md || payload.markdown || '';
           if (!md) continue;
 
-          // Create the tab + render
-          window.treeManager?.addTree(username, null, Number(taxonId), md);
+          // Create the tab as usual
+          window.treeManager?.addTree(username, null, taxonId, md);
+
+          // Tag the newest tree with cache info so the ✖ can delete it from IDB
+          const tree = window.treeManager?.trees?.[window.treeManager.trees.length - 1];
+          if (tree) {
+            tree.scope = scope;
+            tree.region_code = region;
+            tree.cacheKey = sk;
+            const tabEl = document.getElementById(`${tree.id}-tab`);
+            if (tabEl) {
+              tabEl.dataset.cacheKey = sk;
+              console.log(`[restore] tagged tab ${tree.id} with cacheKey: ${sk}`);
+            }
+          }
 
           // Remember we've hydrated this key
           window.__restoredKeys.add(sk);
