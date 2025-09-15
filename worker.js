@@ -31,7 +31,7 @@ function chunk(arr, n) { const out=[]; for (let i=0;i<arr.length;i+=n) out.push(
 
 async function filterIdsPresentInTaxa(env, ids) {
   if (!ids?.length) return [];
-  const CHUNK = 500;
+  const CHUNK = D1_IN_LIMIT;
   const present = new Set();
   for (let i = 0; i < ids.length; i += CHUNK) {
     const part = ids.slice(i, i + CHUNK);
@@ -104,7 +104,7 @@ async function resolvePlaceId(env, code){
 }
 
 
-async function listMissingTaxaIds(env, ids, sz=400) {
+async function listMissingTaxaIds(env, ids, sz=D1_IN_LIMIT) {
   const missing = new Set(ids);
   for (const part of chunk(ids, sz)) {
     const ph = part.map(()=>'?').join(',');
@@ -117,7 +117,7 @@ async function listMissingTaxaIds(env, ids, sz=400) {
   return [...missing];
 }
 
-async function collectAncestorIds(env, speciesIds, sz=400) {
+async function collectAncestorIds(env, speciesIds, sz=D1_IN_LIMIT) {
   const anc = new Set();
   for (const part of chunk(speciesIds, sz)) {
     const ph = part.map(()=>'?').join(',');
@@ -439,6 +439,9 @@ const RATE_LIMIT_CONFIG = {
   jwtCacheTTL: 82800,
   minGlobalGapMs: 2000
 };
+
+// Keep D1 happy: conservative cap for IN (...) placeholders
+const D1_IN_LIMIT = 200;
 
 const requestCache = new Map();
 const jwtCache = new Map();
@@ -971,7 +974,8 @@ async function resolveTaxaNames(request, env) {
   if (!names.length) return json({ results: {} }, 200, request);
 
   const map = {};
-  for (const part of chunk(names, 500)) {
+  const namesChunk = Math.max(25, D1_IN_LIMIT - (ranks.length + 10));
+  for (const part of chunk(names, namesChunk)) {
     const lowers = part.map(n => String(n).toLowerCase());
     const placeholdersNames = lowers.map(() => '?').join(',');
     const placeholdersRanks = ranks.map(() => '?').join(',');
@@ -1717,11 +1721,17 @@ async function resolveStartRoot(env, baseTaxonId) {
 }
 
 async function fetchTaxaByIds(env, ids) {
-  if (!ids || ids.length === 0) return [];
-  const placeholders = ids.map(() => '?').join(',');
-  const sql = `SELECT taxon_id, name, rank, common_name FROM taxa WHERE taxon_id IN (${placeholders})`;
-  const { results } = await env.DB.prepare(sql).bind(...ids).all();
-  return results || [];
+  const unique = Array.from(new Set((ids || []).map(Number).filter(Number.isFinite)));
+  if (!unique.length) return [];
+  const out = [];
+  for (let i = 0; i < unique.length; i += D1_IN_LIMIT) {
+    const part = unique.slice(i, i + D1_IN_LIMIT);
+    const ph = part.map(() => '?').join(',');
+    const sql = `SELECT taxon_id, name, rank, common_name FROM taxa WHERE taxon_id IN (${ph})`;
+    const { results } = await env.DB.prepare(sql).bind(...part).all();
+    out.push(...(results || []));
+  }
+  return out;
 }
 
 // Helper: chunked bulk fetch into a Map(id -> row)
@@ -1729,7 +1739,7 @@ async function fetchTaxaMapChunked(env, ids, cols = "taxon_id, name, rank, commo
   const out = new Map();
   const unique = Array.from(new Set((ids || []).map(n => Number(n)).filter(Number.isFinite)));
   if (!unique.length) return out;
-  const CHUNK = 500; // safe under SQLite var limits
+  const CHUNK = D1_IN_LIMIT;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const part = unique.slice(i, i + CHUNK);
     const ph = part.map(() => '?').join(',');
