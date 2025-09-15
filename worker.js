@@ -31,19 +31,9 @@ function chunk(arr, n) { const out=[]; for (let i=0;i<arr.length;i+=n) out.push(
 
 async function filterIdsPresentInTaxa(env, ids) {
   if (!ids?.length) return [];
-  const CHUNK = D1_IN_LIMIT;
   const present = new Set();
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const part = ids.slice(i, i + CHUNK);
-    const ph = part.map(() => "?").join(",");
-    const { results } = await d1All(
-      env,
-      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`,
-      part,
-      `filterIdsPresentInTaxa chunk=${part.length}`
-    );
-    for (const r of results || []) present.add(r.taxon_id);
-  }
+  const rows = await selectTaxaByIds(env, ids, "taxon_id", "filterIdsPresentInTaxa");
+  for (const r of rows || []) present.add(r.taxon_id);
   return [...present];
 }
 
@@ -109,33 +99,17 @@ async function resolvePlaceId(env, code){
 
 async function listMissingTaxaIds(env, ids, sz=D1_IN_LIMIT) {
   const missing = new Set(ids);
-  for (const part of chunk(ids, sz)) {
-    const ph = part.map(()=>'?').join(',');
-    const { results } = await d1All(
-      env,
-      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`,
-      part,
-      `listMissingTaxaIds chunk=${part.length}`
-    );
-    for (const r of results || []) missing.delete(r.taxon_id);
-  }
+  const rows = await selectTaxaByIds(env, ids, "taxon_id", "listMissingTaxaIds");
+  for (const r of rows || []) missing.delete(r.taxon_id);
   return [...missing];
 }
 
 async function collectAncestorIds(env, speciesIds, sz=D1_IN_LIMIT) {
   const anc = new Set();
-  for (const part of chunk(speciesIds, sz)) {
-    const ph = part.map(()=>'?').join(',');
-    const { results } = await d1All(
-      env,
-      `SELECT ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`,
-      part,
-      `collectAncestorIds chunk=${part.length}`
-    );
-    for (const row of results || []) {
-      const arr = parseAncestorIds(row.ancestor_ids);
-      for (const a of arr) anc.add(a);
-    }
+  const rows = await selectTaxaByIds(env, speciesIds, "taxon_id, ancestor_ids", "collectAncestorIds");
+  for (const row of rows || []) {
+    const arr = parseAncestorIds(row.ancestor_ids);
+    for (const a of arr) anc.add(a);
   }
   return [...anc];
 }
@@ -448,7 +422,7 @@ const RATE_LIMIT_CONFIG = {
 };
 
 // --- D1 safety + debug ---
-const D1_IN_LIMIT = 150; // well under any SQLite var cap
+const D1_IN_LIMIT = 90;  // D1 seems ~100; keep headroom
 let __DBG = [];
 const dbg = (...a) => {
   try { console.log(...a); __DBG.push(a.map(v => (typeof v==='string'?v:JSON.stringify(v))).join(' ')); } catch {}
@@ -1751,33 +1725,15 @@ async function resolveStartRoot(env, baseTaxonId) {
 }
 
 async function fetchTaxaByIds(env, ids) {
-  const unique = Array.from(new Set((ids || []).map(Number).filter(Number.isFinite)));
-  if (!unique.length) return [];
-  const out = [];
-  for (let i = 0; i < unique.length; i += D1_IN_LIMIT) {
-    const part = unique.slice(i, i + D1_IN_LIMIT);
-    const ph = part.map(() => '?').join(',');
-    const sql = `SELECT taxon_id, name, rank, common_name FROM taxa WHERE taxon_id IN (${ph})`;
-    const { results } = await d1All(env, sql, part, `fetchTaxaByIds chunk=${part.length}`);
-    out.push(...(results || []));
-  }
-  return out;
+  return await selectTaxaByIds(env, ids, "taxon_id, name, rank, common_name", "fetchTaxaByIds");
 }
 
 // Helper: chunked bulk fetch into a Map(id -> row)
 async function fetchTaxaMapChunked(env, ids, cols = "taxon_id, name, rank, common_name, ancestor_ids") {
-  const out = new Map();
-  const unique = Array.from(new Set((ids || []).map(n => Number(n)).filter(Number.isFinite)));
-  if (!unique.length) return out;
-  const CHUNK = D1_IN_LIMIT;
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const part = unique.slice(i, i + CHUNK);
-    const ph = part.map(() => '?').join(',');
-    const sql = `SELECT ${cols} FROM taxa WHERE taxon_id IN (${ph})`;
-    const { results } = await d1All(env, sql, part, `fetchTaxaMapChunked chunk=${part.length} cols=${cols}`);
-    for (const r of (results || [])) out.set(r.taxon_id, r);
-  }
-  return out;
+  const rows = await selectTaxaByIds(env, ids, cols, 'fetchTaxaMapChunked');
+  const map = new Map();
+  for (const r of rows) map.set(r.taxon_id, r);
+  return map;
 }
 
 // Batch-normalize arbitrary taxon ids → species-level ids using local D1 only.
