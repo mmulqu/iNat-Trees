@@ -997,7 +997,10 @@
       const key = treeKey(username, baseTaxonId, scope, region_code);
       if (!force) {
         const cached = await loadTree(key);
-        if (cached) return cached; // {t, tree?, md?}
+        if (cached) {
+          // ✅ normalize to the same shape as server response
+          return { markdown: cached.md || "", tree: cached.tree || null, _fromCache: true, _cachedAt: cached.t };
+        }
       }
       const r = await fetch(`${WORKER_URL}/tree-from-species`, {
         method: "POST",
@@ -1006,7 +1009,7 @@
       });
       const data = await r.json();
       await cacheTree(key, data.tree || null, data.markdown || data.plainMarkdown || "");
-      return data;
+      return { markdown: data.markdown || data.plainMarkdown || "", tree: data.tree || null, _fromCache: false };
     }
 
     // ===== first-photo (30d TTL) =====
