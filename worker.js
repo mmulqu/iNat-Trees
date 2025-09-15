@@ -1034,12 +1034,8 @@ async function checklistTree(request, env) {
   // Fast-path: client provided species IDs already seen; skip any iNat calls
   const fromClient = Array.isArray(body?.seenSpeciesIds) ? body.seenSpeciesIds : null;
   if (fromClient && fromClient.length) {
-    const norm = [];
-    for (const id of fromClient) {
-      const sid = await resolveSpeciesIdFromAny(env, Number(id));
-      if (sid) norm.push(sid);
-    }
-    seenSet = new Set(norm);
+    const norm = await resolveSpeciesIdsFromAnyBatch(env, fromClient);
+    seenSet = new Set(norm.filter(Boolean));
   } else {
     // Default: lifelist via species_counts (global or region-scoped)
     seenSet = new Set();
@@ -1053,21 +1049,13 @@ async function checklistTree(request, env) {
         seenSet = new Set(sum.results.map(r => r.species_id));
       } else {
         const ids = await getSeenSpeciesIds(env, username, baseId, authHeader, null);
-        const spp = [];
-        for (const id of ids) {
-          const sid = await resolveSpeciesIdFromAny(env, id);
-          if (sid) spp.push(sid);
-        }
-        seenSet = new Set(spp);
+        const spp = await resolveSpeciesIdsFromAnyBatch(env, ids);
+        seenSet = new Set(spp.filter(Boolean));
       }
     } else { // scope === 'region'
       const ids = await getSeenSpeciesIds(env, username, baseId, authHeader, placeId);
-      const spp = [];
-      for (const id of ids) {
-        const sid = await resolveSpeciesIdFromAny(env, id);
-        if (sid) spp.push(sid);
-      }
-      seenSet = new Set(spp);
+      const spp = await resolveSpeciesIdsFromAnyBatch(env, ids);
+      seenSet = new Set(spp.filter(Boolean));
     }
   } // end client fast-path else
 
@@ -1748,6 +1736,47 @@ async function fetchTaxaMapChunked(env, ids, cols = "taxon_id, name, rank, commo
     const sql = `SELECT ${cols} FROM taxa WHERE taxon_id IN (${ph})`;
     const { results } = await env.DB.prepare(sql).bind(...part).all();
     for (const r of (results || [])) out.set(r.taxon_id, r);
+  }
+  return out;
+}
+
+// Batch-normalize arbitrary taxon ids → species-level ids using local D1 only.
+async function resolveSpeciesIdsFromAnyBatch(env, taxonIds) {
+  const input = Array.from(new Set((taxonIds || []).map(Number).filter(Number.isFinite)));
+  if (!input.length) return [];
+
+  // Load all input taxa (need rank + ancestors)
+  const rows = await fetchTaxaMapChunked(env, input, "taxon_id, rank, ancestor_ids");
+
+  // Collect union of all ancestors so we can identify the species in the chain
+  const ancSet = new Set();
+  for (const row of rows.values()) {
+    const anc = parseAncestorIds(row.ancestor_ids);
+    for (const a of anc) ancSet.add(a);
+  }
+
+  // Load all ancestors (only rank is needed here)
+  const ancMap = ancSet.size
+    ? await fetchTaxaMapChunked(env, Array.from(ancSet), "taxon_id, rank")
+    : new Map();
+
+  const out = [];
+  for (const id of input) {
+    const row = rows.get(id);
+    if (!row) { out.push(id); continue; } // fallback: leave as-is
+
+    const r = String(row.rank || '').toLowerCase();
+    if (r === 'species') { out.push(row.taxon_id); continue; }
+
+    // For infraspecific ranks, pick the species ancestor if present.
+    // For higher ranks (genus+), there is no single species — keep id as-is (same as your current fallback).
+    const anc = parseAncestorIds(row.ancestor_ids);
+    let speciesId = null;
+    for (const a of anc) {
+      const ar = ancMap.get(a);
+      if (String(ar?.rank || '').toLowerCase() === 'species') { speciesId = a; break; }
+    }
+    out.push(speciesId || row.taxon_id);
   }
   return out;
 }
