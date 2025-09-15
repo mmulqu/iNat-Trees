@@ -1042,14 +1042,52 @@
     // ===== init + SW registration =====
     await initStorage();
     if ("serviceWorker" in navigator) {
-      // put sw.js at your site root
-      navigator.serviceWorker.register("/sw.js").catch(()=>{});
+      // register whether sw.js is at / or alongside the page
+      navigator.serviceWorker.register(new URL('sw.js', location.href)).catch(()=>{});
     }
 
-    // Make functions globally available
+    // Make cache helpers globally callable
+    window.treeKey        = treeKey;
+    window.cacheTree      = cacheTree;
+    window.loadTree       = loadTree;
     window.loadTreeCached = loadTreeCached;
-    window.getFirstObs = getFirstObs;
+    window.getFirstObs    = getFirstObs;
     window.clearUserCache = clearUserCache;
+
+    // Clear ALL saved trees from IDB
+    window.clearAllTreeCaches = async function clearAllTreeCaches() {
+      for (const k of await keys()) {
+        if (String(k).startsWith('tree:v1:')) await del(k);
+      }
+    };
+
+    // Restore saved trees into the Explore manager
+    window.restoreCachedTrees = async function restoreCachedTrees() {
+      try {
+        const ks = await keys();
+        for (const k of ks) {
+          const sk = String(k);
+          if (!sk.startsWith('tree:v1:')) continue;
+
+          // key format: tree:v1:{username}:{taxonId}:{scope}:{region}
+          const parts = sk.split(':');
+          const username = parts[2] || 'user';
+          const taxonId  = Number(parts[3]) || 0;
+
+          const bin = await get(k);
+          if (!bin) continue;
+
+          const payload = JSON.parse(dec(bin)); // { t, md, tree? }
+          const md = payload.md || payload.markdown || '';
+          if (!md) continue;
+
+          // This will resolve the taxon title later if needed
+          window.treeManager?.addTree(username, null, taxonId, md);
+        }
+      } catch (e) {
+        console.warn('restoreCachedTrees failed', e);
+      }
+    };
   </script>
   
   <script type="module" src="/ui-auth.js"></script>
@@ -1070,6 +1108,8 @@
       if (!window.treeManager) {
         console.log('Creating treeManager on DOMContentLoaded');
         window.treeManager = new TreeManager();
+        // 🔽 restore trees saved in IDB
+        window.restoreCachedTrees?.();
       }
     });
 
@@ -1077,6 +1117,7 @@
     if (typeof TreeManager !== 'undefined' && !window.treeManager) {
       console.log('Creating treeManager immediately');
       window.treeManager = new TreeManager();
+      window.restoreCachedTrees?.();
     }
 
     function ensureResultsVisible() {

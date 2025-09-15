@@ -500,6 +500,18 @@ class TreeManager {
       isChecklist: opts.mode === 'checklist',
       timestamp: new Date()
     };
+    // Persist this tree's markdown for auto-restore (Explore only)
+    try {
+      if (!opts.mode && window.treeKey && window.cacheTree) {
+        const scope  = (window.getLifelistScope?.() || 'global');  // 'global' | 'region'
+        const region = window.currentRegionCode || '';
+        const k = window.treeKey(String(username), Number(taxonId), scope, region);
+        // Fire-and-forget; store markdown (JSON tree optional)
+        window.cacheTree(k, null, markdown).catch(()=>{});
+      }
+    } catch (e) {
+      console.warn('IDB cache write failed', e);
+    }
     this.trees.push(tree);
     this.createTreeTab(tree);
     this.activateTab(treeId);
@@ -825,6 +837,8 @@ class TreeManager {
     this.currentId = 0;
     const card = document.getElementById(this.resultsCardId);
     if (card) card.style.display = 'none';
+    // Also clear persisted trees so they don't restore on next load
+    window.clearAllTreeCaches?.().catch(()=>{});
   }
 
   // Updated: For comparison trees, we now only create one tab.
