@@ -1079,6 +1079,9 @@
           const sk = String(k);
           if (!sk.startsWith('tree:v1:')) continue;     // Explore-only keys
 
+          // Skip if we already restored this exact key during this session
+          if (window.__restoredKeys.has(sk)) continue;
+
           // key: tree:v1:{username}:{taxonId}:{scope}:{region}
           const parts = sk.split(':');
           const username = parts[2], taxonId = parts[3];
@@ -1092,6 +1095,9 @@
 
           // Create the tab + render
           window.treeManager?.addTree(username, null, Number(taxonId), md);
+
+          // Remember we've hydrated this key
+          window.__restoredKeys.add(sk);
           restored++;
         }
 
