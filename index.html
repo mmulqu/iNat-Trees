@@ -956,6 +956,99 @@
   <script src="tab-controller.js"></script>
   <script src="TaxonomyStats.js"></script>
   <script>window.CF_API_BASE = 'https://inat-trees-worker.intrinsic3141.workers.dev';</script>
+  
+  <!-- Cache MVP -->
+  <script type="module">
+    // ===== deps (no build step) =====
+    import { get, set, del, keys } from "https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm";
+    import { gzip, ungzip } from "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.esm.mjs";
+
+    // ===== config =====
+    const WORKER_URL = "https://inat-trees-worker.intrinsic3141.workers.dev";
+    const TTL = { firstObs: 30 * 24 * 3600 * 1000 }; // 30 days
+
+    // ===== storage durability (best effort) =====
+    export async function initStorage() {
+      try {
+        const persisted = await navigator.storage.persisted();
+        if (!persisted) await navigator.storage.persist();
+      } catch {}
+    }
+
+    // ===== tiny helpers =====
+    const enc = (s) => gzip(new TextEncoder().encode(s));
+    const dec = (b) => new TextDecoder().decode(ungzip(b));
+    const treeKey  = (u,t,scope="global",region="") => `tree:v1:${u}:${t}:${scope}:${region}`;
+    const firstKey = (u,t) => `firstObs:v1:${u}:${t}`;
+
+    // ===== trees (compressed) =====
+    export async function cacheTree(key, treeObj, markdown) {
+      const payload = { t: Date.now(), tree: treeObj, md: markdown };
+      await set(key, enc(JSON.stringify(payload)));
+    }
+
+    export async function loadTree(key) {
+      const bin = await get(key);
+      if (!bin) return null;
+      return JSON.parse(dec(bin));
+    }
+
+    export async function loadTreeCached({ username, baseTaxonId, speciesTaxonIds, scope="global", region_code="", force=false }) {
+      const key = treeKey(username, baseTaxonId, scope, region_code);
+      if (!force) {
+        const cached = await loadTree(key);
+        if (cached) return cached; // {t, tree?, md?}
+      }
+      const r = await fetch(`${WORKER_URL}/tree-from-species`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speciesTaxonIds, baseTaxonId, username })
+      });
+      const data = await r.json();
+      await cacheTree(key, data.tree || null, data.markdown || data.plainMarkdown || "");
+      return data;
+    }
+
+    // ===== first-photo (30d TTL) =====
+    export async function getFirstObs(username, taxonId) {
+      const key = firstKey(username, taxonId);
+      const cached = await get(key);
+      if (cached && (Date.now() - cached.t) < TTL.firstObs) return cached.data;
+
+      const r = await fetch(`${WORKER_URL}/first-observation?username=${encodeURIComponent(username)}&taxon_id=${taxonId}`);
+      const data = await r.json();
+      await set(key, { t: Date.now(), data });
+      return data;
+    }
+
+    // ===== optional user cache tools =====
+    export async function clearUserCache(username) {
+      for (const k of await keys()) if (String(k).includes(`:${username}:`)) await del(k);
+    }
+
+    // ===== wire up UI chip clicks (🖼️) =====
+    document.addEventListener("click", async (e) => {
+      const a = e.target.closest(".first-obs-trigger");
+      if (!a) return;
+      e.preventDefault();
+      const info = await getFirstObs(a.dataset.username, Number(a.dataset.taxonId));
+      // TODO: show modal/tooltip with info.image_urls + info.obs_url + info.observed_on
+      console.log("first photo", info);
+    });
+
+    // ===== init + SW registration =====
+    await initStorage();
+    if ("serviceWorker" in navigator) {
+      // put sw.js at your site root
+      navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    }
+
+    // Make functions globally available
+    window.loadTreeCached = loadTreeCached;
+    window.getFirstObs = getFirstObs;
+    window.clearUserCache = clearUserCache;
+  </script>
+  
   <script type="module" src="/ui-auth.js"></script>
   <script type="module" src="script.js"></script>
   <script type="module" src="taxon-autocomplete.js"></script>

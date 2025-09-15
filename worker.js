@@ -446,6 +446,45 @@ async function d1Run(env, sql, binds=[], tag='') {
   return await env.DB.prepare(sql).bind(...binds).run();
 }
 
+// --- D1 safeguard: keep IN(...) well under D1's bind cap ---
+async function selectTaxaByIds(env, ids, cols, tag = '') {
+  const unique = Array.from(new Set((ids || []).map(Number).filter(Number.isFinite)));
+  if (!unique.length) return [];
+
+  let CH = D1_IN_LIMIT; // you already define D1_IN_LIMIT = 90
+  const out = [];
+
+  for (let i = 0; i < unique.length; ) {
+    const part = unique.slice(i, i + CH);
+    const ph = part.map(() => '?').join(',');
+    const sql = `SELECT ${cols} FROM taxa WHERE taxon_id IN (${ph})`;
+
+    try {
+      // use your debug wrapper if present
+      let results;
+      if (typeof d1All === 'function') {
+        ({ results } = await d1All(env, sql, part, `${tag} chunk=${part.length} cols=${cols}`));
+      } else {
+        const r = await env.DB.prepare(sql).bind(...part).all();
+        results = r.results;
+      }
+      out.push(...(results || []));
+      i += CH; // advance on success
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (/too many sql variables/i.test(msg) && CH > 1) {
+        const next = Math.max(1, Math.floor(CH / 2));
+        if (typeof dbg === 'function') dbg(`[D1 RETRY] ${tag} reducing chunk ${CH}→${next}`);
+        CH = next;           // shrink and retry same window
+        continue;
+      }
+      throw err;
+    }
+  }
+  return out;
+}
+
+
 const requestCache = new Map();
 const jwtCache = new Map();
 
