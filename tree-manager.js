@@ -522,7 +522,7 @@ class TreeManager {
     const region = scope === 'region' ? (window.currentRegionCode || '') : '';
     tree.scope = tree.scope || scope;
     tree.region_code = tree.region_code || region;
-    tree.cacheKey = tree.cacheKey || window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope, tree.region_code);
+    tree.cacheKey = tree.cacheKey || window.treeKey?.(tree.username, tree.taxonId, tree.scope, tree.region_code);
 
     const tabEl = document.getElementById(`${tree.id}-tab`);
     if (tabEl && tree.cacheKey) {
@@ -609,7 +609,7 @@ class TreeManager {
     const tabBtn = document.getElementById(`${tree.id}-tab`);
     if (tabBtn) {
       tabBtn.dataset.cacheKey = tree.cacheKey
-        || (window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope || 'global', tree.region_code || '') ?? '');
+        || (window.treeKey?.(tree.username, tree.taxonId, tree.scope || 'global', tree.region_code || '') ?? '');
     }
     
     const closeBtn = tabHeader.querySelector('.btn-close');
@@ -836,7 +836,7 @@ class TreeManager {
       const key =
         tree.cacheKey ||
         document.getElementById(`${treeId}-tab`)?.dataset.cacheKey ||
-        (window.treeKey?.(tree.username, tree.baseTaxonId, tree.scope || 'global', tree.region_code || '') ?? '');
+        (window.treeKey?.(tree.username, tree.taxonId, tree.scope || 'global', tree.region_code || '') ?? '');
 
       if (key) {
         console.log('[tabs] closing; deleting cache key:', key);
