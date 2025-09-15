@@ -1736,6 +1736,22 @@ async function fetchTaxaByIds(env, ids) {
   return results || [];
 }
 
+// Helper: chunked bulk fetch into a Map(id -> row)
+async function fetchTaxaMapChunked(env, ids, cols = "taxon_id, name, rank, common_name, ancestor_ids") {
+  const out = new Map();
+  const unique = Array.from(new Set((ids || []).map(n => Number(n)).filter(Number.isFinite)));
+  if (!unique.length) return out;
+  const CHUNK = 500; // safe under SQLite var limits
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const part = unique.slice(i, i + CHUNK);
+    const ph = part.map(() => '?').join(',');
+    const sql = `SELECT ${cols} FROM taxa WHERE taxon_id IN (${ph})`;
+    const { results } = await env.DB.prepare(sql).bind(...part).all();
+    for (const r of (results || [])) out.set(r.taxon_id, r);
+  }
+  return out;
+}
+
 function generateComparisonStats(user1TaxonIds, user2TaxonIds) {
   const user1Set = new Set(user1TaxonIds);
   const user2Set = new Set(user2TaxonIds);
@@ -1848,7 +1864,40 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
 }
 
 async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
+  // figure out the starting root (Life or the parent of the base taxon)
   const { startId, startNode } = await resolveStartRoot(env, baseTaxonId);
+
+  // fetch base taxon once (used as a fallback path seed)
+  let baseTaxon = await fetchTaxonById(env, baseTaxonId);
+  if (baseTaxon) {
+    const anc = parseAncestorIds(baseTaxon.ancestor_ids);
+    if (anc.length === 0 || anc[0] !== LIFE_TAXON_ID) {
+      baseTaxon.ancestor_ids = `{${[LIFE_TAXON_ID, ...anc].filter(Boolean).join(',')}}`;
+    }
+  }
+
+  // 1) bulk-load all species rows we were given
+  const speciesIds = Array.from(new Set((speciesTaxonIds || []).map(n => Number(n)).filter(Number.isFinite)));
+  const speciesMap = await fetchTaxaMapChunked(env, speciesIds);
+
+  // 2) union all needed ancestor IDs (normalize each species' ancestor list)
+  const ancNeeded = new Set();
+  for (const row of speciesMap.values()) {
+    let anc = parseAncestorIds(row.ancestor_ids);
+    if ((!anc || !anc.length) && baseTaxon) {
+      const baseAnc = parseAncestorIds(baseTaxon.ancestor_ids);
+      anc = [...baseAnc, baseTaxonId];
+    }
+    if (!anc || !anc.length || anc[0] !== LIFE_TAXON_ID) {
+      anc = [LIFE_TAXON_ID, ...(anc || []).filter(id => id !== LIFE_TAXON_ID)];
+    }
+    for (const a of anc) ancNeeded.add(a);
+  }
+
+  // 3) bulk-load all ancestor rows once
+  const ancMap = await fetchTaxaMapChunked(env, Array.from(ancNeeded));
+
+  // Build the tree purely in memory
   const root = {
     id: startId,
     name: startNode.name || 'Life',
@@ -1857,76 +1906,74 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
     children: {}
   };
   const added = new Set([startId]);
+  const rootRank = String(startNode.rank || '').toLowerCase();
 
-  let baseTaxon = await fetchTaxonById(env, baseTaxonId);
-  if (baseTaxon) {
-    const anc = parseAncestorIds(baseTaxon.ancestor_ids);
-    if (anc.length === 0 || anc[0] !== LIFE_TAXON_ID) {
-      baseTaxon.ancestor_ids = `{${[LIFE_TAXON_ID, ...anc].join(',')}}`;
-    }
-  }
-
-  for (const taxonId of speciesTaxonIds) {
+  for (const taxonId of speciesIds) {
     if (added.has(taxonId)) continue;
-    const taxon = await fetchTaxonById(env, taxonId);
-    if (!taxon) continue;
+    const taxon = speciesMap.get(taxonId);
+    if (!taxon) continue; // not in D1, skip quietly
 
     let ancestorIds = parseAncestorIds(taxon.ancestor_ids);
-    if ((ancestorIds.length === 0) && baseTaxon) {
+    if ((!ancestorIds || !ancestorIds.length) && baseTaxon) {
       const baseAnc = parseAncestorIds(baseTaxon.ancestor_ids);
       ancestorIds = [...baseAnc, baseTaxonId];
     }
-    if (ancestorIds.length === 0 || ancestorIds[0] !== LIFE_TAXON_ID) {
-      ancestorIds = [LIFE_TAXON_ID, ...ancestorIds.filter(id => id !== LIFE_TAXON_ID)];
+    if (!ancestorIds || !ancestorIds.length || ancestorIds[0] !== LIFE_TAXON_ID) {
+      ancestorIds = [LIFE_TAXON_ID, ...(ancestorIds || []).filter(id => id !== LIFE_TAXON_ID)];
     }
     ancestorIds = Array.from(new Set(ancestorIds));
 
-    // Normalize path so it starts *below* the chosen root and never bounces up to Life.
+    // normalize path to start *below* the chosen root
     let pathIds = ancestorIds.slice();
-    let idx = pathIds.indexOf(startId);
+    const idxRoot = pathIds.indexOf(startId);
 
-    // Fetch rows once so we can reason about ranks
-    let ancRows = await fetchTaxaByIds(env, pathIds);
-    const aMap = new Map(ancRows.map(a => [a.taxon_id, a]));
-    const rootRank = String(startNode.rank || '').toLowerCase();
-
-    if (idx >= 0) {
-      // Start *after* the root (skip the root itself)
-      pathIds = pathIds.slice(idx + 1);
+    if (idxRoot >= 0) {
+      pathIds = pathIds.slice(idxRoot + 1);
     } else {
-      // If a same-rank ancestor exists (e.g., a different Superfamily id), start after it.
-      const j = pathIds.findIndex(id => (aMap.get(id)?.rank || '').toLowerCase() === rootRank);
+      // if an ancestor with the same rank as the root exists, start after it
+      const j = pathIds.findIndex(id => (ancMap.get(id)?.rank || '').toLowerCase() === rootRank);
       if (j >= 0) {
         pathIds = pathIds.slice(j + 1);
       } else {
-        // Fallback: if baseTaxon is present, start at (or just above) it; otherwise drop any leading Life.
+        // fallback: anchor relative to base taxon; else drop leading Life
         const k = pathIds.indexOf(baseTaxonId);
-        pathIds = (k > 0) ? pathIds.slice(k) : pathIds.filter(id => id !== 48460);
+        pathIds = (k > 0) ? pathIds.slice(k) : pathIds.filter(id => id !== LIFE_TAXON_ID);
       }
     }
 
+    // descend/create nodes using preloaded ancestor rows
     let current = root;
-    if (pathIds.length) {
-      // (We already fetched ancRows for the full list; reuse)
-      for (const ancId of pathIds) {
-        const anc = aMap.get(ancId);
-        if (!anc) continue;
-        // Guard: never add ancestors above the root (e.g., Life) just in case.
-        const ancRank = String(anc.rank || '').toLowerCase();
-        if (getRankOrder(ancRank) > getRankOrder(rootRank)) continue;
+    for (const ancId of pathIds) {
+      const anc = ancMap.get(ancId);
+      if (!anc) continue;
+      const ancRank = String(anc.rank || '').toLowerCase();
+      if (getRankOrder(ancRank) > getRankOrder(rootRank)) continue; // never go above root
 
-        if (!current.children[ancId]) {
-          current.children[ancId] = { id: anc.taxon_id, name: anc.name, rank: anc.rank, common_name: anc.common_name || '', children: {} };
-        }
-        current = current.children[ancId];
+      if (!current.children[ancId]) {
+        current.children[ancId] = {
+          id: anc.taxon_id,
+          name: anc.name,
+          rank: anc.rank,
+          common_name: anc.common_name || '',
+          children: {}
+        };
       }
+      current = current.children[ancId];
     }
 
+    // finally add the species leaf
     if (!current.children[taxonId]) {
-      current.children[taxonId] = { id: taxon.taxon_id, name: taxon.name, rank: taxon.rank, common_name: taxon.common_name || '', children: {} };
+      current.children[taxonId] = {
+        id: taxon.taxon_id,
+        name: taxon.name,
+        rank: taxon.rank,
+        common_name: taxon.common_name || '',
+        children: {}
+      };
     }
     added.add(taxonId);
   }
+
   return root;
 }
 
