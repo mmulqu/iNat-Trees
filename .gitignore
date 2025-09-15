@@ -24,3 +24,5 @@ full_schema.sql
 *.webp
 *.mov
 *.avi
+inat_tax_probe_min.py
+inat_tax_fixup.py

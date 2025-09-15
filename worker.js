@@ -421,8 +421,8 @@ export default {
 
 
 const VALID_HIGHER_RANKS = new Set([
-  'genus', 'family', 'subfamily', 'tribe', 'subtribe', 'order', 'suborder',
-  'infraorder', 'parvorder', 'class', 'subclass', 'infraclass', 'superclass',
+  'genus', 'family', 'subfamily', 'superfamily', 'tribe', 'subtribe', 'order', 'suborder',
+  'infraorder', 'parvorder', 'class', 'subclass', 'infraclass', 'superclass', 'superorder', 'supertribe', 'subterclass',
   'phylum', 'subphylum', 'kingdom', 'domain', 'superkingdom', 'stateofmatter'
 ]);
 
