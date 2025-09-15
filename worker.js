@@ -36,9 +36,12 @@ async function filterIdsPresentInTaxa(env, ids) {
   for (let i = 0; i < ids.length; i += CHUNK) {
     const part = ids.slice(i, i + CHUNK);
     const ph = part.map(() => "?").join(",");
-    const { results } = await env.DB
-      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
-      .bind(...part).all();
+    const { results } = await d1All(
+      env,
+      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`,
+      part,
+      `filterIdsPresentInTaxa chunk=${part.length}`
+    );
     for (const r of results || []) present.add(r.taxon_id);
   }
   return [...present];
@@ -108,10 +111,12 @@ async function listMissingTaxaIds(env, ids, sz=D1_IN_LIMIT) {
   const missing = new Set(ids);
   for (const part of chunk(ids, sz)) {
     const ph = part.map(()=>'?').join(',');
-    const { results } = await env.DB
-      .prepare(`SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`)
-      .bind(...part)
-      .all();
+    const { results } = await d1All(
+      env,
+      `SELECT taxon_id FROM taxa WHERE taxon_id IN (${ph})`,
+      part,
+      `listMissingTaxaIds chunk=${part.length}`
+    );
     for (const r of results || []) missing.delete(r.taxon_id);
   }
   return [...missing];
@@ -121,10 +126,12 @@ async function collectAncestorIds(env, speciesIds, sz=D1_IN_LIMIT) {
   const anc = new Set();
   for (const part of chunk(speciesIds, sz)) {
     const ph = part.map(()=>'?').join(',');
-    const { results } = await env.DB
-      .prepare(`SELECT ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`)
-      .bind(...part)
-      .all();
+    const { results } = await d1All(
+      env,
+      `SELECT ancestor_ids FROM taxa WHERE taxon_id IN (${ph})`,
+      part,
+      `collectAncestorIds chunk=${part.length}`
+    );
     for (const row of results || []) {
       const arr = parseAncestorIds(row.ancestor_ids);
       for (const a of arr) anc.add(a);
@@ -440,8 +447,30 @@ const RATE_LIMIT_CONFIG = {
   minGlobalGapMs: 2000
 };
 
-// Keep D1 happy: conservative cap for IN (...) placeholders
-const D1_IN_LIMIT = 200;
+// --- D1 safety + debug ---
+const D1_IN_LIMIT = 150; // well under any SQLite var cap
+let __DBG = [];
+const dbg = (...a) => {
+  try { console.log(...a); __DBG.push(a.map(v => (typeof v==='string'?v:JSON.stringify(v))).join(' ')); } catch {}
+};
+const dbgFlush = () => { const out = __DBG; __DBG = []; return out; };
+
+// Wrap prepare().bind(...).all()/first()/run() so we log var counts
+async function d1All(env, sql, binds=[], tag='') {
+  const vars = (sql.match(/\?/g)||[]).length;
+  dbg(`[D1 all] ${tag} vars=${vars} binds=${binds.length} sql.len=${sql.length}`);
+  return await env.DB.prepare(sql).bind(...binds).all();
+}
+async function d1First(env, sql, binds=[], tag='') {
+  const vars = (sql.match(/\?/g)||[]).length;
+  dbg(`[D1 first] ${tag} vars=${vars} binds=${binds.length} sql.len=${sql.length}`);
+  return await env.DB.prepare(sql).bind(...binds).first();
+}
+async function d1Run(env, sql, binds=[], tag='') {
+  const vars = (sql.match(/\?/g)||[]).length;
+  dbg(`[D1 run] ${tag} vars=${vars} binds=${binds.length} sql.len=${sql.length}`);
+  return await env.DB.prepare(sql).bind(...binds).run();
+}
 
 const requestCache = new Map();
 const jwtCache = new Map();
@@ -985,7 +1014,7 @@ async function resolveTaxaNames(request, env) {
                  WHERE lower(name) IN (${placeholdersNames})
                    AND lower(rank) IN (${placeholdersRanks})`;
 
-    const { results } = await env.DB.prepare(sql).bind(...lowers, ...ranks).all();
+    const { results } = await d1All(env, sql, [...lowers, ...ranks], `resolveTaxaNames names=${lowers.length} ranks=${ranks.length}`);
     for (const row of results || []) {
       map[String(row.name).toLowerCase()] = row.taxon_id;
     }
@@ -1297,7 +1326,8 @@ async function treeFromSpecies(request, env) {
     const plainMarkdown = toPlainMarkdown(markdown);
     return json({ markdown, plainMarkdown }, 200, request);
   } catch (e) {
-    return json({ error: e?.message || String(e) }, 500, request);
+    const debug = dbgFlush();
+    return json({ error: e?.message || String(e), debug }, 500, request);
   }
 }
 
@@ -1687,7 +1717,7 @@ function parseAncestorIds(value) {
 
 async function fetchTaxonById(env, id) {
   const sql = `SELECT taxon_id, name, rank, common_name, ancestor_ids FROM taxa WHERE taxon_id = ? LIMIT 1`;
-  const row = await env.DB.prepare(sql).bind(id).first();
+  const row = await d1First(env, sql, [id], 'fetchTaxonById');
   return row || null;
 }
 
@@ -1728,7 +1758,7 @@ async function fetchTaxaByIds(env, ids) {
     const part = unique.slice(i, i + D1_IN_LIMIT);
     const ph = part.map(() => '?').join(',');
     const sql = `SELECT taxon_id, name, rank, common_name FROM taxa WHERE taxon_id IN (${ph})`;
-    const { results } = await env.DB.prepare(sql).bind(...part).all();
+    const { results } = await d1All(env, sql, part, `fetchTaxaByIds chunk=${part.length}`);
     out.push(...(results || []));
   }
   return out;
@@ -1744,7 +1774,7 @@ async function fetchTaxaMapChunked(env, ids, cols = "taxon_id, name, rank, commo
     const part = unique.slice(i, i + CHUNK);
     const ph = part.map(() => '?').join(',');
     const sql = `SELECT ${cols} FROM taxa WHERE taxon_id IN (${ph})`;
-    const { results } = await env.DB.prepare(sql).bind(...part).all();
+    const { results } = await d1All(env, sql, part, `fetchTaxaMapChunked chunk=${part.length} cols=${cols}`);
     for (const r of (results || [])) out.set(r.taxon_id, r);
   }
   return out;
@@ -1904,6 +1934,7 @@ async function buildComparisonTree(env, user1TaxonIds, user2TaxonIds, baseTaxonI
 
 async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
   // figure out the starting root (Life or the parent of the base taxon)
+  dbg('[tree] species input size', speciesTaxonIds?.length || 0, 'baseTaxonId', baseTaxonId);
   const { startId, startNode } = await resolveStartRoot(env, baseTaxonId);
 
   // fetch base taxon once (used as a fallback path seed)
@@ -1917,6 +1948,7 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
 
   // 1) bulk-load all species rows we were given
   const speciesIds = Array.from(new Set((speciesTaxonIds || []).map(n => Number(n)).filter(Number.isFinite)));
+  dbg('[tree] unique species ids', speciesIds.length);
   const speciesMap = await fetchTaxaMapChunked(env, speciesIds);
 
   // 2) union all needed ancestor IDs (normalize each species' ancestor list)
@@ -1934,7 +1966,9 @@ async function buildTreeFromDatabase(env, speciesTaxonIds, baseTaxonId) {
   }
 
   // 3) bulk-load all ancestor rows once
-  const ancMap = await fetchTaxaMapChunked(env, Array.from(ancNeeded));
+  const ancArr = Array.from(ancNeeded);
+  dbg('[tree] ancestor ids union size', ancArr.length);
+  const ancMap = await fetchTaxaMapChunked(env, ancArr);
 
   // Build the tree purely in memory
   const root = {
