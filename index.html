@@ -967,6 +967,10 @@
     const WORKER_URL = "https://inat-trees-worker.intrinsic3141.workers.dev";
     const TTL = { firstObs: 30 * 24 * 3600 * 1000 }; // 30 days
 
+    // --- run-once & dedup guards ---
+    window.__bootRestoreDone ??= false;
+    window.__restoredKeys ??= new Set();
+
     // ===== storage durability (best effort) =====
     export async function initStorage() {
       try {
@@ -1138,6 +1142,9 @@
     }
 
     async function bootRestore() {
+      if (window.__bootRestoreDone) return;     // ⬅️ prevents double boot
+      window.__bootRestoreDone = true;
+
       try {
         document.body.classList.add('in-home'); // so resultsCard isn't CSS-hidden
 
@@ -1153,9 +1160,6 @@
 
     // pageshow fires after full load AND on back/forward cache restores
     window.addEventListener('pageshow', () => { void bootRestore(); }, { once: true });
-
-    // If the document is already interactive/complete (fast reloads), go now too
-    if (document.readyState !== 'loading') { void bootRestore(); }
   </script>
   
   <script type="module" src="/ui-auth.js"></script>
