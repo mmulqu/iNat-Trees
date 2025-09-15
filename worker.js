@@ -566,6 +566,21 @@ async function getCachedOrFetch(env, username, taxonId, authHeader, placeId) {
   return data;
 }
 
+// Seen species via species_counts with simple cache
+async function getSeenSpeciesIds(env, username, baseTaxonId, authHeader, placeId = null) {
+  const cacheKey = `seenSpecies:${username}:${baseTaxonId}:${placeId || 'global'}`;
+  const ttlMs = (RATE_LIMIT_CONFIG.cacheTTL || 300) * 1000;
+  const cached = requestCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < ttlMs) return cached.data;
+
+  const ids = await fetchSpeciesIdsViaSpeciesCounts(
+    env, username, Number(baseTaxonId), authHeader, { placeId, maxPages: RATE_LIMIT_CONFIG.maxPagesBuild || 30 }
+  );
+
+  requestCache.set(cacheKey, { data: ids, timestamp: Date.now() });
+  return ids;
+}
+
 
 async function fetchUserObservations(env, username, taxonId, authHeader, maxPages = Infinity, limiterKey, opts = {}) {
   let page = 1;
@@ -621,7 +636,11 @@ async function fetchUserObservations(env, username, taxonId, authHeader, maxPage
 // Get distinct species via /observations/species_counts
 async function fetchSpeciesIdsViaSpeciesCounts(env, username, baseTaxonId, authHeader, opts = {}) {
   const perPage = 200;
-  const { maxPages = 30, delayBetweenPages = RATE_LIMIT_CONFIG.delayBetweenPages } = opts;
+  const {
+    placeId = null,
+    maxPages = 30,
+    delayBetweenPages = RATE_LIMIT_CONFIG.delayBetweenPages
+  } = opts;
   const out = new Set();
   let page = 1;
 
@@ -629,6 +648,7 @@ async function fetchSpeciesIdsViaSpeciesCounts(env, username, baseTaxonId, authH
     const u = new URL('https://api.inaturalist.org/v1/observations/species_counts');
     u.searchParams.set('user_login', username);
     u.searchParams.set('taxon_id', String(baseTaxonId));
+    if (placeId) u.searchParams.set('place_id', String(placeId));
     u.searchParams.set('verifiable', 'any');
     u.searchParams.set('quality_grade', 'any');
     u.searchParams.set('include', 'taxon');
@@ -769,14 +789,12 @@ async function compareTaxa(request, env) {
   const authHeader = jwt ? `Bearer ${jwt}` : undefined; // only send JWT to v1 API
   const key = authHeader || `${username1}:${username2}:${taxonId}`;
 
-  const user1Obs = await fetchUserObservations(env, username1, taxonId, authHeader, Infinity, key, {});
+  const user1TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username1, Number(taxonId), authHeader);
   await sleep(RATE_LIMIT_CONFIG.delayBetweenUsers);
-  const user2Obs = await fetchUserObservations(env, username2, taxonId, authHeader, Infinity, key, {});
-
-  if ((user1Obs.length === 0) && (user2Obs.length === 0)) return json({ markdown: `- No observations found for either user under taxon ID ${taxonId}` }, 200, request);
-
-  const user1TaxonIds = Array.from(new Set(user1Obs.filter(o => o.taxon).map(o => o.taxon.id)));
-  const user2TaxonIds = Array.from(new Set(user2Obs.filter(o => o.taxon).map(o => o.taxon.id)));
+  const user2TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username2, Number(taxonId), authHeader);
+  if (!user1TaxonIds.length && !user2TaxonIds.length) {
+    return json({ markdown: `- No species found for either user under taxon ID ${taxonId}` }, 200, request);
+  }
 
   const tree = await buildComparisonTree(env, user1TaxonIds, user2TaxonIds, taxonId);
   const stats = generateComparisonStats(user1TaxonIds, user2TaxonIds);
@@ -1023,37 +1041,34 @@ async function checklistTree(request, env) {
     }
     seenSet = new Set(norm);
   } else {
-    // (existing logic continues below; Worker may fetch if client didn't send IDs)
+    // Default: lifelist via species_counts (global or region-scoped)
     seenSet = new Set();
     if (scope === 'global') {
-    // existing fast path from summary table
-    const sum = await env.DB.prepare(
-      `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
-    ).bind(username, baseId).all();
+      // Prefer summary table if present, else species_counts
+      const sum = await env.DB.prepare(
+        `SELECT species_id FROM user_obs_summary WHERE user_login=? AND taxon_id=?`
+      ).bind(username, baseId).all();
 
-    if (sum.results?.length) {
-      seenSet = new Set(sum.results.map(r => r.species_id));
-    } else {
-      const obs = await getCachedOrFetch(env, username, baseId, authHeader, null) || [];
-      const unique = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
-      const speciesIds = [];
-      for (const id of unique) {
-        const sid = await resolveSpeciesIdFromAny(env, id);
-        if (sid) speciesIds.push(sid);
+      if (sum.results?.length) {
+        seenSet = new Set(sum.results.map(r => r.species_id));
+      } else {
+        const ids = await getSeenSpeciesIds(env, username, baseId, authHeader, null);
+        const spp = [];
+        for (const id of ids) {
+          const sid = await resolveSpeciesIdFromAny(env, id);
+          if (sid) spp.push(sid);
+        }
+        seenSet = new Set(spp);
       }
-      seenSet = new Set(speciesIds);
+    } else { // scope === 'region'
+      const ids = await getSeenSpeciesIds(env, username, baseId, authHeader, placeId);
+      const spp = [];
+      for (const id of ids) {
+        const sid = await resolveSpeciesIdFromAny(env, id);
+        if (sid) spp.push(sid);
+      }
+      seenSet = new Set(spp);
     }
-  } else { // scope === 'region'
-    // place-filtered fetch; build species set from those obs
-    const obs = await getCachedOrFetch(env, username, baseId, authHeader, placeId) || [];
-    const unique = [...new Set(obs.map(o => o?.taxon?.id).filter(Boolean))];
-    const speciesIds = [];
-    for (const id of unique) {
-      const sid = await resolveSpeciesIdFromAny(env, id);
-      if (sid) speciesIds.push(sid);
-    }
-    seenSet = new Set(speciesIds);
-  }
   } // end client fast-path else
 
   // Intersect implicitly by painting only leafIds (region checklist)
