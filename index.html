@@ -1099,6 +1099,39 @@
         console.warn('restoreCachedTrees failed', e);
       }
     };
+
+    // ---- Auto-restore saved trees on normal loads & bfcache returns ----
+    const waitFor = (pred, { timeout = 6000, interval = 40 } = {}) =>
+      new Promise(resolve => {
+        if (pred()) return resolve(true);
+        let t = 0;
+        const id = setInterval(() => {
+          if (pred()) { clearInterval(id); clearTimeout(to); return resolve(true); }
+          if ((t += interval) >= timeout) { clearInterval(id); return resolve(false); }
+        }, interval);
+        const to = setTimeout(() => { clearInterval(id); resolve(false); }, timeout);
+      });
+
+    async function bootRestore() {
+      try {
+        // Make Explore card visible regardless of tab-controller timing
+        document.body.classList.add('in-home');
+
+        // Wait until TreeManager is constructed by tree-manager.js
+        await waitFor(() => !!window.treeManager);
+
+        // Restore any cached Explore trees
+        await window.restoreCachedTrees?.();
+      } catch (err) {
+        console.warn('bootRestore failed', err);
+      }
+    }
+
+    // pageshow fires after full load AND on back/forward cache restores
+    window.addEventListener('pageshow', () => { void bootRestore(); }, { once: true });
+
+    // If the document is already interactive/complete (fast reloads), go now too
+    if (document.readyState !== 'loading') { void bootRestore(); }
   </script>
   
   <script type="module" src="/ui-auth.js"></script>
@@ -1113,23 +1146,6 @@
   <script type="module" src="checklist-tab.js"></script>
 
   <script>
-    // Initialize TreeManager after DOM is loaded
-    document.addEventListener('DOMContentLoaded', function() {
-      // Ensure initialization only happens once
-      if (!window.treeManager) {
-        console.log('Creating treeManager on DOMContentLoaded');
-        window.treeManager = new TreeManager();
-        // 🔽 restore trees saved in IDB
-        window.restoreCachedTrees?.();
-      }
-    });
-
-    // Initialize immediately in case scripts are already loaded
-    if (typeof TreeManager !== 'undefined' && !window.treeManager) {
-      console.log('Creating treeManager immediately');
-      window.treeManager = new TreeManager();
-      window.restoreCachedTrees?.();
-    }
 
     function ensureResultsVisible() {
       // Check if we need to keep the results card visible
