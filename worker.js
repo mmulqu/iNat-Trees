@@ -1843,9 +1843,39 @@ function treeToMarkdown(node, level = 0, ctx = {}) {
 function shortRankCode(rank) {
   if (!rank) return '';
   const r = String(rank).toLowerCase();
-  const map = { kingdom: 'K', phylum: 'P', class: 'C', order: 'O', family: 'F', genus: 'G', species: 'S' };
-  return map[r] || '';
+  const C = {
+    // kingdom tier
+    domain: 'D', superkingdom: 'SK', kingdom: 'K',
+
+    // phylum tier
+    phylum: 'P', subphylum: 'sP',
+
+    // class tier
+    superclass: 'SC', class: 'C', subclass: 'sC', infraclass: 'iC', subterclass: 'tC',
+
+    // order tier (incl. zoo section ranks if you use them)
+    superorder: 'SO', order: 'O', suborder: 'sO', infraorder: 'iO', parvorder: 'pO',
+    zoosection: 'zO', zoosubsection: 'zsO',
+
+    // family tier
+    superfamily: 'SF', epifamily: 'eF', family: 'F', subfamily: 'sF',
+
+    // tribe tier
+    supertribe: 'ST', tribe: 'T', subtribe: 'sT',
+
+    // genus tier
+    genushybrid: 'Gh', genus: 'G', subgenus: 'sG', section: 'Sec', subsection: 'sSec',
+
+    // species tier (incl. infra)
+    complex: 'Cx', species: 'S', hybrid: 'H', infrahybrid: 'iH',
+    subspecies: 'sS', variety: 'Var', form: 'f',
+
+    // optional
+    // stateofmatter: 'L'
+  };
+  return C[r] || '';
 }
+
 
 // POST /compare-from-species
 // Body: { username1, username2, baseTaxonId, user1SpeciesIds: number[], user2SpeciesIds: number[] }
