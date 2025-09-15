@@ -18,33 +18,36 @@ const searchTaxaUrl = `${API_BASE}/search-taxa`;
 const edgeFunctionUrl = `${API_BASE}/build-taxonomy`;
 window.API_BASE = API_BASE;
 
-// --- Public-mode browser fetch helper (shared with compare/checklist) ---
-async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 }) {
-  const per=200; let page=1, all=[];
-  const sleep = ms => new Promise(r=>setTimeout(r,ms));
-  while (page<=maxPages) {
-    const u = new URL('https://api.inaturalist.org/v1/observations');
+// Browser-only species set via /observations/species_counts (no photos here)
+async function fetchUserSpeciesViaCounts({ username, taxonId, placeId, maxPages = 50 }) {
+  const per = 200;
+  let page = 1;
+  const species = new Set();
+
+  while (page <= maxPages) {
+    const u = new URL('https://api.inaturalist.org/v1/observations/species_counts');
     u.searchParams.set('user_login', username);
     u.searchParams.set('taxon_id', String(taxonId));
     if (placeId) u.searchParams.set('place_id', String(placeId));
-    u.searchParams.set('include','taxon');
-    u.searchParams.set('quality_grade','any');
-    u.searchParams.set('verifiable','any');
+    u.searchParams.set('verifiable', 'any');
+    u.searchParams.set('quality_grade', 'any');
+    u.searchParams.set('include', 'taxon');
     u.searchParams.set('per_page', String(per));
     u.searchParams.set('page', String(page));
+
     const r = await fetch(u);
-    if (r.status===429 || (r.status>=500 && r.status<600)) { await sleep(1200 + Math.random()*600); continue; }
-    const j = await r.json().catch(()=>({results:[]}));
-    const batch = j.results || [];
-    all.push(...batch);
-    if (batch.length < per) break;
-    page++; await sleep(650 + Math.random()*200);
+    if (!r.ok) break;
+    const j = await r.json().catch(() => ({ results: [] }));
+    const rows = j.results || [];
+    for (const row of rows) {
+      const tid = row?.taxon?.id;
+      if (tid) species.add(tid);
+    }
+    if (rows.length < per) break;
+    page += 1;
+    await new Promise(res => setTimeout(res, 500));
   }
-  const ids = [...new Set(all.map(o=>o?.taxon?.id).filter(Boolean))];
-  const seen = new Map(); for (const o of all) if (o?.taxon?.id && !seen.has(o.taxon.id)) seen.set(o.taxon.id, (o.taxon.rank||'').toLowerCase());
-  const rankCounts = {}; for (const r of seen.values()) rankCounts[r]=(rankCounts[r]||0)+1;
-  const highWatermarkUpdatedAt = all.reduce((m,o)=>{ const t=o.updated_at||o.observed_on||o.created_at; return t && (!m||t>m)?t:m; }, null);
-  return { taxonIds: ids, rankCounts, highWatermarkUpdatedAt };
+  return Array.from(species);
 }
 
 const loadingMessages = [
@@ -259,7 +262,9 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
     // Public mode: fetch in browser → send IDs to Worker; else use /build-taxonomy
     let result;
     if (PUBLIC_MODE) {
-      const { taxonIds, rankCounts, highWatermarkUpdatedAt } = await fetchUserObsMinimal({ username, taxonId });
+      const taxonIds = await fetchUserSpeciesViaCounts({ username, taxonId });
+      const rankCounts = {}; // (optional: compute client-side if desired)
+      const highWatermarkUpdatedAt = null;
       const r2 = await fetch(`${API_BASE}/tree-from-species`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
