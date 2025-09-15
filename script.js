@@ -273,7 +273,7 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
       const response = await fetch(edgeFunctionUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ username, taxonId })
+        body: JSON.stringify({ username, taxonId, includePhotos: true })
       });
       result = await response.json();
       if (!response.ok) throw new Error(result?.error || 'build-taxonomy failed');
@@ -307,6 +307,23 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
       rankCounts: result.rankCounts || {},
       highWatermarkUpdatedAt: result.highWatermarkUpdatedAt || null
     };
+
+    // Prefill local cache for first-obs photos to speed up 🖼️ chips
+    if (result.firstPhotos && typeof result.firstPhotos === 'object') {
+      try {
+        const raw = localStorage.getItem('firstObsCache');
+        const obj = raw ? JSON.parse(raw) : {};
+        for (const [sid, payload] of Object.entries(result.firstPhotos)) {
+          obj[`${username}:${sid}`] = payload;
+        }
+        const keys = Object.keys(obj);
+        if (keys.length > 500) {
+          const drop = keys.length - 500;
+          for (let i = 0; i < drop; i++) delete obj[keys[i]];
+        }
+        localStorage.setItem('firstObsCache', JSON.stringify(obj));
+      } catch {}
+    }
   } catch (err) {
     clearInterval(messageInterval);
     hideLoadingSpinner();

@@ -618,6 +618,148 @@ async function fetchUserObservations(env, username, taxonId, authHeader, maxPage
   return all;
 }
 
+// Get distinct species via /observations/species_counts
+async function fetchSpeciesIdsViaSpeciesCounts(env, username, baseTaxonId, authHeader, opts = {}) {
+  const perPage = 200;
+  const { maxPages = 30, delayBetweenPages = RATE_LIMIT_CONFIG.delayBetweenPages } = opts;
+  const out = new Set();
+  let page = 1;
+
+  while (page <= maxPages) {
+    const u = new URL('https://api.inaturalist.org/v1/observations/species_counts');
+    u.searchParams.set('user_login', username);
+    u.searchParams.set('taxon_id', String(baseTaxonId));
+    u.searchParams.set('verifiable', 'any');
+    u.searchParams.set('quality_grade', 'any');
+    u.searchParams.set('include', 'taxon');
+    u.searchParams.set('per_page', String(perPage));
+    u.searchParams.set('page', String(page));
+
+    const headers = { 'User-Agent': 'iNat-Trees-Cloudflare/1.0' };
+    if (authHeader) headers.Authorization = authHeader;
+
+    await acquireLimiter(env, authHeader || `${username}:${baseTaxonId}:species_counts`, RATE_LIMIT_CONFIG.minGlobalGapMs);
+
+    // retry/backoff like your other calls
+    let r, attempts = 0;
+    while (true) {
+      r = await fetch(u.toString(), { headers });
+      if (r.status === 429 || (r.status >= 500 && r.status < 600)) {
+        attempts++;
+        if (attempts > RATE_LIMIT_CONFIG.maxRetries) break;
+        let delayMs = RATE_LIMIT_CONFIG.initialRetryDelay * Math.pow(2, attempts - 1);
+        const ra = r.headers.get('Retry-After');
+        if (ra) {
+          const secs = parseInt(ra, 10);
+          if (!Number.isNaN(secs)) delayMs = Math.max(delayMs, secs * 1000);
+        }
+        await new Promise(res => setTimeout(res, delayMs + Math.floor(Math.random()*200)));
+        continue;
+      }
+      break;
+    }
+    if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
+
+    const j = await r.json();
+    const results = Array.isArray(j?.results) ? j.results : [];
+    for (const row of results) {
+      const sid = row?.taxon?.id;
+      if (sid) out.add(Number(sid));
+    }
+    if (results.length < perPage) break;
+    page++;
+    await new Promise(res => setTimeout(res, delayBetweenPages));
+  }
+
+  return [...out];
+}
+
+// Batched earliest photo-observation per species via /observations?taxon_ids=...
+async function fetchFirstPhotosPerSpecies(env, username, speciesIds, authHeader, opts = {}) {
+  const perPage = 200;
+  const {
+    chunkSize = 150,
+    maxPagesPerChunk = 3,
+    delayBetweenPages = RATE_LIMIT_CONFIG.delayBetweenPages
+  } = opts;
+
+  const want = new Set(speciesIds.map(Number).filter(Boolean));
+  const out = new Map();
+  const chunks = arr => Array.from({length: Math.ceil(arr.length / chunkSize)}, (_, i) => arr.slice(i*chunkSize, (i+1)*chunkSize));
+
+  for (const chunk of chunks(Array.from(want))) {
+    let page = 1;
+    const missing = new Set(chunk);
+
+    while (missing.size && page <= maxPagesPerChunk) {
+      const u = new URL('https://api.inaturalist.org/v1/observations');
+      u.searchParams.set('user_login', username);
+      u.searchParams.set('taxon_ids', chunk.join(','));
+      u.searchParams.set('photos', 'true');
+      u.searchParams.set('order_by', 'observed_on');
+      u.searchParams.set('order', 'asc');
+      u.searchParams.set('per_page', String(perPage));
+      u.searchParams.set('page', String(page));
+      u.searchParams.set('fields', 'id,observed_on,photos.url,photos.original_url,taxon.id');
+
+      await acquireLimiter(env, authHeader || `${username}:firstPhotos`, RATE_LIMIT_CONFIG.minGlobalGapMs);
+      const headers = { 'User-Agent': 'iNat-Trees-Cloudflare/1.0' };
+      if (authHeader) headers.Authorization = authHeader;
+
+      let r, attempts = 0;
+      while (true) {
+        r = await fetch(u.toString(), { headers });
+        if (r.status === 429 || (r.status >= 500 && r.status < 600)) {
+          attempts++;
+          if (attempts > RATE_LIMIT_CONFIG.maxRetries) break;
+          let delayMs = RATE_LIMIT_CONFIG.initialRetryDelay * Math.pow(2, attempts - 1);
+          const ra = r.headers.get('Retry-After');
+          if (ra) {
+            const secs = parseInt(ra, 10);
+            if (!Number.isNaN(secs)) delayMs = Math.max(delayMs, secs * 1000);
+          }
+          await new Promise(res => setTimeout(res, delayMs + Math.floor(Math.random()*200)));
+          continue;
+        }
+        break;
+      }
+      if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
+
+      const j = await r.json();
+      const results = Array.isArray(j?.results) ? j.results : [];
+
+      for (const obs of results) {
+        const sid = obs?.taxon?.id;
+        if (!sid || !missing.has(sid)) continue;
+        const p = (obs.photos && obs.photos[0]) || null;
+        if (!p) continue;
+
+        out.set(sid, {
+          obs_id: obs.id,
+          obs_url: `https://www.inaturalist.org/observations/${obs.id}`,
+          observed_on: obs.observed_on || null,
+          image_urls: {
+            square: p.url || null,
+            thumb: (p.url || '').replace('square', 'thumb') || null,
+            small: (p.url || '').replace('square', 'small') || null,
+            medium: (p.url || '').replace('square', 'medium') || null,
+            large: (p.url || '').replace('square', 'large') || null,
+            original: p.original_url || p.url || null
+          }
+        });
+        missing.delete(sid);
+        if (!missing.size) break;
+      }
+
+      if (results.length < perPage || !missing.size) break;
+      page++;
+      await new Promise(res => setTimeout(res, delayBetweenPages));
+    }
+  }
+
+  return Object.fromEntries(out);
+}
+
 async function compareTaxa(request, env) {
   const body = await request.json();
   const { username1, username2, taxonId } = body || {};
@@ -647,69 +789,54 @@ async function compareTaxa(request, env) {
 async function buildTaxonomy(request, env) {
   try {
     const body = await request.json();
-    const { username, taxonId } = body || {};
+    const { username, taxonId, includePhotos } = body || {};
     if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
+
     const rawAuth = request.headers.get('Authorization') || '';
     const hadAuthHeader = !!rawAuth;
     const jwt = await processAuthHeader(rawAuth);
-    const authHeader = jwt ? `Bearer ${jwt}` : undefined; // only send JWT to v1 API
+    const authHeader = jwt ? `Bearer ${jwt}` : undefined;
     const debugHeaders = { 'X-Auth-Received': String(hadAuthHeader), 'X-Auth-UsableJWT': String(!!jwt) };
 
-    // Force build-taxonomy to only request one page to reduce pressure
-    const observations = await fetchUserObservations(env, username, taxonId, authHeader, RATE_LIMIT_CONFIG.maxPagesBuild, authHeader || `${username}:${taxonId}`, {});
-    if (!observations || observations.length === 0) return json({ markdown: `- No observations found for user ${username} under taxon ID ${taxonId}`, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
+    // 1) Distinct species via species_counts
+    const speciesIds = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader);
 
-    const seen = new Map();
-    for (const obs of observations) {
-      if (obs.taxon && obs.taxon.id && obs.taxon.preferred_common_name) {
-        if (!seen.has(obs.taxon.id)) seen.set(obs.taxon.id, obs.taxon.preferred_common_name);
-      }
-    }
-    for (const [id, commonName] of seen.entries()) {
-      try { await env.DB.prepare(`UPDATE taxa SET common_name = ? WHERE taxon_id = ? AND (common_name IS NULL OR TRIM(common_name) = '')`).bind(commonName, id).run(); } catch (_) {}
+    if (!speciesIds.length) {
+      return json({
+        markdown: `- No observations found for user ${username} under taxon ID ${taxonId}`,
+        auth: { received: hadAuthHeader, usableJWT: !!jwt }
+      }, 200, request, debugHeaders);
     }
 
-    const speciesIds = Array.from(new Set(observations.filter(o => o.taxon).map(o => o.taxon.id)));
-    // Rank counts (distinct taxa by id)
-    const rankCounts = {};
-    const distinctById = new Map();
-    for (const obs of observations) {
-      if (obs.taxon && obs.taxon.id) {
-        if (!distinctById.has(obs.taxon.id)) distinctById.set(obs.taxon.id, obs.taxon);
-      }
-    }
-    for (const taxon of distinctById.values()) {
-      const r = (taxon.rank || '').toLowerCase();
-      rankCounts[r] = (rankCounts[r] || 0) + 1;
-    }
-    // High watermark = max updated_at (fallback observed_on/created_at)
-    let highWatermark = null;
-    for (const obs of observations) {
-      const ts = obs.updated_at || obs.observed_on || obs.created_at;
-      if (ts) {
-        const iso = new Date(ts).toISOString();
-        if (!highWatermark || iso > highWatermark) highWatermark = iso;
-      }
-    }
-
-    const tree = await buildTreeFromDatabase(env, speciesIds, taxonId);
+    // 2) Build taxonomy from D1 using the species set
+    const tree = await buildTreeFromDatabase(env, speciesIds, Number(taxonId));
     const markdown = treeToMarkdown(tree, 0, { username });
     const plainMarkdown = toPlainMarkdown(markdown);
-    return json({ markdown, plainMarkdown, speciesTaxonIds: speciesIds, rankCounts, highWatermarkUpdatedAt: highWatermark, auth: { received: hadAuthHeader, usableJWT: !!jwt } }, 200, request, debugHeaders);
+
+    // 3) Optional: batch hydrate earliest photo per species
+    let firstPhotos = {};
+    if (includePhotos) {
+      firstPhotos = await fetchFirstPhotosPerSpecies(env, username, speciesIds, authHeader, {
+        chunkSize: 150,
+        maxPagesPerChunk: 3
+      });
+    }
+
+    return json({
+      markdown, plainMarkdown,
+      speciesTaxonIds: speciesIds,
+      firstPhotos,
+      auth: { received: hadAuthHeader, usableJWT: !!jwt }
+    }, 200, request, debugHeaders);
+
   } catch (e) {
     const msg = e?.message || String(e);
-    // Try to echo the auth debug on errors too
     const rawAuth = request.headers.get('Authorization') || '';
-    const hadAuthHeader = !!rawAuth;
-    // Best-effort to compute JWT flag again (cheap if cached)
     let usable = false;
-    try {
-      const jwt = await processAuthHeader(rawAuth);
-      usable = !!jwt;
-    } catch {}
-    const debugHeaders = { 'X-Auth-Received': String(hadAuthHeader), 'X-Auth-UsableJWT': String(usable) };
-    if (msg.includes('iNat HTTP 429')) return json({ error: 'Rate limited by iNaturalist. Please try again in a moment.', auth: { received: hadAuthHeader, usableJWT: usable } }, 429, request, debugHeaders);
-    return json({ error: msg, auth: { received: hadAuthHeader, usableJWT: usable } }, 500, request, debugHeaders);
+    try { const jwt = await processAuthHeader(rawAuth); usable = !!jwt; } catch {}
+    const debugHeaders = { 'X-Auth-Received': String(!!rawAuth), 'X-Auth-UsableJWT': String(usable) };
+    if (msg.includes('iNat HTTP 429')) return json({ error: 'Rate limited by iNaturalist. Please try again in a moment.' }, 429, request, debugHeaders);
+    return json({ error: msg }, 500, request, debugHeaders);
   }
 }
 
