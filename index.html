@@ -1061,28 +1061,39 @@
       }
     };
 
-    // Restore saved trees into the Explore manager
+    // Restore saved Explore trees from IDB into the UI
     window.restoreCachedTrees = async function restoreCachedTrees() {
       try {
         const ks = await keys();
+        let restored = 0;
+
+        // Ensure Explore tab is active so the results card isn't CSS-hidden
+        if (typeof window.showTab === 'function') window.showTab('home');
+        else document.body.classList.add('in-home');
+
         for (const k of ks) {
           const sk = String(k);
-          if (!sk.startsWith('tree:v1:')) continue;
+          if (!sk.startsWith('tree:v1:')) continue;     // Explore-only keys
 
-          // key format: tree:v1:{username}:{taxonId}:{scope}:{region}
-          const parts = sk.split(':');
-          const username = parts[2] || 'user';
-          const taxonId  = Number(parts[3]) || 0;
+          // key: tree:v1:{username}:{taxonId}:{scope}:{region}
+          const [ , , username, taxonId ] = sk.split(':');
 
           const bin = await get(k);
           if (!bin) continue;
 
-          const payload = JSON.parse(dec(bin)); // { t, md, tree? }
+          const payload = JSON.parse(dec(bin));         // { t, md, tree? }
           const md = payload.md || payload.markdown || '';
           if (!md) continue;
 
-          // This will resolve the taxon title later if needed
-          window.treeManager?.addTree(username, null, taxonId, md);
+          // Create the tab + render
+          window.treeManager?.addTree(username, null, Number(taxonId), md);
+          restored++;
+        }
+
+        if (restored) {
+          // Make sure the results card shows (addTree already activates latest tab)
+          const card = document.getElementById('resultsCard');
+          if (card) card.style.display = 'block';
         }
       } catch (e) {
         console.warn('restoreCachedTrees failed', e);
