@@ -1076,7 +1076,8 @@
           if (!sk.startsWith('tree:v1:')) continue;     // Explore-only keys
 
           // key: tree:v1:{username}:{taxonId}:{scope}:{region}
-          const [ , , username, taxonId ] = sk.split(':');
+          const parts = sk.split(':');
+          const username = parts[2], taxonId = parts[3];
 
           const bin = await get(k);
           if (!bin) continue;
@@ -1112,15 +1113,38 @@
         const to = setTimeout(() => { clearInterval(id); resolve(false); }, timeout);
       });
 
+    // Ensure there is a singleton TreeManager before we restore
+    async function ensureTreeManager() {
+      if (window.treeManager) return window.treeManager;
+
+      // If the constructor is already on window (some builds do this)
+      if (window.TreeManager) {
+        window.treeManager = new window.TreeManager();
+        return window.treeManager;
+      }
+
+      // Otherwise, import the module and construct it
+      try {
+        const mod = await import('./tree-manager.js');
+        const TM = mod.TreeManager || mod.default;
+        if (TM) {
+          window.treeManager = new TM();
+          return window.treeManager;
+        }
+      } catch (e) {
+        console.warn('ensureTreeManager import failed', e);
+      }
+      return null;
+    }
+
     async function bootRestore() {
       try {
-        // Make Explore card visible regardless of tab-controller timing
-        document.body.classList.add('in-home');
+        document.body.classList.add('in-home'); // so resultsCard isn't CSS-hidden
 
-        // Wait until TreeManager is constructed by tree-manager.js
-        await waitFor(() => !!window.treeManager);
+        // Make sure a manager exists (handles both module + global builds)
+        await ensureTreeManager();
 
-        // Restore any cached Explore trees
+        // Now it's safe to restore tabs from IDB
         await window.restoreCachedTrees?.();
       } catch (err) {
         console.warn('bootRestore failed', err);
