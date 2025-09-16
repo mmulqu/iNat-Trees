@@ -1747,9 +1747,10 @@ _exportInteractiveHtml(tree, { title } = {}) {
     document.documentElement.classList.contains('dark-theme');
 
   const mdRaw = String(tree.markdown || tree.md || '');
-  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>');
+  // Prevent closing the inline <script> in the exported HTML
+  const mdEsc = mdRaw.replace(/<\/script>/gi, '<\\/script>');
 
-  const html = `<!doctype html>
+  const html = String.raw`<!doctype html>
 <html lang="en">
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -1783,10 +1784,10 @@ _exportInteractiveHtml(tree, { title } = {}) {
   // --- Remove picture-chip emojis & links entirely ---
   function stripPictureChips(md){
     return String(md)
-      // HTML <a>🖼️</a>
-      .replace(/<a\\b[^>]*>\\s*🖼️\\s*<\\/a>/gi, '')
-      // Markdown [🖼️](url)
-      .replace(/\\[🖼️\\]\\([^\\)]+\\)/gi, '')
+      // HTML: <a ...> 🖼️ </a>
+      .replace(/<a\b[^>]*>\s*🖼️\s*<\/a>/gi, '')
+      // Markdown: [🖼️](url)
+      .replace(/\[🖼️\]\([^)]+\)/gi, '')
       // any stray emoji
       .replace(/🖼️/g, '');
   }
@@ -1794,22 +1795,22 @@ _exportInteractiveHtml(tree, { title } = {}) {
   // --- Make common iNat links absolute in the markdown (non-chip links left intact) ---
   function absolutizeHrefInMd(md){
     return String(md)
-      .replace(/href=(["'])\\s*\\/\\/([^"']+)\\1/gi, 'href=$1https://$2$1')
-      .replace(/href=(["'])\\s*\\/(observations|taxa|photos|people|posts)\\b/gi,
+      .replace(/href=(["'])\s*\/\/([^"']+)\1/gi, 'href=$1https://$2$1')
+      .replace(/href=(["'])\s*\/(observations|taxa|photos|people|posts)\b/gi,
                'href=$1https://www.inaturalist.org/$2')
-      .replace(/href=(["'])\\s*(observations|taxa|photos|people|posts)\\b/gi,
+      .replace(/href=(["'])\s*(observations|taxa|photos|people|posts)\b/gi,
                'href=$1https://www.inaturalist.org/$2');
   }
 
   const processedMd = absolutizeHrefInMd(
     stripPictureChips(String(rawMd))
       // PvP colors
-      .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
-      .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
-      .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
+      .replace(/\{color:red\}([\s\S]*?)\{\/color\}/gi, '<span class="user1-node">$1</span>')
+      .replace(/\{color:blue\}([\s\S]*?)\{\/color\}/gi, '<span class="user2-node">$1</span>')
+      .replace(/\{color:purple\}([\s\S]*?)\{\/color\}/gi, '<span class="shared-node">$1</span>')
       // Checklist colors
-      .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
-      .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>')
+      .replace(/\{color:#22c55e\}([\s\S]*?)\{\/color\}/gi, '<span class="seen-node">$1</span>')
+      .replace(/\{color:#9ca3af\}([\s\S]*?)\{\/color\}/gi, '<span class="unseen-node">$1</span>')
   );
 
   const { Transformer, Markmap } = window.markmap;
@@ -1820,12 +1821,12 @@ _exportInteractiveHtml(tree, { title } = {}) {
   (function injectRankBadges(node){
     const visit = (n)=>{
       if (n.content){
-        const m = n.content.match(/\\{rank:([a-z]+)\\}/i);
+        const m = n.content.match(/\{rank:([a-z]+)\}/i);
         if (m){
           const rank = m[1].toLowerCase();
           const letter = rank.charAt(0).toUpperCase();
-          n.content = n.content.replace(/\\s*\\{rank:[^}]+\\}\\s*/i,' ');
-          n.content = (n.content||'').replace(/\\s*$/, ' ') +
+          n.content = n.content.replace(/\s*\{rank:[^}]+\}\s*/i,' ');
+          n.content = (n.content||'').replace(/\s*$/, ' ') +
             '<span class="mm-badge mm-rank" data-rank="'+rank+'" title="'+rank+'">'+letter+'</span>';
         }
       }
@@ -1868,6 +1869,7 @@ _exportInteractiveHtml(tree, { title } = {}) {
   ) + '.html';
   this._downloadBlob(name, blob);
 }
+
 
 
 
