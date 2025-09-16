@@ -1325,8 +1325,8 @@ class TreeManager {
           <i class="bi bi-download"></i> Export
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="#" data-act="export-svg">Export SVG</a></li>
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-html">Interactive HTML</a></li>
         </ul>
       </div>
 
@@ -1349,11 +1349,11 @@ class TreeManager {
         } catch { mm.fit(); }
       });
 
-    toolbar.querySelector('[data-act="export-svg"]')
-      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportSVG(tree); });
-
     toolbar.querySelector('[data-act="export-png"]')
       ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportPNG(tree); });
+
+    toolbar.querySelector('[data-act="export-html"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportInteractiveHtml(tree, {}); });
 
     toolbar.querySelector('[data-act="share-bsky"]')
       ?.addEventListener('click', () => this._openBskyComposer(tree));
@@ -1732,6 +1732,91 @@ _ensureMiniMap(treeId, svg) {
     if (!svg) return;
     const blob = await this._makePNGBlobFromSVG(svg, scale);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.png`);
+    this._downloadBlob(name, blob);
+  }
+
+  /** Export a self-contained interactive HTML (Markmap) of the current tree. */
+  _exportInteractiveHtml(tree, { title } = {}) {
+    // choose a nice title
+    const defaultTitle = tree.isComparison
+      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+      : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+    const pageTitle = title || defaultTitle;
+
+    // take the original markdown (keeps rank badges & tokens)
+    const mdRaw = String(tree.markdown || tree.md || '');
+    const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety for inline <script>
+
+    // html document (Markmap + our color classes + token conversion)
+    const html = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${pageTitle}</title>
+<style>
+  html,body{margin:0;height:100%}
+  .wrap{height:100vh}
+  .wrap svg{width:100%;height:100%}
+  /* Bright labels for dark mode toggle (press 'D') */
+  .dark svg text, .dark svg tspan { fill: #f8fafc !important; }
+  /* PvP + checklist label colors (match the app) */
+  .user1-node, .user1-node a, .user1-node * { color:#dc2626 !important; }
+  .user2-node, .user2-node a, .user2-node * { color:#2563eb !important; }
+  .shared-node, .shared-node a, .shared-node * { color:#9333ea !important; }
+  .seen-node, .seen-node a, .seen-node * { color:#22c55e !important; }
+  .unseen-node, .unseen-node a, .unseen-node * { color:#9ca3af !important; }
+</style>
+<div class="wrap" id="wrap">
+  <svg id="mm"></svg>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
+<script>
+  // original markdown (escaped)
+  const rawMd = ${JSON.stringify(mdEsc)};
+
+  // Convert {color:*} tokens to spans so Markmap renders them as HTML labels
+  const processedMd = String(rawMd)
+    // PvP colors
+    .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
+    .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
+    .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
+    // Checklist colors (seen/unseen)
+    .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
+    .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>');
+
+  const { Transformer, Markmap } = window.markmap;
+  const t = new Transformer();
+  const root = t.transform(processedMd).root;
+  const svg = document.getElementById('mm');
+
+  // interactive markmap
+  const mm  = Markmap.create(svg, {
+    htmlLabels: true,
+    initialExpandLevel: -1,
+    autoFit: true,
+    pan: true,
+    zoom: true
+  }, root);
+
+  // Simple theme toggle with 'D'
+  document.addEventListener('keydown', e => {
+    if ((e.key||'').toLowerCase() === 'd'){
+      document.body.classList.toggle('dark');
+      try { mm.fit(); } catch(_){}
+    }
+  });
+
+  // Refit after first layout
+  setTimeout(()=>{ try { mm.fit(); } catch(_){} }, 100);
+</script>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const name = this._fileSafeName(
+      `${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}`
+    ) + '.html';
     this._downloadBlob(name, blob);
   }
 
