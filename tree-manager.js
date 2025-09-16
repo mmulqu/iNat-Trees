@@ -1736,23 +1736,23 @@ _ensureMiniMap(treeId, svg) {
   }
 
   /** Export a self-contained interactive HTML (Markmap) of the current tree. */
-_exportInteractiveHtml(tree, { title } = {}) {
-  // Title
-  const defaultTitle = tree.isComparison
-    ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-    : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
-  const pageTitle = title || defaultTitle;
+  _exportInteractiveHtml(tree, { title } = {}) {
+    // Title
+    const defaultTitle = tree.isComparison
+      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+      : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+    const pageTitle = title || defaultTitle;
 
-  // Carry over current theme from the app
-  const isDarkNow =
-    document.body.classList.contains('dark-theme') ||
-    document.documentElement.classList.contains('dark-theme');
+    // Carry over current theme from the app
+    const isDarkNow =
+      document.body.classList.contains('dark-theme') ||
+      document.documentElement.classList.contains('dark-theme');
 
-  // Keep original markdown (rank tokens, color tokens, and image chips)
-  const mdRaw = String(tree.markdown || tree.md || '');
-  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
+    // Keep original markdown (rank tokens, color tokens, and image chips)
+    const mdRaw = String(tree.markdown || tree.md || '');
+    const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
 
-  const html = `<!doctype html>
+    const html = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -1840,13 +1840,12 @@ _exportInteractiveHtml(tree, { title } = {}) {
 </body>
 </html>`;
 
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const name = this._fileSafeName(
-    \`\${this._treeLabel(tree)}_\${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}\`
-  ) + '.html';
-  this._downloadBlob(name, blob);
-}
-
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const name = this._fileSafeName(
+      `${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}`
+    ) + '.html';
+    this._downloadBlob(name, blob);
+  }
 
   /* ------- Bluesky: confirm-then-post flow (no auto-post) ------- */
 
