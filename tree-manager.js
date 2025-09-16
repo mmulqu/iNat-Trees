@@ -1780,24 +1780,34 @@ _exportInteractiveHtml(tree, { title } = {}) {
 <script>
   const rawMd = ${JSON.stringify(mdEsc)};
 
-  // --- Burn in absolute URLs in the markdown ---
+  // --- Remove picture-chip emojis & links entirely ---
+  function stripPictureChips(md){
+    return String(md)
+      // HTML <a>🖼️</a>
+      .replace(/<a\\b[^>]*>\\s*🖼️\\s*<\\/a>/gi, '')
+      // Markdown [🖼️](url)
+      .replace(/\\[🖼️\\]\\([^\\)]+\\)/gi, '')
+      // any stray emoji
+      .replace(/🖼️/g, '');
+  }
+
+  // --- Make common iNat links absolute in the markdown (non-chip links left intact) ---
   function absolutizeHrefInMd(md){
     return String(md)
-      // //host → https://host
-      .replace(/href=(["'])\s*\/\/([^"']+)\1/gi, 'href=$1https://$2$1')
-      // "/observations/123" → full iNat
-      .replace(/href=(["'])\s*\/(observations|taxa|photos|people|posts)\b/gi,
+      .replace(/href=(["'])\\s*\\/\\/([^"']+)\\1/gi, 'href=$1https://$2$1')
+      .replace(/href=(["'])\\s*\\/(observations|taxa|photos|people|posts)\\b/gi,
                'href=$1https://www.inaturalist.org/$2')
-      // "observations/123" (no leading slash) → full iNat
-      .replace(/href=(["'])\s*(observations|taxa|photos|people|posts)\b/gi,
+      .replace(/href=(["'])\\s*(observations|taxa|photos|people|posts)\\b/gi,
                'href=$1https://www.inaturalist.org/$2');
   }
 
   const processedMd = absolutizeHrefInMd(
-    String(rawMd)
+    stripPictureChips(String(rawMd))
+      // PvP colors
       .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
       .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
       .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
+      // Checklist colors
       .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
       .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>')
   );
@@ -1806,7 +1816,7 @@ _exportInteractiveHtml(tree, { title } = {}) {
   const t = new Transformer();
   const root = t.transform(processedMd).root;
 
-  // Inject rank badges from {rank:*} tokens (so labels become HTML & bright in dark)
+  // Inject rank badges from {rank:*} tokens
   (function injectRankBadges(node){
     const visit = (n)=>{
       if (n.content){
@@ -1827,39 +1837,7 @@ _exportInteractiveHtml(tree, { title } = {}) {
   const svg = document.getElementById('mm');
   const mm  = Markmap.create(svg, { htmlLabels:true, initialExpandLevel:-1, autoFit:true, pan:true, zoom:true }, root);
 
-  // Make both HTML and SVG anchors open absolute URLs in a new tab
-  function absolutize(href){
-    if (!href) return href;
-    if (/^https?:\\/\\//i.test(href)) return href;
-    if (/^\\/\\//.test(href)) return 'https:' + href;
-    if (href[0] === '/') return 'https://www.inaturalist.org' + href;
-    if (/^(observations|taxa|photos|people|posts)\\b/i.test(href)) return 'https://www.inaturalist.org/' + href;
-    return href;
-  }
-  function wireLinks(){
-    const XLINK = 'http://www.w3.org/1999/xlink';
-    const anchors = Array.from(svg.querySelectorAll('a, .markmap-foreign a'));
-    anchors.forEach(a => {
-      const raw = (a.getAttribute('href') || '') || (a.getAttributeNS && a.getAttributeNS(XLINK, 'href')) || '';
-      const abs = (function absolutize(u){
-        if (!u) return '';
-        if (/^https?:\/\//i.test(u)) return u;
-        if (/^\/\//.test(u)) return 'https:' + u;
-        if (u[0] === '/') return 'https://www.inaturalist.org' + u;
-        if (/^(observations|taxa|photos|people|posts)\b/i.test(u)) return 'https://www.inaturalist.org/' + u;
-        return u;
-      })(raw);
-      a.setAttribute('href', abs);
-      if (a.setAttributeNS) a.setAttributeNS(XLINK, 'href', abs);
-      a.setAttribute('target','_blank');
-      a.setAttribute('rel','noopener noreferrer');
-      a.addEventListener('click', (e) => { e.stopPropagation(); if (abs){ e.preventDefault(); window.open(abs,'_blank','noopener'); } }, { capture:true });
-    });
-  }
-  wireLinks();
-  new MutationObserver(()=>wireLinks()).observe(svg, { subtree:true, childList:true });
-
-  // Force readable text in dark after renders
+  // Ensure readable text in dark mode after renders
   function applyDarkText(){
     if (!document.body.classList.contains('dark')) return;
     svg.querySelectorAll('text, tspan').forEach(t=>{
@@ -1874,7 +1852,8 @@ _exportInteractiveHtml(tree, { title } = {}) {
   // Theme toggle with 'D'
   document.addEventListener('keydown', e=>{
     if ((e.key||'').toLowerCase() === 'd'){
-      document.body.classList.toggle('dark'); setTimeout(()=>{ try{ mm.fit(); }catch(_){ } applyDarkText(); }, 0);
+      document.body.classList.toggle('dark');
+      setTimeout(()=>{ try{ mm.fit(); }catch(_){ } applyDarkText(); }, 0);
     }
   });
 
@@ -1889,6 +1868,7 @@ _exportInteractiveHtml(tree, { title } = {}) {
   ) + '.html';
   this._downloadBlob(name, blob);
 }
+
 
 
 
