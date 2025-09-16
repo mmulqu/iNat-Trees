@@ -1736,29 +1736,40 @@ _ensureMiniMap(treeId, svg) {
   }
 
   /** Export a self-contained interactive HTML (Markmap) of the current tree. */
-  _exportInteractiveHtml(tree, { title } = {}) {
-    // choose a nice title
-    const defaultTitle = tree.isComparison
-      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-      : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
-    const pageTitle = title || defaultTitle;
+_exportInteractiveHtml(tree, { title } = {}) {
+  // Title
+  const defaultTitle = tree.isComparison
+    ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+    : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+  const pageTitle = title || defaultTitle;
 
-    // take the original markdown (keeps rank badges & tokens)
-    const mdRaw = String(tree.markdown || tree.md || '');
-    const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety for inline <script>
+  // Carry over current theme from the app
+  const isDarkNow =
+    document.body.classList.contains('dark-theme') ||
+    document.documentElement.classList.contains('dark-theme');
 
-    // html document (Markmap + our color classes + token conversion)
-    const html = `<!doctype html>
+  // Keep original markdown (rank tokens, color tokens, and image chips)
+  const mdRaw = String(tree.markdown || tree.md || '');
+  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
+
+  const html = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${pageTitle}</title>
 <style>
   html,body{margin:0;height:100%}
+  body{background:#ffffff;}
+  body.dark{background:#111827;}
   .wrap{height:100vh}
   .wrap svg{width:100%;height:100%}
-  /* Bright labels for dark mode toggle (press 'D') */
+
+  /* Bright labels for dark mode ('D' toggles) */
   .dark svg text, .dark svg tspan { fill: #f8fafc !important; }
+
+  /* Make HTML labels inside foreignObject fully clickable */
+  .markmap-foreign, .markmap-foreign * { pointer-events: auto; }
+
   /* PvP + checklist label colors (match the app) */
   .user1-node, .user1-node a, .user1-node * { color:#dc2626 !important; }
   .user2-node, .user2-node a, .user2-node * { color:#2563eb !important; }
@@ -1766,6 +1777,7 @@ _ensureMiniMap(treeId, svg) {
   .seen-node, .seen-node a, .seen-node * { color:#22c55e !important; }
   .unseen-node, .unseen-node a, .unseen-node * { color:#9ca3af !important; }
 </style>
+<body${isDarkNow ? ' class="dark"' : ''}>
 <div class="wrap" id="wrap">
   <svg id="mm"></svg>
 </div>
@@ -1773,7 +1785,7 @@ _ensureMiniMap(treeId, svg) {
 <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
 <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
 <script>
-  // original markdown (escaped)
+  // Original markdown (escaped)
   const rawMd = ${JSON.stringify(mdEsc)};
 
   // Convert {color:*} tokens to spans so Markmap renders them as HTML labels
@@ -1782,7 +1794,7 @@ _ensureMiniMap(treeId, svg) {
     .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
     .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
     .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
-    // Checklist colors (seen/unseen)
+    // Checklist colors
     .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
     .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>');
 
@@ -1791,7 +1803,6 @@ _ensureMiniMap(treeId, svg) {
   const root = t.transform(processedMd).root;
   const svg = document.getElementById('mm');
 
-  // interactive markmap
   const mm  = Markmap.create(svg, {
     htmlLabels: true,
     initialExpandLevel: -1,
@@ -1800,7 +1811,21 @@ _ensureMiniMap(treeId, svg) {
     zoom: true
   }, root);
 
-  // Simple theme toggle with 'D'
+  // Make image chips / links clickable and open in a new tab
+  function wireLinks() {
+    document.querySelectorAll('.markmap-foreign a').forEach(a => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+      // Prevent link clicks from bubbling to Markmap (which would toggle nodes)
+      a.addEventListener('click', e => { e.stopPropagation(); }, { capture: true });
+    });
+  }
+  // Run now and whenever Markmap re-renders nodes
+  wireLinks();
+  new MutationObserver(() => wireLinks())
+    .observe(svg, { subtree: true, childList: true });
+
+  // Theme toggle with 'D'
   document.addEventListener('keydown', e => {
     if ((e.key||'').toLowerCase() === 'd'){
       document.body.classList.toggle('dark');
@@ -1809,16 +1834,19 @@ _ensureMiniMap(treeId, svg) {
   });
 
   // Refit after first layout
-  setTimeout(()=>{ try { mm.fit(); } catch(_){} }, 100);
+  setTimeout(()=>{ try { mm.fit(); } catch(_){}
+  }, 100);
 </script>
+</body>
 </html>`;
 
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const name = this._fileSafeName(
-      `${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}`
-    ) + '.html';
-    this._downloadBlob(name, blob);
-  }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const name = this._fileSafeName(
+    \`\${this._treeLabel(tree)}_\${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}\`
+  ) + '.html';
+  this._downloadBlob(name, blob);
+}
+
 
   /* ------- Bluesky: confirm-then-post flow (no auto-post) ------- */
 
