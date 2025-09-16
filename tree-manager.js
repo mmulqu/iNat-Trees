@@ -1780,13 +1780,27 @@ _exportInteractiveHtml(tree, { title } = {}) {
 <script>
   const rawMd = ${JSON.stringify(mdEsc)};
 
-  // Color tokens → spans (so Markmap uses HTML labels)
-  const processedMd = String(rawMd)
-    .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
-    .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
-    .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
-    .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
-    .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>');
+  // --- Burn in absolute URLs in the markdown ---
+  function absolutizeHrefInMd(md){
+    return String(md)
+      // //host → https://host
+      .replace(/href=(["'])\s*\/\/([^"']+)\1/gi, 'href=$1https://$2$1')
+      // "/observations/123" → full iNat
+      .replace(/href=(["'])\s*\/(observations|taxa|photos|people|posts)\b/gi,
+               'href=$1https://www.inaturalist.org/$2')
+      // "observations/123" (no leading slash) → full iNat
+      .replace(/href=(["'])\s*(observations|taxa|photos|people|posts)\b/gi,
+               'href=$1https://www.inaturalist.org/$2');
+  }
+
+  const processedMd = absolutizeHrefInMd(
+    String(rawMd)
+      .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
+      .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
+      .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
+      .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
+      .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>')
+  );
 
   const { Transformer, Markmap } = window.markmap;
   const t = new Transformer();
@@ -1823,17 +1837,23 @@ _exportInteractiveHtml(tree, { title } = {}) {
     return href;
   }
   function wireLinks(){
+    const XLINK = 'http://www.w3.org/1999/xlink';
     const anchors = Array.from(svg.querySelectorAll('a, .markmap-foreign a'));
-    anchors.forEach(a=>{
-      const raw = (a.getAttribute('href') || a.getAttribute('xlink:href') || '').trim();
-      const abs = absolutize(raw);
-      if (abs){
-        a.setAttribute('href', abs);
-        a.setAttribute('xlink:href', abs);
-      }
+    anchors.forEach(a => {
+      const raw = (a.getAttribute('href') || '') || (a.getAttributeNS && a.getAttributeNS(XLINK, 'href')) || '';
+      const abs = (function absolutize(u){
+        if (!u) return '';
+        if (/^https?:\/\//i.test(u)) return u;
+        if (/^\/\//.test(u)) return 'https:' + u;
+        if (u[0] === '/') return 'https://www.inaturalist.org' + u;
+        if (/^(observations|taxa|photos|people|posts)\b/i.test(u)) return 'https://www.inaturalist.org/' + u;
+        return u;
+      })(raw);
+      a.setAttribute('href', abs);
+      if (a.setAttributeNS) a.setAttributeNS(XLINK, 'href', abs);
       a.setAttribute('target','_blank');
       a.setAttribute('rel','noopener noreferrer');
-      a.addEventListener('click', (e)=>{ e.stopPropagation(); if (abs){ e.preventDefault(); window.open(abs,'_blank','noopener'); } }, { capture:true });
+      a.addEventListener('click', (e) => { e.stopPropagation(); if (abs){ e.preventDefault(); window.open(abs,'_blank','noopener'); } }, { capture:true });
     });
   }
   wireLinks();
