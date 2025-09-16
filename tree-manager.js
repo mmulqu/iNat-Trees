@@ -1736,41 +1736,55 @@ _ensureMiniMap(treeId, svg) {
   }
 
   /** Export a self-contained interactive HTML (Markmap) of the current tree. */
-  _exportInteractiveHtml(tree, { title } = {}) {
-    // Title
-    const defaultTitle = tree.isComparison
-      ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
-      : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
-    const pageTitle = title || defaultTitle;
+_exportInteractiveHtml(tree, { title } = {}) {
+  const defaultTitle = tree.isComparison
+    ? `iNaturalist Tree PVP: ${tree.username1} vs ${tree.username2} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`
+    : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
+  const pageTitle = title || defaultTitle;
 
-    // Carry over current theme from the app
-    const isDarkNow =
-      document.body.classList.contains('dark-theme') ||
-      document.documentElement.classList.contains('dark-theme');
+  // Carry over current theme from the app
+  const isDarkNow =
+    document.body.classList.contains('dark-theme') ||
+    document.documentElement.classList.contains('dark-theme');
 
-    // Keep original markdown (rank tokens, color tokens, and image chips)
-    const mdRaw = String(tree.markdown || tree.md || '');
-    const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
+  // Keep original markdown (rank tokens, color tokens, and image chips)
+  const mdRaw = String(tree.markdown || tree.md || '');
+  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
 
-    const html = `<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${pageTitle}</title>
 <style>
   html,body{margin:0;height:100%}
-  body{background:#ffffff;}
-  body.dark{background:#111827;}
+  body{background:#ffffff;color:#111827}
+  body.dark{background:#111827;color:#f8fafc}
   .wrap{height:100vh}
   .wrap svg{width:100%;height:100%}
 
-  /* Bright labels for dark mode ('D' toggles) */
-  .dark svg text, .dark svg tspan { fill: #f8fafc !important; }
+  /* Make SVG text readable in dark */
+  .dark svg text, .dark svg tspan { fill:#f8fafc !important; opacity:.98 !important; }
 
-  /* Make HTML labels inside foreignObject fully clickable */
-  .markmap-foreign, .markmap-foreign * { pointer-events: auto; }
+  /* HTML labels inside foreignObject should also inherit readable color */
+  .markmap-foreign, .markmap-foreign * { pointer-events:auto; }
+  .dark .markmap-foreign { color:#f8fafc !important; }
+  .dark .markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node) {
+    color:inherit !important;
+  }
 
-  /* PvP + checklist label colors (match the app) */
+  /* Rank badges: brighten in dark */
+  .mm-badge.mm-rank{
+    display:inline-block; border:1px solid rgba(0,0,0,.18);
+    border-radius:4px; padding:0 4px; margin-left:.25rem; font-weight:600;
+    line-height:1.2;
+  }
+  .dark .mm-badge.mm-rank{
+    color:#f8fafc !important; border-color:rgba(255,255,255,.35);
+    background:rgba(255,255,255,.06);
+  }
+
+  /* PvP + checklist label colors (don’t override these) */
   .user1-node, .user1-node a, .user1-node * { color:#dc2626 !important; }
   .user2-node, .user2-node a, .user2-node * { color:#2563eb !important; }
   .shared-node, .shared-node a, .shared-node * { color:#9333ea !important; }
@@ -1811,19 +1825,32 @@ _ensureMiniMap(treeId, svg) {
     zoom: true
   }, root);
 
-  // Make image chips / links clickable and open in a new tab
-  function wireLinks() {
-    document.querySelectorAll('.markmap-foreign a').forEach(a => {
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
-      // Prevent link clicks from bubbling to Markmap (which would toggle nodes)
-      a.addEventListener('click', e => { e.stopPropagation(); }, { capture: true });
+  // --- Make links (incl. 🖼️ chips) open the real URL in a new tab ---
+  function absolutize(href){
+    if (!href) return href;
+    if (/^https?:\\/\\//i.test(href)) return href;        // already absolute
+    if (/^\\/\\//.test(href)) return 'https:' + href;      // protocol-relative
+    if (href[0] === '/') return 'https://www.inaturalist.org' + href;  // site-absolute
+    if (/^(observations|taxa|photos|people|posts)\\b/i.test(href))
+      return 'https://www.inaturalist.org/' + href;        // common relative paths
+    return href;                                           // leave other relatives as-is
+  }
+  function wireLinks(){
+    document.querySelectorAll('.markmap-foreign a').forEach(a=>{
+      const raw = (a.getAttribute('href') || '').trim();
+      const abs = absolutize(raw);
+      if (abs) a.setAttribute('href', abs);
+      a.setAttribute('target','_blank');
+      a.setAttribute('rel','noopener noreferrer');
+      // Avoid node toggle + make sure we open the external URL even from file:// origin
+      a.addEventListener('click', e=>{
+        e.stopPropagation();
+        if (abs){ e.preventDefault(); window.open(abs, '_blank', 'noopener'); }
+      }, { capture:true });
     });
   }
-  // Run now and whenever Markmap re-renders nodes
   wireLinks();
-  new MutationObserver(() => wireLinks())
-    .observe(svg, { subtree: true, childList: true });
+  new MutationObserver(() => wireLinks()).observe(svg, { subtree:true, childList:true });
 
   // Theme toggle with 'D'
   document.addEventListener('keydown', e => {
@@ -1840,12 +1867,13 @@ _ensureMiniMap(treeId, svg) {
 </body>
 </html>`;
 
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const name = this._fileSafeName(
-      `${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}`
-    ) + '.html';
-    this._downloadBlob(name, blob);
-  }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const name = this._fileSafeName(
+    `${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}`
+  ) + '.html';
+  this._downloadBlob(name, blob);
+}
+
 
   /* ------- Bluesky: confirm-then-post flow (no auto-post) ------- */
 
