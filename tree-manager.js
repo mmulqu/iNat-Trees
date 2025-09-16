@@ -1742,14 +1742,12 @@ _exportInteractiveHtml(tree, { title } = {}) {
     : `iNaturalist Taxa Tree: ${tree.username} — ${tree.taxonName || `Taxon ${tree.taxonId}`}`;
   const pageTitle = title || defaultTitle;
 
-  // Carry over current theme from the app
   const isDarkNow =
     document.body.classList.contains('dark-theme') ||
     document.documentElement.classList.contains('dark-theme');
 
-  // Keep original markdown (rank tokens, color tokens, and image chips)
   const mdRaw = String(tree.markdown || tree.md || '');
-  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>'); // safety
+  const mdEsc = mdRaw.replace(/<\/script>/g, '<\\/script>');
 
   const html = `<!doctype html>
 <html lang="en">
@@ -1762,107 +1760,105 @@ _exportInteractiveHtml(tree, { title } = {}) {
   body.dark{background:#111827;color:#f8fafc}
   .wrap{height:100vh}
   .wrap svg{width:100%;height:100%}
-
-  /* Make SVG text readable in dark */
-  .dark svg text, .dark svg tspan { fill:#f8fafc !important; opacity:.98 !important; }
-
-  /* HTML labels inside foreignObject should also inherit readable color */
-  .markmap-foreign, .markmap-foreign * { pointer-events:auto; }
-  .dark .markmap-foreign { color:#f8fafc !important; }
-  .dark .markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node) {
-    color:inherit !important;
-  }
-
-  /* Rank badges: brighten in dark */
-  .mm-badge.mm-rank{
-    display:inline-block; border:1px solid rgba(0,0,0,.18);
-    border-radius:4px; padding:0 4px; margin-left:.25rem; font-weight:600;
-    line-height:1.2;
-  }
-  .dark .mm-badge.mm-rank{
-    color:#f8fafc !important; border-color:rgba(255,255,255,.35);
-    background:rgba(255,255,255,.06);
-  }
-
-  /* PvP + checklist label colors (don’t override these) */
-  .user1-node, .user1-node a, .user1-node * { color:#dc2626 !important; }
-  .user2-node, .user2-node a, .user2-node * { color:#2563eb !important; }
-  .shared-node, .shared-node a, .shared-node * { color:#9333ea !important; }
-  .seen-node, .seen-node a, .seen-node * { color:#22c55e !important; }
-  .unseen-node, .unseen-node a, .unseen-node * { color:#9ca3af !important; }
+  .dark svg text, .dark svg tspan{fill:#f8fafc !important;opacity:.98 !important}
+  .markmap-foreign, .markmap-foreign *{pointer-events:auto}
+  .dark .markmap-foreign{color:#f8fafc !important}
+  .dark .markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node){color:inherit !important}
+  .mm-badge.mm-rank{display:inline-block;border:1px solid rgba(0,0,0,.18);border-radius:4px;padding:0 4px;margin-left:.25rem;font-weight:600;line-height:1.2}
+  .dark .mm-badge.mm-rank{color:#f8fafc !important;border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.06)}
+  .user1-node, .user1-node a, .user1-node *{color:#dc2626 !important}
+  .user2-node, .user2-node a, .user2-node *{color:#2563eb !important}
+  .shared-node, .shared-node a, .shared-node *{color:#9333ea !important}
+  .seen-node, .seen-node a, .seen-node *{color:#22c55e !important}
+  .unseen-node, .unseen-node a, .unseen-node *{color:#9ca3af !important}
 </style>
 <body${isDarkNow ? ' class="dark"' : ''}>
-<div class="wrap" id="wrap">
-  <svg id="mm"></svg>
-</div>
+<div class="wrap" id="wrap"><svg id="mm"></svg></div>
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
 <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
 <script>
-  // Original markdown (escaped)
   const rawMd = ${JSON.stringify(mdEsc)};
 
-  // Convert {color:*} tokens to spans so Markmap renders them as HTML labels
+  // Color tokens → spans (so Markmap uses HTML labels)
   const processedMd = String(rawMd)
-    // PvP colors
     .replace(/\\{color:red\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user1-node">$1</span>')
     .replace(/\\{color:blue\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="user2-node">$1</span>')
     .replace(/\\{color:purple\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="shared-node">$1</span>')
-    // Checklist colors
     .replace(/\\{color:#22c55e\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="seen-node">$1</span>')
     .replace(/\\{color:#9ca3af\\}([\\s\\S]*?)\\{\\/color\\}/gi, '<span class="unseen-node">$1</span>');
 
   const { Transformer, Markmap } = window.markmap;
   const t = new Transformer();
   const root = t.transform(processedMd).root;
+
+  // Inject rank badges from {rank:*} tokens (so labels become HTML & bright in dark)
+  (function injectRankBadges(node){
+    const visit = (n)=>{
+      if (n.content){
+        const m = n.content.match(/\\{rank:([a-z]+)\\}/i);
+        if (m){
+          const rank = m[1].toLowerCase();
+          const letter = rank.charAt(0).toUpperCase();
+          n.content = n.content.replace(/\\s*\\{rank:[^}]+\\}\\s*/i,' ');
+          n.content = (n.content||'').replace(/\\s*$/, ' ') +
+            '<span class="mm-badge mm-rank" data-rank="'+rank+'" title="'+rank+'">'+letter+'</span>';
+        }
+      }
+      (n.children||[]).forEach(visit);
+    };
+    visit(node);
+  })(root);
+
   const svg = document.getElementById('mm');
+  const mm  = Markmap.create(svg, { htmlLabels:true, initialExpandLevel:-1, autoFit:true, pan:true, zoom:true }, root);
 
-  const mm  = Markmap.create(svg, {
-    htmlLabels: true,
-    initialExpandLevel: -1,
-    autoFit: true,
-    pan: true,
-    zoom: true
-  }, root);
-
-  // --- Make links (incl. 🖼️ chips) open the real URL in a new tab ---
+  // Make both HTML and SVG anchors open absolute URLs in a new tab
   function absolutize(href){
     if (!href) return href;
-    if (/^https?:\\/\\//i.test(href)) return href;        // already absolute
-    if (/^\\/\\//.test(href)) return 'https:' + href;      // protocol-relative
-    if (href[0] === '/') return 'https://www.inaturalist.org' + href;  // site-absolute
-    if (/^(observations|taxa|photos|people|posts)\\b/i.test(href))
-      return 'https://www.inaturalist.org/' + href;        // common relative paths
-    return href;                                           // leave other relatives as-is
+    if (/^https?:\\/\\//i.test(href)) return href;
+    if (/^\\/\\//.test(href)) return 'https:' + href;
+    if (href[0] === '/') return 'https://www.inaturalist.org' + href;
+    if (/^(observations|taxa|photos|people|posts)\\b/i.test(href)) return 'https://www.inaturalist.org/' + href;
+    return href;
   }
   function wireLinks(){
-    document.querySelectorAll('.markmap-foreign a').forEach(a=>{
-      const raw = (a.getAttribute('href') || '').trim();
+    const anchors = Array.from(svg.querySelectorAll('a, .markmap-foreign a'));
+    anchors.forEach(a=>{
+      const raw = (a.getAttribute('href') || a.getAttribute('xlink:href') || '').trim();
       const abs = absolutize(raw);
-      if (abs) a.setAttribute('href', abs);
+      if (abs){
+        a.setAttribute('href', abs);
+        a.setAttribute('xlink:href', abs);
+      }
       a.setAttribute('target','_blank');
       a.setAttribute('rel','noopener noreferrer');
-      // Avoid node toggle + make sure we open the external URL even from file:// origin
-      a.addEventListener('click', e=>{
-        e.stopPropagation();
-        if (abs){ e.preventDefault(); window.open(abs, '_blank', 'noopener'); }
-      }, { capture:true });
+      a.addEventListener('click', (e)=>{ e.stopPropagation(); if (abs){ e.preventDefault(); window.open(abs,'_blank','noopener'); } }, { capture:true });
     });
   }
   wireLinks();
-  new MutationObserver(() => wireLinks()).observe(svg, { subtree:true, childList:true });
+  new MutationObserver(()=>wireLinks()).observe(svg, { subtree:true, childList:true });
+
+  // Force readable text in dark after renders
+  function applyDarkText(){
+    if (!document.body.classList.contains('dark')) return;
+    svg.querySelectorAll('text, tspan').forEach(t=>{
+      t.setAttribute('fill','#f8fafc'); t.style.fill='#f8fafc'; t.style.opacity='.98';
+    });
+    svg.querySelectorAll('.markmap-foreign *:not(.user1-node):not(.user2-node):not(.shared-node)')
+      .forEach(el=>{ el.style.color='#f8fafc'; });
+  }
+  applyDarkText();
+  new MutationObserver(()=>applyDarkText()).observe(svg, { subtree:true, childList:true });
 
   // Theme toggle with 'D'
-  document.addEventListener('keydown', e => {
+  document.addEventListener('keydown', e=>{
     if ((e.key||'').toLowerCase() === 'd'){
-      document.body.classList.toggle('dark');
-      try { mm.fit(); } catch(_){}
+      document.body.classList.toggle('dark'); setTimeout(()=>{ try{ mm.fit(); }catch(_){ } applyDarkText(); }, 0);
     }
   });
 
-  // Refit after first layout
-  setTimeout(()=>{ try { mm.fit(); } catch(_){}
-  }, 100);
+  setTimeout(()=>{ try{ mm.fit(); }catch(_){ } applyDarkText(); }, 100);
 </script>
 </body>
 </html>`;
@@ -1873,6 +1869,7 @@ _exportInteractiveHtml(tree, { title } = {}) {
   ) + '.html';
   this._downloadBlob(name, blob);
 }
+
 
 
   /* ------- Bluesky: confirm-then-post flow (no auto-post) ------- */
