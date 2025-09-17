@@ -1734,78 +1734,102 @@ _ensureMiniMap(treeId, svg) {
     this._downloadBlob(name, new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' }));
   }
 
-  // --- Newick export helpers ---
+  // --- Newick export helpers (improved) ---
 
-  // Strip HTML/tokens in Markmap label -> plain text
+  // Decode HTML entities -> plain text (so we can remove emoji reliably)
+  _decodeEntities(s = '') {
+    const el = document.createElement('textarea');
+    el.innerHTML = String(s);
+    return el.value;
+  }
+
+  // Strip HTML/tokens in Markmap label -> clean text (no emoji/entities)
   _labelFromHtml(html = '') {
     let s = String(html);
-    // Drop markmap color tokens and any HTML
+
+    // Remove markmap tokens + tags first
     s = s.replace(/\{color:[^}]+\}/gi, '')
          .replace(/\{\/color\}/gi, '')
          .replace(/<a[^>]*class="taxon-link"[^>]*>(.*?)<\/a>/gi, '$1')
          .replace(/<span[^>]*>.*?<\/span>/gi, '')
-         .replace(/<[^>]+>/g, '')
-         .replace(/🖼️/g, '')
-         .trim();
-    // Collapse internal whitespace
-    s = s.replace(/\s+/g, ' ');
-    return s;
+         .replace(/<[^>]+>/g, '');
+
+    // Decode any HTML entities (eg. &#x1f5bc;, &amp;, &nbsp;)
+    s = this._decodeEntities(s);
+
+    // Remove the camera/pictograph emoji and variation selectors
+    // - specifically remove U+1F5BC (🖼) with optional U+FE0F
+    s = s.replace(/\u{1F5BC}\u{FE0F}?/gu, '');
+
+    // (optional) remove any other pictographic emojis that might slip in
+    // Comment out if you want to keep other emojis.
+    s = s.replace(/\p{Extended_Pictographic}/gu, '');
+
+    // Collapse whitespace
+    return s.replace(/\s+/g, ' ').trim();
   }
 
   // Quote labels if they contain spaces/specials per Newick (single quotes doubled)
   _escapeNewickLabel(label = '') {
     if (!label) return '';
-    // If label contains characters outside [A-Za-z0-9_.-], quote it
-    if (/[^\w.\-]/.test(label)) {
-      return `'${label.replace(/'/g, "''")}'`;
-    }
-    return label;
+    return /[()\[\],:;\s]/.test(label)
+      ? `'${String(label).replace(/'/g, "''")}'`
+      : label;
   }
 
   // Convert Markmap AST -> Newick string (no branch lengths)
-  _buildNewickFromMarkmap(mmRoot, fallbackRootLabel = 'root') {
+  // options: { includeInternalLabels: boolean }
+  _buildNewickFromMarkmap(mmRoot, fallbackRootLabel = 'root', opts = {}) {
+    const { includeInternalLabels = false } = opts;
     if (!mmRoot) return `${this._escapeNewickLabel(fallbackRootLabel)};`;
 
-    // Find the first real list item if the transformer wrapped things
+    // Unwrap container nodes the transformer may have added
     const firstReal = (node) => {
       if (!node) return null;
       const hasContent = node.content && String(node.content).trim().length > 0;
       if (hasContent) return node;
-      // If container node, drill down (prefer single-child unwrap)
       if (node.children && node.children.length === 1) return firstReal(node.children[0]);
       return node;
     };
 
     const cleanNode = firstReal(mmRoot);
 
-    const walk = (node) => {
+    const walk = (node, isRoot = false) => {
       const kids = Array.isArray(node.children) ? node.children.filter(Boolean) : [];
-      const label = this._escapeNewickLabel(this._labelFromHtml(node.content || ''));
+      const labelText = this._labelFromHtml(node.content || '');
+      const label = this._escapeNewickLabel(labelText);
+
       if (kids.length === 0) {
         // leaf
         return label || this._escapeNewickLabel(fallbackRootLabel);
       }
-      const childStr = kids.map(walk).join(',');
-      // Internal node label is allowed; omit if empty
-      return `(${childStr})${label || ''}`;
+      const childStr = kids.map((k) => walk(k, false)).join(',');
+
+      // Internal-node labels often clutter; omit unless explicitly requested
+      const internal = includeInternalLabels && label ? label : '';
+
+      // If the very top is an unlabeled multi-child container, synthesize a root label
+      if (isRoot && !internal && (!labelText || !labelText.trim())) {
+        return `(${childStr})${this._escapeNewickLabel(fallbackRootLabel)}`;
+      }
+      return `(${childStr})${internal}`;
     };
 
-    // If the clean root is just a container with multiple children and no label,
-    // synthesize a labeled root using the fallback
     const isContainerNoLabel =
       (!cleanNode.content || !String(cleanNode.content).trim()) &&
       Array.isArray(cleanNode.children) && cleanNode.children.length > 1;
 
     const core = isContainerNoLabel
-      ? `(${cleanNode.children.map(walk).join(',')})${this._escapeNewickLabel(fallbackRootLabel)}`
-      : walk(cleanNode);
+      ? `(${cleanNode.children.map((k) => walk(k)).join(',')})${this._escapeNewickLabel(fallbackRootLabel)}`
+      : walk(cleanNode, true);
 
     return core + ';';
   }
 
   _exportNewick(tree, mmRoot) {
     const fallback = tree.taxonName || (tree.taxonId ? `Taxon ${tree.taxonId}` : 'root');
-    const newick = this._buildNewickFromMarkmap(mmRoot, fallback);
+    // Default: hide internal labels for cleaner output
+    const newick = this._buildNewickFromMarkmap(mmRoot, fallback, { includeInternalLabels: false });
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.nwk`);
     this._downloadBlob(name, new Blob([newick], { type: 'text/x-nh' }));
   }
