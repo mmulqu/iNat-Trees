@@ -281,79 +281,88 @@ function handleOptions(request) {
 async function exportHandler(request, env) {
   const url = new URL(request.url);
   const format = (url.searchParams.get('format') || '').toLowerCase();
+  const origin = request.headers.get("Origin") || "*";
 
-  const body = await request.json().catch(()=> ({}));
-  const { mode='single', username, username1, username2, taxonId } = body || {};
+  const body = await request.json().catch(() => ({}));
+  const { mode = 'single', username, username1, username2, taxonId } = body || {};
+
+  // auth (reuses your helper)
   const rawAuth = request.headers.get('Authorization') || '';
   const jwt = await processAuthHeader(rawAuth);
   const authHeader = jwt ? `Bearer ${jwt}` : undefined;
 
-  // Build the same trees your UI already uses
+  // Build the same tree JSON used by Markdown/Markmap
   let tree;
   if (mode === 'compare') {
     const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, Number(taxonId), authHeader);
-    await sleep(RATE_LIMIT_CONFIG.delayBetweenUsers);
+    await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
     const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, Number(taxonId), authHeader);
     tree = await buildComparisonTree(env, u1, u2, Number(taxonId));
     tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = Number(taxonId);
   } else {
-    const speciesIds = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader);
-    tree = await buildTreeFromDatabase(env, speciesIds, Number(taxonId));
+    const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader);
+    tree = await buildTreeFromDatabase(env, ids, Number(taxonId));
     tree.username = username; tree.taxonId = Number(taxonId);
   }
 
+  let resp;
   switch (format) {
     case 'nhx': {
       const text = serializeNewickNHX(tree) + ';';
-      return new Response(text, {
+      resp = new Response(text, {
         headers: {
           'content-type': 'text/plain; charset=utf-8',
           'content-disposition': `attachment; filename="tree_${Date.now()}.nhx"`
         }
       });
+      break;
     }
     case 'phyloxml': {
       const xml = serializePhyloXML(tree);
-      return new Response(xml, {
+      resp = new Response(xml, {
         headers: {
           'content-type': 'application/xml; charset=utf-8',
           'content-disposition': `attachment; filename="tree_${Date.now()}.phyloxml"`
         }
       });
+      break;
     }
     case 'csv_nodes': {
       const csv = serializeNodesCSV(tree);
-      return new Response(csv, {
+      resp = new Response(csv, {
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': `attachment; filename="nodes_${Date.now()}.csv"`
         }
       });
+      break;
     }
     case 'csv_edges': {
       const csv = serializeEdgesCSV(tree);
-      return new Response(csv, {
+      resp = new Response(csv, {
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': `attachment; filename="edges_${Date.now()}.csv"`
         }
       });
+      break;
     }
+    default:
+      return json({ error: 'Unsupported format' }, 400, request);
   }
-  return json({ error: 'Unsupported format' }, 400, request);
+  // add your standard CORS headers
+  return withCORS(resp, origin);
 }
 
 function serializeNewickNHX(root) {
-  // NHX: append [&&NHX:KEY=VALUE:...] to each label. Spec shows exact header/keys.
   function q(name) {
-    // Quote if it contains characters forbidden by Newick/NHX spec: ()[],:; or whitespace.
-    return /[()\\[\\],:;\\s]/.test(name) ? `'${name.replace(/'/g, "''")}'` : name;
+    const s = String(name || '');
+    return /[()\[\],:;\s]/.test(s) ? `'${s.replace(/'/g, "''")}'` : s;
   }
   function nhx(node) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
-    // Use standard 'S' for scientific name; reserve 'XN' for custom node data (free text).
     const parts = [];
-    if (node.name) parts.push(`S=${node.name}`);
+    if (node.name) parts.push(`S=${node.name}`);        // standard key 'S' (scientific name)
     const custom = [];
     if (node.id) custom.push(`inat_id=${node.id}`);
     if (node.rank) custom.push(`rank=${node.rank}`);
@@ -364,7 +373,7 @@ function serializeNewickNHX(root) {
       const v = node.user1Has && node.user2Has ? 'both' : (node.user1Has ? 'user1' : (node.user2Has ? 'user2' : 'none'));
       custom.push(`pvp=${v}`);
     }
-    if (custom.length) parts.push(`XN=${custom.join('|')}`);
+    if (custom.length) parts.push(`XN=${custom.join('|')}`); // custom node data bucket
     return parts.length ? `[&&NHX:${parts.join(':')}]` : '';
   }
   function walk(node) {
@@ -379,7 +388,6 @@ function serializeNewickNHX(root) {
 }
 
 function serializePhyloXML(root) {
-  // Use phyloXML <taxonomy> and generic <property> (typed) for extras.
   function esc(s){ return String(s).replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); }
   function clade(node) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
@@ -400,8 +408,7 @@ function serializePhyloXML(root) {
       const v = node.user1Has && node.user2Has ? 'both' : (node.user1Has ? 'user1' : (node.user2Has ? 'user2' : 'none'));
       parts.push(`<property applies_to="clade" datatype="xsd:string" ref="inat:pvp">${v}</property>`);
     }
-    const kids = Object.values(node.children || {});
-    for (const k of kids) parts.push(clade(k));
+    for (const k of Object.values(node.children || {})) parts.push(clade(k));
     parts.push('</clade>');
     return parts.join('');
   }
