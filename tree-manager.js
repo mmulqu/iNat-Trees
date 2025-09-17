@@ -1327,6 +1327,7 @@ class TreeManager {
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
           <li><a class="dropdown-item" href="#" data-act="export-html">Interactive HTML</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-newick">Newick (.nwk)</a></li>
         </ul>
       </div>
 
@@ -1354,6 +1355,12 @@ class TreeManager {
 
     toolbar.querySelector('[data-act="export-html"]')
       ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportInteractiveHtml(tree, {}); });
+
+    toolbar.querySelector('[data-act="export-newick"]')
+      ?.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._exportNewick(tree, root);
+      });
 
     toolbar.querySelector('[data-act="share-bsky"]')
       ?.addEventListener('click', () => this._openBskyComposer(tree));
@@ -1725,6 +1732,82 @@ _ensureMiniMap(treeId, svg) {
     const { svgText } = this._serializeSvgForExport(svg);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.svg`);
     this._downloadBlob(name, new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' }));
+  }
+
+  // --- Newick export helpers ---
+
+  // Strip HTML/tokens in Markmap label -> plain text
+  _labelFromHtml(html = '') {
+    let s = String(html);
+    // Drop markmap color tokens and any HTML
+    s = s.replace(/\{color:[^}]+\}/gi, '')
+         .replace(/\{\/color\}/gi, '')
+         .replace(/<a[^>]*class="taxon-link"[^>]*>(.*?)<\/a>/gi, '$1')
+         .replace(/<span[^>]*>.*?<\/span>/gi, '')
+         .replace(/<[^>]+>/g, '')
+         .replace(/🖼️/g, '')
+         .trim();
+    // Collapse internal whitespace
+    s = s.replace(/\s+/g, ' ');
+    return s;
+  }
+
+  // Quote labels if they contain spaces/specials per Newick (single quotes doubled)
+  _escapeNewickLabel(label = '') {
+    if (!label) return '';
+    // If label contains characters outside [A-Za-z0-9_.-], quote it
+    if (/[^\w.\-]/.test(label)) {
+      return `'${label.replace(/'/g, "''")}'`;
+    }
+    return label;
+  }
+
+  // Convert Markmap AST -> Newick string (no branch lengths)
+  _buildNewickFromMarkmap(mmRoot, fallbackRootLabel = 'root') {
+    if (!mmRoot) return `${this._escapeNewickLabel(fallbackRootLabel)};`;
+
+    // Find the first real list item if the transformer wrapped things
+    const firstReal = (node) => {
+      if (!node) return null;
+      const hasContent = node.content && String(node.content).trim().length > 0;
+      if (hasContent) return node;
+      // If container node, drill down (prefer single-child unwrap)
+      if (node.children && node.children.length === 1) return firstReal(node.children[0]);
+      return node;
+    };
+
+    const cleanNode = firstReal(mmRoot);
+
+    const walk = (node) => {
+      const kids = Array.isArray(node.children) ? node.children.filter(Boolean) : [];
+      const label = this._escapeNewickLabel(this._labelFromHtml(node.content || ''));
+      if (kids.length === 0) {
+        // leaf
+        return label || this._escapeNewickLabel(fallbackRootLabel);
+      }
+      const childStr = kids.map(walk).join(',');
+      // Internal node label is allowed; omit if empty
+      return `(${childStr})${label || ''}`;
+    };
+
+    // If the clean root is just a container with multiple children and no label,
+    // synthesize a labeled root using the fallback
+    const isContainerNoLabel =
+      (!cleanNode.content || !String(cleanNode.content).trim()) &&
+      Array.isArray(cleanNode.children) && cleanNode.children.length > 1;
+
+    const core = isContainerNoLabel
+      ? `(${cleanNode.children.map(walk).join(',')})${this._escapeNewickLabel(fallbackRootLabel)}`
+      : walk(cleanNode);
+
+    return core + ';';
+  }
+
+  _exportNewick(tree, mmRoot) {
+    const fallback = tree.taxonName || (tree.taxonId ? `Taxon ${tree.taxonId}` : 'root');
+    const newick = this._buildNewickFromMarkmap(mmRoot, fallback);
+    const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.nwk`);
+    this._downloadBlob(name, new Blob([newick], { type: 'text/x-nh' }));
   }
 
   async _exportPNG(tree, scale = 2) {
