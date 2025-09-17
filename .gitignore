@@ -21,7 +21,10 @@ full_schema.sql
 *.jpeg
 *.png
 *.gif
+*.svg
 *.webp
+*.ico
+*.webmanifest
 *.mov
 *.avi
 inat_tax_probe_min.py
