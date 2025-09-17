@@ -1328,6 +1328,10 @@ class TreeManager {
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
           <li><a class="dropdown-item" href="#" data-act="export-html">Interactive HTML</a></li>
           <li><a class="dropdown-item" href="#" data-act="export-newick">Newick (.nwk)</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-nhx">Newick (NHX)</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-phyloxml">phyloXML</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-nodes-csv">Nodes CSV</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-edges-csv">Edges CSV</a></li>
         </ul>
       </div>
 
@@ -1361,6 +1365,18 @@ class TreeManager {
         e.preventDefault();
         this._exportNewick(tree, root);
       });
+
+    toolbar.querySelector('[data-act="export-nhx"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'nhx', 'nhx'); });
+
+    toolbar.querySelector('[data-act="export-phyloxml"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'phyloxml', 'phyloxml'); });
+
+    toolbar.querySelector('[data-act="export-nodes-csv"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'csv_nodes', 'csv'); });
+
+    toolbar.querySelector('[data-act="export-edges-csv"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'csv_edges', 'csv'); });
 
     toolbar.querySelector('[data-act="share-bsky"]')
       ?.addEventListener('click', () => this._openBskyComposer(tree));
@@ -1832,6 +1848,25 @@ _ensureMiniMap(treeId, svg) {
     const newick = this._buildNewickFromMarkmap(mmRoot, fallback, { includeInternalLabels: false });
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.nwk`);
     this._downloadBlob(name, new Blob([newick], { type: 'text/x-nh' }));
+  }
+
+  async _exportTreeFile(tree, format, ext) {
+    const mode = tree.isComparison ? 'compare' : 'single';
+    const payload = tree.isComparison
+      ? { mode, username1: tree.username1, username2: tree.username2, taxonId: tree.taxonId }
+      : { mode, username: tree.username, taxonId: tree.taxonId };
+
+    const r = await fetch(`/export?format=${encodeURIComponent(format)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) { alert('Export failed'); return; }
+    const blob = await r.blob();
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const base = this._fileSafeName(this._treeLabel(tree));
+    const name = `${base}_${format}_${stamp}.${ext}`;
+    this._downloadBlob(name, blob);
   }
 
   async _exportPNG(tree, scale = 2) {
