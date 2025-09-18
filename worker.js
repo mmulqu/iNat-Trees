@@ -290,6 +290,15 @@ async function exportHandler(request, env) {
 
   const { mode = 'single', username, username1, username2, taxonId } = body || {};
 
+  // Prefer graph-based serialization
+  const graph = body?.graph;
+  let nodes, edges;
+
+  if (graph && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) {
+    nodes = graph.nodes;
+    edges = graph.edges;
+  }
+
   // auth (reuses your helper)
   const rawAuth = request.headers.get('Authorization') || '';
   const jwt = await processAuthHeader(rawAuth).catch(() => null);
@@ -307,80 +316,89 @@ async function exportHandler(request, env) {
     return withCORS(json({ error: 'username required' }, 400, request), origin);
   }
 
-  // Build the same tree JSON used by Markdown/Markmap – but with error capture
-  let tree;
-  try {
-    // NEW fast-paths before any iNat calls
-    if (body.tree && typeof body.tree === 'object') {
-      // trust the prebuilt tree from the UI
-      tree = body.tree;
-    } else if (Array.isArray(body.speciesIds) && body.speciesIds.length) {
-      // build from species ids without hitting /species_counts (uses your DB only)
-      tree = await buildTreeFromDatabase(env, body.speciesIds, baseId);
-    } else {
-      // existing behavior (build via iNat queries):
-      if (mode === 'compare') {
-        const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, baseId, authHeader);
-        await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
-        const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, baseId, authHeader);
-        if (!u1.length && !u2.length) {
-          return withCORS(json({ error: 'No species found for either user under this taxon' }, 404, request), origin);
-        }
-        tree = await buildComparisonTree(env, u1, u2, baseId);
-        tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = baseId;
+  // Build tree data only if we don't have a graph
+  let tree = null;
+  if (!nodes || !edges) {
+    try {
+      // NEW fast-paths before any iNat calls
+      if (body.tree && typeof body.tree === 'object') {
+        // trust the prebuilt tree from the UI
+        tree = body.tree;
+      } else if (Array.isArray(body.speciesIds) && body.speciesIds.length) {
+        // build from species ids without hitting /species_counts (uses your DB only)
+        tree = await buildTreeFromDatabase(env, body.speciesIds, baseId);
       } else {
-        const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, baseId, authHeader);
-        if (!ids.length) {
-          return withCORS(json({ error: `No species found for ${username} under taxon ${baseId}` }, 404, request), origin);
-        }
-        tree = await buildTreeFromDatabase(env, ids, baseId);
-        tree.username = username; tree.taxonId = baseId;
-      }
-    }
-  } catch (e) {
-    // Surface iNat errors instead of a generic 500
-    const msg = String(e?.message || e);
-    const status = /iNat HTTP 429/.test(msg) ? 429 : (/iNat HTTP \d+/.test(msg) ? 502 : 500);
-    if (status === 429) {
-      return withCORS(
-        new Response(JSON.stringify({ error: 'Rate limited', hint: 'Try again shortly' }), {
-          status: 429,
-          headers: {
-            'content-type': 'application/json',
-            'retry-after': '15', // seconds; match your token replenish window
+        // existing behavior (build via iNat queries):
+        if (mode === 'compare') {
+          const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, baseId, authHeader);
+          await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
+          const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, baseId, authHeader);
+          if (!u1.length && !u2.length) {
+            return withCORS(json({ error: 'No species found for either user under this taxon' }, 404, request), origin);
           }
-        }),
-        origin
-      );
+          tree = await buildComparisonTree(env, u1, u2, baseId);
+          tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = baseId;
+        } else {
+          const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, baseId, authHeader);
+          if (!ids.length) {
+            return withCORS(json({ error: `No species found for ${username} under taxon ${baseId}` }, 404, request), origin);
+          }
+          tree = await buildTreeFromDatabase(env, ids, baseId);
+          tree.username = username; tree.taxonId = baseId;
+        }
+      }
+    } catch (e) {
+      // Surface iNat errors instead of a generic 500
+      const msg = String(e?.message || e);
+      const status = /iNat HTTP 429/.test(msg) ? 429 : (/iNat HTTP \d+/.test(msg) ? 502 : 500);
+      if (status === 429) {
+        return withCORS(
+          new Response(JSON.stringify({ error: 'Rate limited', hint: 'Try again shortly' }), {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after': '15', // seconds; match your token replenish window
+            }
+          }),
+          origin
+        );
+      }
+      return withCORS(json({ error: 'Tree build failed', detail: msg }, status, request), origin);
     }
-    return withCORS(json({ error: 'Tree build failed', detail: msg }, status, request), origin);
   }
 
   // Serialize with per-format try/catch so one bad field doesn't 500 the route
   try {
+    const username = body.username || body.username1 || 'tree';
     switch (format) {
       case 'nhx': {
-        const text = (serializeNewickNHX(tree) || '') + ';';
+        const text = nodes && edges 
+          ? (serializeNewickNHXFromGraph(nodes, edges) || '') + ';'
+          : (serializeNewickNHX(tree) || '') + ';';
         const resp = new Response(text, {
           headers: {
             'content-type': 'text/plain; charset=utf-8',
-            'content-disposition': `attachment; filename="${(tree.username || tree.username1 || 'tree')}_${Date.now()}.nhx"`
+            'content-disposition': `attachment; filename="${username}_${Date.now()}.nhx"`
           }
         });
         return withCORS(resp, origin);
       }
       case 'phyloxml': {
-        const xml = serializePhyloXML(tree) || '';
+        const xml = nodes && edges 
+          ? serializePhyloXMLFromGraph(nodes, edges, body.taxonName || 'root', mode === 'compare')
+          : serializePhyloXML(tree) || '';
         const resp = new Response(xml, {
           headers: {
             'content-type': 'application/xml; charset=utf-8',
-            'content-disposition': `attachment; filename="${(tree.username || tree.username1 || 'tree')}_${Date.now()}.phyloxml"`
+            'content-disposition': `attachment; filename="${username}_${Date.now()}.phyloxml"`
           }
         });
         return withCORS(resp, origin);
       }
       case 'csv_nodes': {
-        const csv = serializeNodesCSV(tree) || 'id,name,rank,common_name,url,color\n';
+        const csv = nodes && edges 
+          ? serializeNodesCSVFromGraph(nodes)
+          : serializeNodesCSV(tree) || 'id,name,rank,common_name,url,color\n';
         const resp = new Response(csv, {
           headers: {
             'content-type': 'text/csv; charset=utf-8',
@@ -390,7 +408,9 @@ async function exportHandler(request, env) {
         return withCORS(resp, origin);
       }
       case 'csv_edges': {
-        const csv = serializeEdgesCSV(tree) || 'parent_id,child_id\n';
+        const csv = nodes && edges 
+          ? serializeEdgesCSVFromGraph(edges)
+          : serializeEdgesCSV(tree) || 'parent_id,child_id\n';
         const resp = new Response(csv, {
           headers: {
             'content-type': 'text/csv; charset=utf-8',
@@ -497,6 +517,132 @@ function serializeEdgesCSV(root = {}) {
       dfs(c);
     }
   })(root);
+  return rows.map(r => r.join(',')).join('\n');
+}
+
+// Graph-based serializers (new approach)
+function serializeNewickNHXFromGraph(nodes, edges) {
+  if (!nodes || !edges || !nodes.length) return '';
+  
+  // Build adjacency list
+  const children = new Map();
+  const roots = new Set(nodes.map(n => n.id));
+  
+  edges.forEach(edge => {
+    const parent = edge.parent_id;
+    const child = edge.child_id;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(child);
+    roots.delete(child);
+  });
+  
+  // Find root (should be only one)
+  const rootId = roots.values().next().value;
+  if (!rootId) return '';
+  
+  function q(name) {
+    const s = String(name || '');
+    return /[()\[\],:;\s]/.test(s) ? `'${s.replace(/'/g, "''")}'` : s;
+  }
+  
+  function walk(nodeId) {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return '';
+    
+    const label = q(node.name || '');
+    const kids = children.get(nodeId) || [];
+    
+    if (kids.length === 0) return label;
+    
+    const childStr = kids.map(walk).filter(Boolean).join(',');
+    return `(${childStr})${label}`;
+  }
+  
+  return walk(rootId);
+}
+
+function serializePhyloXMLFromGraph(nodes, edges, title = 'root', isComparison = false) {
+  if (!nodes || !edges) return '';
+  
+  function esc(s) { 
+    return String(s || '').replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); 
+  }
+  
+  const titleStr = isComparison ? `iNat PvP (taxon ${title})` : `iNat tree (taxon ${title})`;
+  
+  let xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" xmlns="http://www.phyloxml.org">',
+    `<phylogeny rooted="true"><name>${esc(titleStr)}</name>`
+  ];
+  
+  // Build adjacency list
+  const children = new Map();
+  const roots = new Set(nodes.map(n => n.id));
+  
+  edges.forEach(edge => {
+    const parent = edge.parent_id;
+    const child = edge.child_id;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(child);
+    roots.delete(child);
+  });
+  
+  const rootId = roots.values().next().value;
+  
+  function clade(nodeId) {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return '<clade></clade>';
+    
+    const parts = ['<clade>'];
+    if (node.name) parts.push(`<name>${esc(node.name)}</name>`);
+    if (node.rank) {
+      parts.push('<taxonomy>');
+      parts.push(`<rank>${esc(node.rank)}</rank>`);
+      parts.push('</taxonomy>');
+    }
+    
+    const kids = children.get(nodeId) || [];
+    kids.forEach(childId => parts.push(clade(childId)));
+    
+    parts.push('</clade>');
+    return parts.join('');
+  }
+  
+  if (rootId) {
+    xml.push(clade(rootId));
+  }
+  
+  xml.push('</phylogeny></phyloxml>');
+  return xml.join('');
+}
+
+function serializeNodesCSVFromGraph(nodes) {
+  if (!nodes || !nodes.length) return 'id,name,rank,common_name,url,color\n';
+  
+  const rows = [['id','name','rank','common_name','url','color']];
+  nodes.forEach(node => {
+    rows.push([
+      node.id || '',
+      node.name || '',
+      node.rank || '',
+      '', // common_name
+      '', // url
+      ''  // color
+    ]);
+  });
+  
+  return rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+}
+
+function serializeEdgesCSVFromGraph(edges) {
+  if (!edges || !edges.length) return 'parent_id,child_id\n';
+  
+  const rows = [['parent_id','child_id']];
+  edges.forEach(edge => {
+    rows.push([edge.parent_id || '', edge.child_id || '']);
+  });
+  
   return rows.map(r => r.join(',')).join('\n');
 }
 

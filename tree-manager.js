@@ -1861,17 +1861,22 @@ _ensureMiniMap(treeId, svg) {
     this._exportBusy = true;
     try {
       const url = `${API_BASE}/export?format=${encodeURIComponent(format)}`;
-      
-      // Send the already-built tree to avoid extra API calls
+
+      // Build graph from the SAME markdown you render
+      const { Transformer } = window.markmap;
+      const t  = new Transformer();
+      const md = tree.markdown || tree.md || '';
+      const { root } = t.transform(md);
+      const graph = this.astToGraph(root);
+
       const body = {
-        tree: tree,                    // the full tree object we already built
-        taxonId: tree.taxonId,        // for filenames
-        // Keep fallback fields for backward compatibility
         mode: tree.isComparison ? 'compare' : 'single',
-        ...(tree.isComparison 
-          ? { username1: tree.username1, username2: tree.username2 }
-          : { username: tree.username }
-        )
+        username: tree.username,
+        username1: tree.username1,
+        username2: tree.username2,
+        taxonId: tree.taxonId,
+        taxonName: tree.taxonName,
+        graph // << send only this; no rows required
       };
 
       const doFetch = () => fetch(url, {
@@ -1883,10 +1888,7 @@ _ensureMiniMap(treeId, svg) {
         body: JSON.stringify(body)
       }).then(async r => {
         if (r.status === 429) throw new Error('export HTTP 429');
-        if (!r.ok) {
-          const txt = await r.text().catch(() => '');
-          throw new Error(`export ${r.status}: ${txt || 'unknown error'}`);
-        }
+        if (!r.ok) throw new Error(`export ${r.status}: ${(await r.text().catch(()=>'')) || 'unknown error'}`);
         return r;
       });
 
@@ -1912,6 +1914,43 @@ _ensureMiniMap(treeId, svg) {
       }
     }
     throw lastErr;
+  }
+
+  // Convert Markmap AST to graph format for export
+  astToGraph(mmRoot) {
+    const nodes = [], edges = [];
+    let id = 0;
+
+    const clean = (s='') =>
+      String(s)
+        .replace(/\{color:[^}]+\}|\{\/color\}/gi,'')
+        .replace(/\{rank:[^}]+\}/gi,'')
+        .replace(/<[^>]+>/g,'')
+        .replace(/\u{1F5BC}\u{FE0F}?/gu,'') // 🖼️
+        .replace(/\s+/g,' ')
+        .trim();
+
+    const getRank = (s='') => {
+      const m = String(s).match(/\{rank:([a-z]+)\}/i);
+      return m ? m[1].toLowerCase() : '';
+    };
+
+    const unwrap = n =>
+      (n && (!n.content || !String(n.content).trim()) && (n.children||[]).length === 1)
+        ? unwrap(n.children[0]) : n;
+
+    const walk = (node, parentId=null) => {
+      if (!node) return;
+      const label = clean(node.content || '');
+      const rank  = getRank(node.content || '');
+      const myId  = `n${++id}`;
+      nodes.push({ id: myId, name: label || `node_${id}`, rank });
+      if (parentId) edges.push({ parent_id: parentId, child_id: myId });
+      (node.children || []).forEach(ch => walk(ch, myId));
+    };
+
+    walk(unwrap(mmRoot), null);
+    return { nodes, edges };
   }
 
   async _exportPNG(tree, scale = 2) {
