@@ -1327,6 +1327,11 @@ class TreeManager {
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="#" data-act="export-png">Export PNG</a></li>
           <li><a class="dropdown-item" href="#" data-act="export-html">Interactive HTML</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-newick">Newick (.nwk)</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-nhx">Newick (NHX)</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-phyloxml">phyloXML</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-nodes-csv">Nodes CSV</a></li>
+          <li><a class="dropdown-item" href="#" data-act="export-edges-csv">Edges CSV</a></li>
         </ul>
       </div>
 
@@ -1354,6 +1359,24 @@ class TreeManager {
 
     toolbar.querySelector('[data-act="export-html"]')
       ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportInteractiveHtml(tree, {}); });
+
+    toolbar.querySelector('[data-act="export-newick"]')
+      ?.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._exportNewick(tree, root);
+      });
+
+    toolbar.querySelector('[data-act="export-nhx"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'nhx', 'nhx'); });
+
+    toolbar.querySelector('[data-act="export-phyloxml"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'phyloxml', 'phyloxml'); });
+
+    toolbar.querySelector('[data-act="export-nodes-csv"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'csv_nodes', 'csv'); });
+
+    toolbar.querySelector('[data-act="export-edges-csv"]')
+      ?.addEventListener('click', (e)=>{ e.preventDefault(); this._exportTreeFile(tree, 'csv_edges', 'csv'); });
 
     toolbar.querySelector('[data-act="share-bsky"]')
       ?.addEventListener('click', () => this._openBskyComposer(tree));
@@ -1725,6 +1748,125 @@ _ensureMiniMap(treeId, svg) {
     const { svgText } = this._serializeSvgForExport(svg);
     const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.svg`);
     this._downloadBlob(name, new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' }));
+  }
+
+  // --- Newick export helpers (improved) ---
+
+  // Decode HTML entities -> plain text (so we can remove emoji reliably)
+  _decodeEntities(s = '') {
+    const el = document.createElement('textarea');
+    el.innerHTML = String(s);
+    return el.value;
+  }
+
+  // Strip HTML/tokens in Markmap label -> clean text (no emoji/entities)
+  _labelFromHtml(html = '') {
+    let s = String(html);
+
+    // Remove markmap tokens + tags first
+    s = s.replace(/\{color:[^}]+\}/gi, '')
+         .replace(/\{\/color\}/gi, '')
+         .replace(/<a[^>]*class="taxon-link"[^>]*>(.*?)<\/a>/gi, '$1')
+         .replace(/<span[^>]*>.*?<\/span>/gi, '')
+         .replace(/<[^>]+>/g, '');
+
+    // Decode any HTML entities (eg. &#x1f5bc;, &amp;, &nbsp;)
+    s = this._decodeEntities(s);
+
+    // Remove the camera/pictograph emoji and variation selectors
+    // - specifically remove U+1F5BC (🖼) with optional U+FE0F
+    s = s.replace(/\u{1F5BC}\u{FE0F}?/gu, '');
+
+    // (optional) remove any other pictographic emojis that might slip in
+    // Comment out if you want to keep other emojis.
+    s = s.replace(/\p{Extended_Pictographic}/gu, '');
+
+    // Collapse whitespace
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
+  // Quote labels if they contain spaces/specials per Newick (single quotes doubled)
+  _escapeNewickLabel(label = '') {
+    if (!label) return '';
+    return /[()\[\],:;\s]/.test(label)
+      ? `'${String(label).replace(/'/g, "''")}'`
+      : label;
+  }
+
+  // Convert Markmap AST -> Newick string (no branch lengths)
+  // options: { includeInternalLabels: boolean }
+  _buildNewickFromMarkmap(mmRoot, fallbackRootLabel = 'root', opts = {}) {
+    const { includeInternalLabels = false } = opts;
+    if (!mmRoot) return `${this._escapeNewickLabel(fallbackRootLabel)};`;
+
+    // Unwrap container nodes the transformer may have added
+    const firstReal = (node) => {
+      if (!node) return null;
+      const hasContent = node.content && String(node.content).trim().length > 0;
+      if (hasContent) return node;
+      if (node.children && node.children.length === 1) return firstReal(node.children[0]);
+      return node;
+    };
+
+    const cleanNode = firstReal(mmRoot);
+
+    const walk = (node, isRoot = false) => {
+      const kids = Array.isArray(node.children) ? node.children.filter(Boolean) : [];
+      const labelText = this._labelFromHtml(node.content || '');
+      const label = this._escapeNewickLabel(labelText);
+
+      if (kids.length === 0) {
+        // leaf
+        return label || this._escapeNewickLabel(fallbackRootLabel);
+      }
+      const childStr = kids.map((k) => walk(k, false)).join(',');
+
+      // Internal-node labels often clutter; omit unless explicitly requested
+      const internal = includeInternalLabels && label ? label : '';
+
+      // If the very top is an unlabeled multi-child container, synthesize a root label
+      if (isRoot && !internal && (!labelText || !labelText.trim())) {
+        return `(${childStr})${this._escapeNewickLabel(fallbackRootLabel)}`;
+      }
+      return `(${childStr})${internal}`;
+    };
+
+    const isContainerNoLabel =
+      (!cleanNode.content || !String(cleanNode.content).trim()) &&
+      Array.isArray(cleanNode.children) && cleanNode.children.length > 1;
+
+    const core = isContainerNoLabel
+      ? `(${cleanNode.children.map((k) => walk(k)).join(',')})${this._escapeNewickLabel(fallbackRootLabel)}`
+      : walk(cleanNode, true);
+
+    return core + ';';
+  }
+
+  _exportNewick(tree, mmRoot) {
+    const fallback = tree.taxonName || (tree.taxonId ? `Taxon ${tree.taxonId}` : 'root');
+    // Default: hide internal labels for cleaner output
+    const newick = this._buildNewickFromMarkmap(mmRoot, fallback, { includeInternalLabels: false });
+    const name = this._fileSafeName(`${this._treeLabel(tree)}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.nwk`);
+    this._downloadBlob(name, new Blob([newick], { type: 'text/x-nh' }));
+  }
+
+  async _exportTreeFile(tree, format, ext) {
+    const mode = tree.isComparison ? 'compare' : 'single';
+    const payload = tree.isComparison
+      ? { mode, username1: tree.username1, username2: tree.username2, taxonId: tree.taxonId }
+      : { mode, username: tree.username, taxonId: tree.taxonId };
+
+    const r = await fetch(`/export?format=${encodeURIComponent(format)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) { alert('Export failed'); return; }
+    const blob = await r.blob();
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const base = this._fileSafeName(this._treeLabel(tree));
+    const name = `${base}_${format}_${stamp}.${ext}`;
+    this._downloadBlob(name, blob);
   }
 
   async _exportPNG(tree, scale = 2) {
