@@ -1857,23 +1857,61 @@ _ensureMiniMap(treeId, svg) {
   }
 
   async _exportTreeFile(tree, format, ext) {
-    const url = `${API_BASE}/export?format=${encodeURIComponent(format)}`;
-    const mode = tree.isComparison ? 'compare' : 'single';
-    const body = tree.isComparison
-      ? { mode, username1: tree.username1, username2: tree.username2, taxonId: Number(tree.taxonId) }
-      : { mode, username: tree.username, taxonId: Number(tree.taxonId) };
+    if (this._exportBusy) return;
+    this._exportBusy = true;
+    try {
+      const url = `${API_BASE}/export?format=${encodeURIComponent(format)}`;
+      
+      // Send the already-built tree to avoid extra API calls
+      const body = {
+        tree: tree,                    // the full tree object we already built
+        taxonId: tree.taxonId,        // for filenames
+        // Keep fallback fields for backward compatibility
+        mode: tree.isComparison ? 'compare' : 'single',
+        ...(tree.isComparison 
+          ? { username1: tree.username1, username2: tree.username2 }
+          : { username: tree.username }
+        )
+      };
 
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(window.authHeader ? { Authorization: window.authHeader } : {})
-      },
-      body: JSON.stringify(body)
-    });
-    if (!r.ok) throw new Error(`export HTTP ${r.status}`);
-    const blob = await r.blob();
-    this._downloadBlob(`${this._fileSafeName(this._treeLabel(tree))}.${ext}`, blob);
+      const doFetch = () => fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(window.authHeader ? { Authorization: window.authHeader } : {})
+        },
+        body: JSON.stringify(body)
+      }).then(async r => {
+        if (r.status === 429) throw new Error('export HTTP 429');
+        if (!r.ok) {
+          const txt = await r.text().catch(() => '');
+          throw new Error(`export ${r.status}: ${txt || 'unknown error'}`);
+        }
+        return r;
+      });
+
+      const r = await this._withBackoff(doFetch);
+      const blob = await r.blob();
+      this._downloadBlob(`${this._fileSafeName(this._treeLabel(tree))}.${ext}`, blob);
+    } finally {
+      this._exportBusy = false;
+    }
+  }
+
+  // Exponential backoff helper
+  async _withBackoff(fn, { tries = 4, base = 400 } = {}) {
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
+      try { 
+        return await fn(); 
+      } catch (e) {
+        lastErr = e;
+        if (!/HTTP 429/.test(String(e))) break;
+        const wait = base * Math.pow(2, i) + Math.random() * 150;
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
+    throw lastErr;
   }
 
   async _exportPNG(tree, scale = 2) {

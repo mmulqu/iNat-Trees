@@ -310,27 +310,49 @@ async function exportHandler(request, env) {
   // Build the same tree JSON used by Markdown/Markmap – but with error capture
   let tree;
   try {
-    if (mode === 'compare') {
-      const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, baseId, authHeader);
-      await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
-      const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, baseId, authHeader);
-      if (!u1.length && !u2.length) {
-        return withCORS(json({ error: 'No species found for either user under this taxon' }, 404, request), origin);
-      }
-      tree = await buildComparisonTree(env, u1, u2, baseId);
-      tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = baseId;
+    // NEW fast-paths before any iNat calls
+    if (body.tree && typeof body.tree === 'object') {
+      // trust the prebuilt tree from the UI
+      tree = body.tree;
+    } else if (Array.isArray(body.speciesIds) && body.speciesIds.length) {
+      // build from species ids without hitting /species_counts (uses your DB only)
+      tree = await buildTreeFromDatabase(env, body.speciesIds, baseId);
     } else {
-      const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, baseId, authHeader);
-      if (!ids.length) {
-        return withCORS(json({ error: `No species found for ${username} under taxon ${baseId}` }, 404, request), origin);
+      // existing behavior (build via iNat queries):
+      if (mode === 'compare') {
+        const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, baseId, authHeader);
+        await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
+        const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, baseId, authHeader);
+        if (!u1.length && !u2.length) {
+          return withCORS(json({ error: 'No species found for either user under this taxon' }, 404, request), origin);
+        }
+        tree = await buildComparisonTree(env, u1, u2, baseId);
+        tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = baseId;
+      } else {
+        const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, baseId, authHeader);
+        if (!ids.length) {
+          return withCORS(json({ error: `No species found for ${username} under taxon ${baseId}` }, 404, request), origin);
+        }
+        tree = await buildTreeFromDatabase(env, ids, baseId);
+        tree.username = username; tree.taxonId = baseId;
       }
-      tree = await buildTreeFromDatabase(env, ids, baseId);
-      tree.username = username; tree.taxonId = baseId;
     }
   } catch (e) {
     // Surface iNat errors instead of a generic 500
     const msg = String(e?.message || e);
     const status = /iNat HTTP 429/.test(msg) ? 429 : (/iNat HTTP \d+/.test(msg) ? 502 : 500);
+    if (status === 429) {
+      return withCORS(
+        new Response(JSON.stringify({ error: 'Rate limited', hint: 'Try again shortly' }), {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'retry-after': '15', // seconds; match your token replenish window
+          }
+        }),
+        origin
+      );
+    }
     return withCORS(json({ error: 'Tree build failed', detail: msg }, status, request), origin);
   }
 
