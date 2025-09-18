@@ -283,86 +283,120 @@ async function exportHandler(request, env) {
   const format = (url.searchParams.get('format') || '').toLowerCase();
   const origin = request.headers.get("Origin") || "*";
 
-  const body = await request.json().catch(() => ({}));
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) { body = {}; }
+
   const { mode = 'single', username, username1, username2, taxonId } = body || {};
 
   // auth (reuses your helper)
   const rawAuth = request.headers.get('Authorization') || '';
-  const jwt = await processAuthHeader(rawAuth);
+  const jwt = await processAuthHeader(rawAuth).catch(() => null);
   const authHeader = jwt ? `Bearer ${jwt}` : undefined;
 
-  // Build the same tree JSON used by Markdown/Markmap
-  let tree;
-  if (mode === 'compare') {
-    const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, Number(taxonId), authHeader);
-    await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
-    const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, Number(taxonId), authHeader);
-    tree = await buildComparisonTree(env, u1, u2, Number(taxonId));
-    tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = Number(taxonId);
-  } else {
-    const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader);
-    tree = await buildTreeFromDatabase(env, ids, Number(taxonId));
-    tree.username = username; tree.taxonId = Number(taxonId);
+  // Validate inputs early, like other endpoints
+  const baseId = Number(taxonId);
+  if (!Number.isFinite(baseId) || baseId <= 0) {
+    return withCORS(json({ error: 'taxonId required' }, 400, request), origin);
+  }
+  if (mode === 'compare' && (!username1 || !username2)) {
+    return withCORS(json({ error: 'username1 and username2 required for compare mode' }, 400, request), origin);
+  }
+  if (mode !== 'compare' && !username) {
+    return withCORS(json({ error: 'username required' }, 400, request), origin);
   }
 
-  let resp;
-  switch (format) {
-    case 'nhx': {
-      const text = serializeNewickNHX(tree) + ';';
-      resp = new Response(text, {
-        headers: {
-          'content-type': 'text/plain; charset=utf-8',
-          'content-disposition': `attachment; filename="tree_${Date.now()}.nhx"`
-        }
-      });
-      break;
+  // Build the same tree JSON used by Markdown/Markmap – but with error capture
+  let tree;
+  try {
+    if (mode === 'compare') {
+      const u1 = await fetchSpeciesIdsViaSpeciesCounts(env, username1, baseId, authHeader);
+      await new Promise(r => setTimeout(r, RATE_LIMIT_CONFIG.delayBetweenUsers));
+      const u2 = await fetchSpeciesIdsViaSpeciesCounts(env, username2, baseId, authHeader);
+      if (!u1.length && !u2.length) {
+        return withCORS(json({ error: 'No species found for either user under this taxon' }, 404, request), origin);
+      }
+      tree = await buildComparisonTree(env, u1, u2, baseId);
+      tree.isComparison = true; tree.username1 = username1; tree.username2 = username2; tree.taxonId = baseId;
+    } else {
+      const ids = await fetchSpeciesIdsViaSpeciesCounts(env, username, baseId, authHeader);
+      if (!ids.length) {
+        return withCORS(json({ error: `No species found for ${username} under taxon ${baseId}` }, 404, request), origin);
+      }
+      tree = await buildTreeFromDatabase(env, ids, baseId);
+      tree.username = username; tree.taxonId = baseId;
     }
-    case 'phyloxml': {
-      const xml = serializePhyloXML(tree);
-      resp = new Response(xml, {
-        headers: {
-          'content-type': 'application/xml; charset=utf-8',
-          'content-disposition': `attachment; filename="tree_${Date.now()}.phyloxml"`
-        }
-      });
-      break;
-    }
-    case 'csv_nodes': {
-      const csv = serializeNodesCSV(tree);
-      resp = new Response(csv, {
-        headers: {
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': `attachment; filename="nodes_${Date.now()}.csv"`
-        }
-      });
-      break;
-    }
-    case 'csv_edges': {
-      const csv = serializeEdgesCSV(tree);
-      resp = new Response(csv, {
-        headers: {
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': `attachment; filename="edges_${Date.now()}.csv"`
-        }
-      });
-      break;
-    }
-    default:
-      return json({ error: 'Unsupported format' }, 400, request);
+  } catch (e) {
+    // Surface iNat errors instead of a generic 500
+    const msg = String(e?.message || e);
+    const status = /iNat HTTP 429/.test(msg) ? 429 : (/iNat HTTP \d+/.test(msg) ? 502 : 500);
+    return withCORS(json({ error: 'Tree build failed', detail: msg }, status, request), origin);
   }
-  // add your standard CORS headers
-  return withCORS(resp, origin);
+
+  // Serialize with per-format try/catch so one bad field doesn't 500 the route
+  try {
+    switch (format) {
+      case 'nhx': {
+        const text = (serializeNewickNHX(tree) || '') + ';';
+        const resp = new Response(text, {
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'content-disposition': `attachment; filename="${(tree.username || tree.username1 || 'tree')}_${Date.now()}.nhx"`
+          }
+        });
+        return withCORS(resp, origin);
+      }
+      case 'phyloxml': {
+        const xml = serializePhyloXML(tree) || '';
+        const resp = new Response(xml, {
+          headers: {
+            'content-type': 'application/xml; charset=utf-8',
+            'content-disposition': `attachment; filename="${(tree.username || tree.username1 || 'tree')}_${Date.now()}.phyloxml"`
+          }
+        });
+        return withCORS(resp, origin);
+      }
+      case 'csv_nodes': {
+        const csv = serializeNodesCSV(tree) || 'id,name,rank,common_name,url,color\n';
+        const resp = new Response(csv, {
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="nodes_${Date.now()}.csv"`
+          }
+        });
+        return withCORS(resp, origin);
+      }
+      case 'csv_edges': {
+        const csv = serializeEdgesCSV(tree) || 'parent_id,child_id\n';
+        const resp = new Response(csv, {
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="edges_${Date.now()}.csv"`
+          }
+        });
+        return withCORS(resp, origin);
+      }
+      default:
+        return withCORS(json({ error: 'Unsupported format' }, 400, request), origin);
+    }
+  } catch (e) {
+    const msg = String(e?.message || e);
+    // Return a debuggable payload instead of opaque 500
+    return withCORS(json({ error: 'Serialize failed', detail: msg }, 500, request), origin);
+  }
 }
 
 function serializeNewickNHX(root) {
+  if (!root) return '';
   function q(name) {
     const s = String(name || '');
     return /[()\[\],:;\s]/.test(s) ? `'${s.replace(/'/g, "''")}'` : s;
   }
-  function nhx(node) {
+  function nhx(node = {}) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
     const parts = [];
-    if (node.name) parts.push(`S=${node.name}`);        // standard key 'S' (scientific name)
+    if (node.name) parts.push(`S=${node.name}`);
     const custom = [];
     if (node.id) custom.push(`inat_id=${node.id}`);
     if (node.rank) custom.push(`rank=${node.rank}`);
@@ -373,10 +407,11 @@ function serializeNewickNHX(root) {
       const v = node.user1Has && node.user2Has ? 'both' : (node.user1Has ? 'user1' : (node.user2Has ? 'user2' : 'none'));
       custom.push(`pvp=${v}`);
     }
-    if (custom.length) parts.push(`XN=${custom.join('|')}`); // custom node data bucket
-    return parts.length ? `[&&NHX:${parts.join(':')}]` : '';
+    return parts.concat(custom.length ? [`XN=${custom.join('|')}`] : []).length
+      ? `[&&NHX:${parts.concat(custom.length?`XN=${custom.join('|')}`:null).filter(Boolean).join(':')}]`
+      : '';
   }
-  function walk(node) {
+  function walk(node = {}) {
     const kids = Object.values(node.children || {});
     const label = node.name ? q(node.name) : '';
     const tag = nhx(node);
@@ -387,12 +422,11 @@ function serializeNewickNHX(root) {
   return walk(root);
 }
 
-function serializePhyloXML(root) {
-  function esc(s){ return String(s).replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); }
-  function clade(node) {
+function serializePhyloXML(root = {}) {
+  function esc(s){ return String(s || '').replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); }
+  function clade(node = {}) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
-    const parts = [];
-    parts.push('<clade>');
+    const parts = ['<clade>'];
     if (node.name) parts.push(`<name>${esc(node.name)}</name>`);
     if (node.id || node.rank || node.common_name) {
       parts.push('<taxonomy>');
@@ -413,31 +447,31 @@ function serializePhyloXML(root) {
     return parts.join('');
   }
   const title = root.isComparison
-    ? `iNat PvP: ${root.username1} vs ${root.username2} (taxon ${root.taxonId})`
-    : `iNat tree for ${root.username || 'user'} (taxon ${root.taxonId})`;
+    ? `iNat PvP: ${root.username1 || ''} vs ${root.username2 || ''} (taxon ${root.taxonId || ''})`
+    : `iNat tree for ${root.username || 'user'} (taxon ${root.taxonId || ''})`;
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" xmlns="http://www.phyloxml.org">',
     `<phylogeny rooted="true"><name>${esc(title)}</name>`,
-    clade(root),
+    clade(root || {}),
     '</phylogeny></phyloxml>'
   ].join('');
 }
 
-function serializeNodesCSV(root) {
+function serializeNodesCSV(root = {}) {
   const rows = [['id','name','rank','common_name','url','color']];
-  (function dfs(n){
-    rows.push([n.id, n.name||'', n.rank||'', n.common_name||'', n.id?`https://www.inaturalist.org/taxa/${n.id}`:'', n.color||'']);
-    for (const c of Object.values(n.children||{})) dfs(c);
+  (function dfs(n = {}) {
+    rows.push([n.id ?? '', n.name || '', n.rank || '', n.common_name || '', n.id?`https://www.inaturalist.org/taxa/${n.id}`:'', n.color || '']);
+    for (const c of Object.values(n.children || {})) dfs(c);
   })(root);
   return rows.map(r => r.map(v => `"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
 }
 
-function serializeEdgesCSV(root) {
+function serializeEdgesCSV(root = {}) {
   const rows = [['parent_id','child_id']];
-  (function dfs(n){
-    for (const c of Object.values(n.children||{})) {
-      rows.push([n.id||'', c.id||'']);
+  (function dfs(n = {}) {
+    for (const c of Object.values(n.children || {})) {
+      rows.push([n.id ?? '', c.id ?? '']);
       dfs(c);
     }
   })(root);
