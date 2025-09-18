@@ -1,5 +1,11 @@
 // tree-manager.js
 
+// ----- API Configuration -----
+const API_BASE = (window.API_BASE
+  || localStorage.getItem('apiBase')
+  || 'https://inat-trees-worker.intrinsic3141.workers.dev'
+).replace(/\/+$/,'');
+
 // ----- Canonical rank mapping (fine rank -> band) -----
 const RANK_BAND = Object.freeze({
   // very high
@@ -1851,22 +1857,23 @@ _ensureMiniMap(treeId, svg) {
   }
 
   async _exportTreeFile(tree, format, ext) {
+    const url = `${API_BASE}/export?format=${encodeURIComponent(format)}`;
     const mode = tree.isComparison ? 'compare' : 'single';
-    const payload = tree.isComparison
-      ? { mode, username1: tree.username1, username2: tree.username2, taxonId: tree.taxonId }
-      : { mode, username: tree.username, taxonId: tree.taxonId };
+    const body = tree.isComparison
+      ? { mode, username1: tree.username1, username2: tree.username2, taxonId: Number(tree.taxonId) }
+      : { mode, username: tree.username, taxonId: Number(tree.taxonId) };
 
-    const r = await fetch(`/export?format=${encodeURIComponent(format)}`, {
+    const r = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: {
+        'content-type': 'application/json',
+        ...(window.authHeader ? { Authorization: window.authHeader } : {})
+      },
+      body: JSON.stringify(body)
     });
-    if (!r.ok) { alert('Export failed'); return; }
+    if (!r.ok) throw new Error(`export HTTP ${r.status}`);
     const blob = await r.blob();
-    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-    const base = this._fileSafeName(this._treeLabel(tree));
-    const name = `${base}_${format}_${stamp}.${ext}`;
-    this._downloadBlob(name, blob);
+    this._downloadBlob(`${this._fileSafeName(this._treeLabel(tree))}.${ext}`, blob);
   }
 
   async _exportPNG(tree, scale = 2) {
