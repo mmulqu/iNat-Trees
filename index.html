@@ -616,9 +616,6 @@
                   <label for="obsEnd" class="form-label mb-0 small">to</label>
                   <input type="date" class="form-control form-control-sm" id="obsEnd" placeholder="YYYY-MM-DD">
                 </div>
-                <div class="col-auto">
-                  <button id="btnPresetBioblitz" type="button" class="btn btn-outline-secondary btn-sm">Set Bioblitz</button>
-                </div>
               </div>
 
               <div class="toggle-container mb-4">
@@ -704,9 +701,6 @@
             <div class="col-auto">
               <label for="obsEndCompare" class="form-label mb-0 small">to</label>
               <input type="date" class="form-control form-control-sm" id="obsEndCompare" placeholder="YYYY-MM-DD">
-            </div>
-            <div class="col-auto">
-              <button id="btnPresetBioblitzCompare" type="button" class="btn btn-outline-secondary btn-sm">Set Bioblitz</button>
             </div>
           </div>
 
@@ -1374,24 +1368,6 @@
       };
     })();
 
-    // Bioblitz preset button functionality
-    document.getElementById('btnPresetBioblitz')?.addEventListener('click', function() {
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      document.getElementById('obsStart').value = yesterday.toISOString().split('T')[0];
-      document.getElementById('obsEnd').value = today.toISOString().split('T')[0];
-    });
-
-    document.getElementById('btnPresetBioblitzCompare')?.addEventListener('click', function() {
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      document.getElementById('obsStartCompare').value = yesterday.toISOString().split('T')[0];
-      document.getElementById('obsEndCompare').value = today.toISOString().split('T')[0];
-    });
 
     // Initialize everything properly when the page loads
     window.addEventListener('load', function() {
