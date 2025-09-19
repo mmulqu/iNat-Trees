@@ -2620,13 +2620,28 @@ const XML_ESC = (s) => String(s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 
-const STRIP_DECOR = (s) => String(s || '')
-  .replace(/\{color:[^}]+\}|\{\/color\}/gi,'')
-  .replace(/\{rank:[^}]+\}/gi,'')
-  .replace(/\s(?:[sif]?[A-Z]|[FGSOCPKD])\s*$/,'')
-  .replace(/\u{1F5BC}\u{FE0F}?/gu,'')
-  .replace(/\s+/g,' ')
-  .trim();
+function decodeEntities(s=''){
+  return String(s).replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, m => {
+    try {
+      if (m.startsWith('&#x')) return String.fromCodePoint(parseInt(m.slice(3, -1), 16));
+      if (m.startsWith('&#'))  return String.fromCodePoint(parseInt(m.slice(2, -1), 10));
+      const named = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:' ' };
+      const key = m.slice(1, -1).toLowerCase();
+      return named[key] ?? m;
+    } catch { return m; }
+  });
+}
+
+const STRIP_DECOR = (s) => {
+  let t = String(s || '');
+  t = t.replace(/\{color:[^}]+\}|\{\/color\}/gi,'')
+       .replace(/\{rank:[^}]+\}/gi,'')
+       .replace(/<[^>]+>/g,'');
+  t = decodeEntities(t);
+  t = t.replace(/\u{1F5BC}\u{FE0F}?/gu,'');
+  t = t.replace(/\s(?:[si]?[A-Z]|[FGSOCPKD])\s*$/i,'');
+  return t.replace(/\s+/g,' ').trim();
+};
 
 function buildAdj(nodes, edges) {
   const byId = new Map((nodes || []).map(n => [n.id, n]));
@@ -2645,28 +2660,33 @@ function buildAdj(nodes, edges) {
   return { byId, kids, roots };
 }
 
+function emitClade(id, byId, kids) {
+  const n = byId.get(id);
+  const label = XML_ESC(STRIP_DECOR(n?.name || ''));
+  const childIds = kids.get(id) || [];
+  const inner = childIds.map(cid => emitClade(cid, byId, kids)).join('');
+  return `<clade>${label ? `<name>${label}</name>` : ''}${inner}</clade>`;
+}
+
 function toPhyloXML(graph, title = 'iNat tree') {
   const { byId, kids, roots } = buildAdj(graph.nodes || [], graph.edges || []);
-  const syntheticRoot = { id: '__root__', name: title };
-  const rootsToUse = roots.length ? roots : ((graph.nodes && graph.nodes[0]) ? [graph.nodes[0].id] : []);
-  const rootChildren = rootsToUse;
-
-  const emitClade = (id) => {
-    const n = id === '__root__' ? syntheticRoot : byId.get(id);
-    const label = XML_ESC(STRIP_DECOR(n?.name || ''));
-    const children = id === '__root__' ? rootChildren : (kids.get(id) || []);
-    const inner = children.map(emitClade).join('');
-    return `<clade>${label ? `<name>${label}</name>` : ''}${inner}</clade>`;
-  };
+  let cladeXml;
+  if (roots.length === 1) {
+    cladeXml = emitClade(roots[0], byId, kids);
+  } else {
+    const baseRoots = roots.length ? roots : (graph.nodes || []).map(n => n.id);
+    const inner = baseRoots.map(r => emitClade(r, byId, kids)).join('');
+    cladeXml = `<clade>${inner}</clade>`;
+  }
 
   return (
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
-      `xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" ` +
-      `xmlns="http://www.phyloxml.org">` +
-      `<phylogeny rooted="true">` +
-        `<name>${XML_ESC(title)}</name>` +
-        emitClade('__root__') +
+    `<?xml version=\"1.0\" encoding=\"UTF-8\"?>` +
+    `<phyloxml xmlns:xsi=\"http://www.phyloxml.org/XMLSchema-instance\" ` +
+      `xsi:schemaLocation=\"http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd\" ` +
+      `xmlns=\"http://www.phyloxml.org\">` +
+      `<phylogeny rooted=\"true\">` +
+        `<name>${XML_ESC(STRIP_DECOR(title))}</name>` +
+        cladeXml +
       `</phylogeny>` +
     `</phyloxml>`
   );
