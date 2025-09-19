@@ -431,10 +431,10 @@ async function exportHandler(request, env) {
 
 function serializeNewickNHX(root) {
   if (!root) return '';
-  function q(name) {
-    const s = String(name || '');
+  const q = (raw) => {
+    const s = normalizeLabel(String(raw || ''));
     return /[()\[\],:;\s]/.test(s) ? `'${s.replace(/'/g, "''")}'` : s;
-  }
+  };
   function nhx(node = {}) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
     const parts = [];
@@ -465,7 +465,7 @@ function serializeNewickNHX(root) {
 }
 
 function serializePhyloXML(root = {}) {
-  function esc(s){ return String(s || '').replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); }
+  const esc = (s) => xmlEscape(normalizeLabel(s || ''));
   function clade(node = {}) {
     const url = node.id ? `https://www.inaturalist.org/taxa/${node.id}` : '';
     const parts = ['<clade>'];
@@ -475,7 +475,7 @@ function serializePhyloXML(root = {}) {
       if (node.id) parts.push(`<id provider="iNaturalist">${node.id}</id>`);
       if (node.name) parts.push(`<scientific_name>${esc(node.name)}</scientific_name>`);
       if (node.common_name) parts.push(`<common_name>${esc(node.common_name)}</common_name>`);
-      if (node.rank) parts.push(`<rank>${esc(String(node.rank).toLowerCase())}</rank>`);
+      if (node.rank) parts.push(`<rank>${xmlEscape(String(node.rank).toLowerCase())}</rank>`);
       parts.push('</taxonomy>');
     }
     if (url) parts.push(`<property applies_to="clade" datatype="xsd:anyURI" ref="inat:url">${esc(url)}</property>`);
@@ -540,15 +540,14 @@ function serializeNewickNHXFromGraph(nodes, edges) {
   const rootId = roots.values().next().value;
   if (!rootId) return '';
   
-  function q(name) {
-    const s = String(name || '');
+  const q = (raw) => {
+    const s = normalizeLabel(String(raw || ''));
     return /[()\[\],:;\s]/.test(s) ? `'${s.replace(/'/g, "''")}'` : s;
-  }
+  };
   
   function walk(nodeId) {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return '';
-    
     const label = q(node.name || '');
     const kids = children.get(nodeId) || [];
     
@@ -563,23 +562,12 @@ function serializeNewickNHXFromGraph(nodes, edges) {
 
 function serializePhyloXMLFromGraph(nodes, edges, title = 'root', isComparison = false) {
   if (!nodes || !edges) return '';
-  
-  function esc(s) { 
-    return String(s || '').replace(/[<&>"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); 
-  }
-  
+
+  const esc = (s) => xmlEscape(normalizeLabel(s || ''));
   const titleStr = isComparison ? `iNat PvP (taxon ${title})` : `iNat tree (taxon ${title})`;
-  
-  let xml = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" xmlns="http://www.phyloxml.org">',
-    `<phylogeny rooted="true"><name>${esc(titleStr)}</name>`
-  ];
-  
-  // Build adjacency list
+
   const children = new Map();
   const roots = new Set(nodes.map(n => n.id));
-  
   edges.forEach(edge => {
     const parent = edge.parent_id;
     const child = edge.child_id;
@@ -587,34 +575,28 @@ function serializePhyloXMLFromGraph(nodes, edges, title = 'root', isComparison =
     children.get(parent).push(child);
     roots.delete(child);
   });
-  
   const rootId = roots.values().next().value;
-  
-  function clade(nodeId) {
+
+  const emitClade = (nodeId) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return '<clade></clade>';
-    
     const parts = ['<clade>'];
     if (node.name) parts.push(`<name>${esc(node.name)}</name>`);
-    if (node.rank) {
-      parts.push('<taxonomy>');
-      parts.push(`<rank>${esc(node.rank)}</rank>`);
-      parts.push('</taxonomy>');
-    }
-    
+    if (node.rank) parts.push(`<taxonomy><rank>${xmlEscape(String(node.rank).toLowerCase())}</rank></taxonomy>`);
     const kids = children.get(nodeId) || [];
-    kids.forEach(childId => parts.push(clade(childId)));
-    
+    kids.forEach(childId => parts.push(emitClade(childId)));
     parts.push('</clade>');
     return parts.join('');
-  }
-  
-  if (rootId) {
-    xml.push(clade(rootId));
-  }
-  
-  xml.push('</phylogeny></phyloxml>');
-  return xml.join('');
+  };
+
+  const body = rootId ? emitClade(rootId) : '<clade/>';
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" xmlns="http://www.phyloxml.org">',
+    `<phylogeny rooted="true"><name>${esc(titleStr)}</name>`,
+    body,
+    '</phylogeny></phyloxml>'
+  ].join('');
 }
 
 function serializeNodesCSVFromGraph(nodes) {
@@ -2602,4 +2584,33 @@ function parseDateParam(v) {
   if (!v) return null;
   // Expect YYYY-MM-DD; basic guard
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+// ---- Label normalization helpers (single place) ----
+function htmlNumericDecodeOnce(s=''){
+  // turn &amp;#x....; -> &#x....; first, then decode numeric entities
+  s = String(s).replace(/&amp;#/gi, '&#');
+  s = s.replace(/&#x([0-9a-f]+);/gi, (_,hex)=> String.fromCodePoint(parseInt(hex,16)));
+  s = s.replace(/&#(\d+);/g, (_,dec)=> String.fromCodePoint(parseInt(dec,10)));
+  return s;
+}
+function stripEmojiBadgesRanks(s=''){
+  return String(s)
+    .replace(/\u{1F5BC}\u{FE0F}?/gu,'')                 // 🖼️
+    .replace(/\{rank:[^}]+\}/gi,'')                     // {rank:*}
+    .replace(/\s(?:[FGSOCPKD]|s[FGCODKP]|e[FG]|i[O])\s*$/i,'')  // trailing rank glyphs
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function normalizeLabel(s=''){
+  const dec = htmlNumericDecodeOnce(s);
+  return stripEmojiBadgesRanks(dec);
+}
+function xmlEscape(s=''){
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
 }

@@ -1934,6 +1934,8 @@ _ensureMiniMap(treeId, svg) {
         .replace(/\{rank:[^}]+\}/gi,'')
         .replace(/<[^>]+>/g,'')
         .replace(/\u{1F5BC}\u{FE0F}?/gu,'') // 🖼️
+        // drop trailing rank glyphs (e.g., " F", " sF", " SF", " iO", " eF", etc.)
+        .replace(/\s(?:[FGSOCPKD]|s[FGCODKP]|e[FG]|i[O])\s*$/i, '')
         .replace(/\s+/g,' ')
         .trim();
 
