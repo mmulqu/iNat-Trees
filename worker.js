@@ -385,7 +385,7 @@ async function exportHandler(request, env) {
       }
       case 'phyloxml': {
         const xml = nodes && edges 
-          ? serializePhyloXMLFromGraph(nodes, edges, body.taxonName || 'root', mode === 'compare')
+          ? toPhyloXML({ nodes, edges }, body.taxonName || 'iNat tree')
           : serializePhyloXML(tree) || '';
         const resp = new Response(xml, {
           headers: {
@@ -2613,4 +2613,61 @@ function xmlEscape(s=''){
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&apos;');
+}
+
+// ===== PhyloXML-safe helpers (bullet-proof) =====
+const XML_ESC = (s) => String(s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+
+const STRIP_DECOR = (s) => String(s || '')
+  .replace(/\{color:[^}]+\}|\{\/color\}/gi,'')
+  .replace(/\{rank:[^}]+\}/gi,'')
+  .replace(/\s(?:[sif]?[A-Z]|[FGSOCPKD])\s*$/,'')
+  .replace(/\u{1F5BC}\u{FE0F}?/gu,'')
+  .replace(/\s+/g,' ')
+  .trim();
+
+function buildAdj(nodes, edges) {
+  const byId = new Map((nodes || []).map(n => [n.id, n]));
+  const kids = new Map();
+  const seenAsChild = new Set();
+  for (const e of (edges || [])) {
+    if (!byId.has(e.parent_id) || !byId.has(e.child_id)) continue;
+    if (!kids.has(e.parent_id)) kids.set(e.parent_id, []);
+    kids.get(e.parent_id).push(e.child_id);
+    seenAsChild.add(e.child_id);
+  }
+  const roots = (nodes || []).map(n => n.id).filter(id => !seenAsChild.has(id));
+  for (const [p, arr] of kids) {
+    arr.sort((a,b) => (byId.get(a)?.name||'').localeCompare(byId.get(b)?.name||'', undefined, { sensitivity: 'base' }));
+  }
+  return { byId, kids, roots };
+}
+
+function toPhyloXML(graph, title = 'iNat tree') {
+  const { byId, kids, roots } = buildAdj(graph.nodes || [], graph.edges || []);
+  const syntheticRoot = { id: '__root__', name: title };
+  const rootsToUse = roots.length ? roots : ((graph.nodes && graph.nodes[0]) ? [graph.nodes[0].id] : []);
+  const rootChildren = rootsToUse;
+
+  const emitClade = (id) => {
+    const n = id === '__root__' ? syntheticRoot : byId.get(id);
+    const label = XML_ESC(STRIP_DECOR(n?.name || ''));
+    const children = id === '__root__' ? rootChildren : (kids.get(id) || []);
+    const inner = children.map(emitClade).join('');
+    return `<clade>${label ? `<name>${label}</name>` : ''}${inner}</clade>`;
+  };
+
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<phyloxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+      `xsi:schemaLocation="http://www.phyloxml.org http://www.phyloxml.org/1.10/phyloxml.xsd" ` +
+      `xmlns="http://www.phyloxml.org">` +
+      `<phylogeny rooted="true">` +
+        `<name>${XML_ESC(title)}</name>` +
+        emitClade('__root__') +
+      `</phylogeny>` +
+    `</phyloxml>`
+  );
 }
