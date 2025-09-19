@@ -1661,7 +1661,14 @@ _ensureMiniMap(treeId, svg) {
   _treeLabel(tree) {
     const who = tree.isComparison ? `${tree.username1}_vs_${tree.username2}` : (tree.username || 'user');
     const what = tree.taxonName || `Taxon_${tree.taxonId}`;
-    return `${who}-${what}`;
+    const dateBadge = this._currentDateWindowBadge(tree.filters?.observed_d1, tree.filters?.observed_d2);
+    return `${who}-${what}${dateBadge}`;
+  }
+
+  _currentDateWindowBadge(d1, d2) {
+    if (!d1 && !d2) return '';
+    const text = d1 && d2 ? `${d1} → ${d2}` : d1 ? `${d1} → …` : `… → ${d2}`;
+    return ` <span class="mm-badge mm-rank" title="Observed date window">${text}</span>`;
   }
 
   /** Get the top-level content group (Markmap uses a single <g> under the SVG root). */

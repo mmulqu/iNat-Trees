@@ -1,8 +1,15 @@
 // compare-users.js
 // (Note: TreeManager is defined only in tree-manager.js.)
 
+// Helper function to read observed dates for compare
+function readObservedDatesCompare() {
+  const d1 = (document.getElementById('obsStartCompare')?.value || '').trim();
+  const d2 = (document.getElementById('obsEndCompare')?.value   || '').trim();
+  return { d1, d2 };
+}
+
 // --- Public-mode browser fetch helper ---
-async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 }) {
+async function fetchUserObsMinimal({ username, taxonId, placeId, d1, d2, maxPages=100 }) {
   const per=200; let page=1, all=[];
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   while (page<=maxPages) {
@@ -10,6 +17,8 @@ async function fetchUserObsMinimal({ username, taxonId, placeId, maxPages=100 })
     u.searchParams.set('user_login', username);
     u.searchParams.set('taxon_id', String(taxonId));
     if (placeId) u.searchParams.set('place_id', String(placeId));
+    if (d1) u.searchParams.set('d1', d1);
+    if (d2) u.searchParams.set('d2', d2);
     u.searchParams.set('include','taxon');
     u.searchParams.set('quality_grade','any');
     u.searchParams.set('verifiable','any');
@@ -217,30 +226,37 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       const messageInterval = showCompareLoadingSpinner();
       try {
+        // Get date filters
+        const { d1, d2 } = readObservedDatesCompare();
+        
         let result;
         if (PUBLIC_MODE) {
           const [{ taxonIds: u1 }, { taxonIds: u2 }] = await Promise.all([
-            fetchUserObsMinimal({ username: username1, taxonId }),
-            fetchUserObsMinimal({ username: username2, taxonId })
+            fetchUserObsMinimal({ username: username1, taxonId, d1, d2 }),
+            fetchUserObsMinimal({ username: username2, taxonId, d1, d2 })
           ]);
           const r2 = await fetch(`${API_BASE}/compare-from-species`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               username1, username2, baseTaxonId: taxonId,
-              user1SpeciesIds: u1, user2SpeciesIds: u2
+              user1SpeciesIds: u1, user2SpeciesIds: u2, d1, d2
             })
           });
           result = await r2.json();
           if (!r2.ok) throw new Error(result?.error || 'compare-from-species failed');
         } else {
-          const response = await fetch(compareUsersUrl, {
+          const params = new URLSearchParams({ username1, username2, taxonId: taxonId.toString() });
+          if (d1) params.set('d1', d1);
+          if (d2) params.set('d2', d2);
+          
+          const response = await fetch(`${compareUsersUrl}?${params.toString()}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...getAuthHeaders()
             },
-            body: JSON.stringify({ username1, username2, taxonId })
+            body: JSON.stringify({})
           });
           result = await response.json();
           if (!response.ok) {

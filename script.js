@@ -19,7 +19,7 @@ const edgeFunctionUrl = `${API_BASE}/build-taxonomy`;
 window.API_BASE = API_BASE;
 
 // Browser-only species set via /observations/species_counts (no photos here)
-async function fetchUserSpeciesViaCounts({ username, taxonId, placeId, maxPages = 50 }) {
+async function fetchUserSpeciesViaCounts({ username, taxonId, placeId, d1, d2, maxPages = 50 }) {
   const per = 200;
   let page = 1;
   const species = new Set();
@@ -29,6 +29,8 @@ async function fetchUserSpeciesViaCounts({ username, taxonId, placeId, maxPages 
     u.searchParams.set('user_login', username);
     u.searchParams.set('taxon_id', String(taxonId));
     if (placeId) u.searchParams.set('place_id', String(placeId));
+    if (d1) u.searchParams.set('d1', d1);
+    if (d2) u.searchParams.set('d2', d2);
     u.searchParams.set('verifiable', 'any');
     u.searchParams.set('quality_grade', 'any');
     u.searchParams.set('include', 'taxon');
@@ -238,6 +240,13 @@ function showAutocompleteResults(results) {
   autocompleteContainer.style.display = "block";
 }
 
+// Helper function to read observed dates
+function readObservedDates() {
+  const d1 = (document.getElementById('obsStart')?.value || '').trim();
+  const d2 = (document.getElementById('obsEnd')?.value   || '').trim();
+  return { d1, d2 };
+}
+
 // Add this to script.js (ensure it's placed after the definitions of edgeFunctionUrl, etc.)
 document.getElementById("treeForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -259,26 +268,33 @@ document.getElementById("treeForm").addEventListener("submit", async (e) => {
   const messageInterval = showLoadingSpinner();
 
   try {
+    // Get date filters
+    const { d1, d2 } = readObservedDates();
+    
     // Public mode: fetch in browser → send IDs to Worker; else use /build-taxonomy
     let result;
     if (PUBLIC_MODE) {
-      const taxonIds = await fetchUserSpeciesViaCounts({ username, taxonId });
+      const taxonIds = await fetchUserSpeciesViaCounts({ username, taxonId, d1, d2 });
       const rankCounts = {}; // (optional: compute client-side if desired)
       const highWatermarkUpdatedAt = null;
       const r2 = await fetch(`${API_BASE}/tree-from-species`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send username so Worker can render photo chips
-        body: JSON.stringify({ speciesTaxonIds: taxonIds, baseTaxonId: taxonId, username })
+        // Send username and date filters so Worker can render photo chips and filter
+        body: JSON.stringify({ speciesTaxonIds: taxonIds, baseTaxonId: taxonId, username, d1, d2 })
       });
       const j2 = await r2.json();
       if (!r2.ok) throw new Error(j2?.error || 'tree-from-species failed');
       result = { markdown: j2.markdown, plainMarkdown: j2.plainMarkdown, speciesTaxonIds: taxonIds, rankCounts, highWatermarkUpdatedAt };
     } else {
-      const response = await fetch(edgeFunctionUrl, {
+      const params = new URLSearchParams({ username, taxonId: taxonId.toString() });
+      if (d1) params.set('d1', d1);
+      if (d2) params.set('d2', d2);
+      
+      const response = await fetch(`${edgeFunctionUrl}?${params.toString()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ username, taxonId, includePhotos: true })
+        body: JSON.stringify({ includePhotos: true })
       });
       result = await response.json();
       if (!response.ok) throw new Error(result?.error || 'build-taxonomy failed');

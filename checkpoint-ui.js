@@ -347,6 +347,15 @@ function selectTaxonGroup(group) {
     const btn = document.getElementById('requeryCompareBtn');
     const spn = document.getElementById('requerySpinner');
     btn.disabled = true; if (spn) spn.classList.remove('d-none');
+    
+    // Restore date filters from checkpoint if they exist
+    if (sel.filters) {
+      const obsStart = document.getElementById('obsStart');
+      const obsEnd = document.getElementById('obsEnd');
+      if (obsStart && sel.filters.observed_d1) obsStart.value = sel.filters.observed_d1;
+      if (obsEnd && sel.filters.observed_d2) obsEnd.value = sel.filters.observed_d2;
+    }
+    
     // For now, just refetch build-taxonomy to show current state
     const payload = {
       username: localStorage.getItem('inat_username') || '',
@@ -711,6 +720,10 @@ async function initCheckpointsUI() {
           speciesTaxonIds: payload.speciesTaxonIds || [],
           rankCounts:      payload.rankCounts || {},
           highWatermarkUpdatedAt: payload.highWatermarkUpdatedAt || null,
+          filters: {
+            observed_d1: document.getElementById('obsStart')?.value || null,
+            observed_d2: document.getElementById('obsEnd')?.value   || null
+          }
         })
       });
       if (!r.ok) {

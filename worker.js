@@ -1056,6 +1056,8 @@ async function fetchSpeciesIdsViaSpeciesCounts(env, username, baseTaxonId, authH
   const perPage = 200;
   const {
     placeId = null,
+    d1 = null,
+    d2 = null,
     maxPages = 30,
     delayBetweenPages = RATE_LIMIT_CONFIG.delayBetweenPages
   } = opts;
@@ -1067,6 +1069,8 @@ async function fetchSpeciesIdsViaSpeciesCounts(env, username, baseTaxonId, authH
     u.searchParams.set('user_login', username);
     u.searchParams.set('taxon_id', String(baseTaxonId));
     if (placeId) u.searchParams.set('place_id', String(placeId));
+    if (d1) u.searchParams.set('d1', d1);
+    if (d2) u.searchParams.set('d2', d2);
     u.searchParams.set('verifiable', 'any');
     u.searchParams.set('quality_grade', 'any');
     u.searchParams.set('include', 'taxon');
@@ -1199,6 +1203,11 @@ async function fetchFirstPhotosPerSpecies(env, username, speciesIds, authHeader,
 }
 
 async function compareTaxa(request, env) {
+  // Parse URL parameters for date filtering
+  const url = new URL(request.url);
+  const d1 = parseDateParam(url.searchParams.get('d1'));
+  const d2 = parseDateParam(url.searchParams.get('d2'));
+  
   const body = await request.json();
   const { username1, username2, taxonId } = body || {};
   if (!username1 || !username2 || !taxonId) return json({ error: 'Missing parameters: username1, username2, taxonId' }, 400, request);
@@ -1207,9 +1216,9 @@ async function compareTaxa(request, env) {
   const authHeader = jwt ? `Bearer ${jwt}` : undefined; // only send JWT to v1 API
   const key = authHeader || `${username1}:${username2}:${taxonId}`;
 
-  const user1TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username1, Number(taxonId), authHeader);
+  const user1TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username1, Number(taxonId), authHeader, { d1, d2 });
   await sleep(RATE_LIMIT_CONFIG.delayBetweenUsers);
-  const user2TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username2, Number(taxonId), authHeader);
+  const user2TaxonIds = await fetchSpeciesIdsViaSpeciesCounts(env, username2, Number(taxonId), authHeader, { d1, d2 });
   if (!user1TaxonIds.length && !user2TaxonIds.length) {
     return json({ markdown: `- No species found for either user under taxon ID ${taxonId}` }, 200, request);
   }
@@ -1224,6 +1233,11 @@ async function compareTaxa(request, env) {
 
 async function buildTaxonomy(request, env) {
   try {
+    // Parse URL parameters for date filtering
+    const url = new URL(request.url);
+    const d1 = parseDateParam(url.searchParams.get('d1'));
+    const d2 = parseDateParam(url.searchParams.get('d2'));
+    
     const body = await request.json();
     const { username, taxonId, includePhotos } = body || {};
     if (!username || !taxonId) return json({ error: 'Missing parameters: username, taxonId' }, 400, request);
@@ -1235,7 +1249,7 @@ async function buildTaxonomy(request, env) {
     const debugHeaders = { 'X-Auth-Received': String(hadAuthHeader), 'X-Auth-UsableJWT': String(!!jwt) };
 
     // 1) Distinct species via species_counts
-    const speciesIds = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader);
+    const speciesIds = await fetchSpeciesIdsViaSpeciesCounts(env, username, Number(taxonId), authHeader, { d1, d2 });
 
     if (!speciesIds.length) {
       return json({
@@ -2582,3 +2596,10 @@ async function timelineIngest(request, env) {
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+
+// Date parameter parsing and validation
+function parseDateParam(v) {
+  if (!v) return null;
+  // Expect YYYY-MM-DD; basic guard
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
