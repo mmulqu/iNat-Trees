@@ -226,15 +226,31 @@
       position: relative;
       z-index: 100;
     }
+
+    /* Date input styling */
+    input[type="date"] {
+      border: 2px solid var(--border-color);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    input[type="date"]:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 0.2rem rgba(63, 172, 140, 0.25);
+      outline: none;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.3s;
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
-  <button id="inatLogin" class="btn btn-success">
-    <img src="https://www.inaturalist.org/favicon.ico" style="width:18px;margin-right:6px">
-    Connect my iNaturalist account
-  </button>
-  <button id="inatLogout" class="btn btn-sm btn-link d-none">Disconnect</button>
-  <div id="authStatus"></div>
   <nav class="navbar navbar-expand-lg navbar-dark mb-4">
     <div class="container">
       <a class="navbar-brand" href="#">iNat Phylogenetic Tree Viewer</a>
@@ -254,6 +270,22 @@
                   <input type="text" id="username" name="username" required class="form-control" placeholder="Enter iNaturalist username">
                   <p class="info-text">Enter the username of the iNaturalist user whose observations you want to analyze.</p>
                 </div>
+              </div>
+
+              <!-- Date range filter -->
+              <div class="mb-4">
+                <label class="form-label">Filter by Observation Date (Optional)</label>
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-5">
+                    <label for="obsStart" class="form-label mb-1 small text-muted">From</label>
+                    <input type="date" class="form-control" id="obsStart" placeholder="YYYY-MM-DD">
+                  </div>
+                  <div class="col-md-5">
+                    <label for="obsEnd" class="form-label mb-1 small text-muted">To</label>
+                    <input type="date" class="form-control" id="obsEnd" placeholder="YYYY-MM-DD">
+                  </div>
+                </div>
+                <p class="info-text mt-2"><i class="bi bi-info-circle"></i> Select a date range to show only observations from that period in your tree.</p>
               </div>
 
               <div class="toggle-container mb-4">
@@ -332,6 +364,22 @@
               <div class="d-flex align-items-center mb-3">
                 <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #cc5de8; border-radius: 4px;"></div>
                 <p class="info-text mb-0">Shared observations (both users)</p>
+              </div>
+
+              <!-- Date range filter for Compare -->
+              <div class="mb-4">
+                <label class="form-label">Filter by Observation Date (Optional)</label>
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-5">
+                    <label for="obsStartCompare" class="form-label mb-1 small text-muted">From</label>
+                    <input type="date" class="form-control" id="obsStartCompare" placeholder="YYYY-MM-DD">
+                  </div>
+                  <div class="col-md-5">
+                    <label for="obsEndCompare" class="form-label mb-1 small text-muted">To</label>
+                    <input type="date" class="form-control" id="obsEndCompare" placeholder="YYYY-MM-DD">
+                  </div>
+                </div>
+                <p class="info-text mt-2"><i class="bi bi-info-circle"></i> Select a date range to show only observations from that period in your tree.</p>
               </div>
 
               <div class="toggle-container mb-4">
