@@ -1,6 +1,7 @@
 
 const CLIENT_ID = 'kNg0gso6U_16O7tkEJotSnmtcNE88dd_Xs-zb5SS8Pw'; //  your iNat app ID
-const REDIRECT_URI = `https://inat-trees.replit.app/auth/callback`;
+// Use current origin for redirect URI to work on any domain (GitHub Pages, localhost, etc.)
+const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 
 
 
