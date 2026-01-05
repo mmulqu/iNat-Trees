@@ -227,10 +227,31 @@
       z-index: 100;
     }
 
+    /* Date filter section styling */
+    .date-filter-section {
+      background-color: #f8faf9;
+      border: 1px solid #e1e8e5;
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      transition: border-color 0.3s;
+    }
+
+    .date-filter-section:hover {
+      border-color: #c4d4cc;
+    }
+
+    .date-filter-section .form-label:first-child {
+      font-weight: 600;
+      color: var(--secondary-color);
+      margin-bottom: 0.75rem;
+    }
+
     /* Date input styling */
     input[type="date"] {
       border: 2px solid var(--border-color);
       transition: border-color 0.3s, box-shadow 0.3s;
+      font-size: 0.95rem;
     }
 
     input[type="date"]:focus {
@@ -247,6 +268,88 @@
 
     input[type="date"]::-webkit-calendar-picker-indicator:hover {
       opacity: 1;
+    }
+
+    /* Enhanced button styling */
+    button.btn-primary {
+      font-size: 1rem;
+      padding: 12px 30px;
+      box-shadow: 0 2px 4px rgba(63, 172, 140, 0.2);
+      transition: all 0.3s ease;
+    }
+
+    button.btn-primary:hover {
+      box-shadow: 0 4px 8px rgba(63, 172, 140, 0.3);
+      transform: translateY(-1px);
+    }
+
+    button.btn-primary:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 2px rgba(63, 172, 140, 0.2);
+    }
+
+    /* Improved color indicators */
+    .color-indicator {
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      border: 2px solid white;
+    }
+
+    .user-legend {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem;
+      border-radius: 6px;
+      background-color: #f8faf9;
+      margin-bottom: 0.5rem;
+      transition: background-color 0.2s;
+    }
+
+    .user-legend:hover {
+      background-color: #eef3f0;
+    }
+
+    /* Better section headers */
+    .form-section-header {
+      font-weight: 600;
+      color: var(--secondary-color);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #e1e8e5;
+    }
+
+    /* Improved helpful tips */
+    .helpful-tips {
+      background: linear-gradient(135deg, #e9f7f2 0%, #f0faf5 100%);
+      border-left: 4px solid var(--primary-color);
+      padding: 1.25rem;
+      margin: 1.5rem 0;
+      border-radius: 0 8px 8px 0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .helpful-tips h5 {
+      color: var(--secondary-color);
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    /* Better focus states for accessibility */
+    input:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+      outline: 3px solid rgba(63, 172, 140, 0.5);
+      outline-offset: 2px;
+    }
+
+    /* Responsive date inputs */
+    @media (max-width: 768px) {
+      .date-filter-section .row.g-3 {
+        gap: 0.5rem !important;
+      }
+
+      .date-filter-section .col-md-5 {
+        width: 100%;
+      }
     }
   </style>
 </head>
@@ -273,7 +376,7 @@
               </div>
 
               <!-- Date range filter -->
-              <div class="mb-4">
+              <div class="date-filter-section">
                 <label class="form-label">Filter by Observation Date (Optional)</label>
                 <div class="row g-3 align-items-end">
                   <div class="col-md-5">
@@ -346,7 +449,7 @@
                 <div class="col-md-6">
                   <label for="username1" class="form-label">First iNaturalist Username:</label>
                   <input type="text" id="username1" name="username1" required class="form-control" placeholder="Enter first username">
-                  <div class="d-flex align-items-center mt-1">
+                  <div class="user-legend mt-2">
                     <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #ff6b6b; border-radius: 4px;"></div>
                     <p class="info-text mb-0">User 1's unique observations</p>
                   </div>
@@ -354,20 +457,20 @@
                 <div class="col-md-6">
                   <label for="username2" class="form-label">Second iNaturalist Username:</label>
                   <input type="text" id="username2" name="username2" required class="form-control" placeholder="Enter second username">
-                  <div class="d-flex align-items-center mt-1">
+                  <div class="user-legend mt-2">
                     <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #4dabf7; border-radius: 4px;"></div>
                     <p class="info-text mb-0">User 2's unique observations</p>
                   </div>
                 </div>
               </div>
 
-              <div class="d-flex align-items-center mb-3">
+              <div class="user-legend mb-3">
                 <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: #cc5de8; border-radius: 4px;"></div>
                 <p class="info-text mb-0">Shared observations (both users)</p>
               </div>
 
               <!-- Date range filter for Compare -->
-              <div class="mb-4">
+              <div class="date-filter-section">
                 <label class="form-label">Filter by Observation Date (Optional)</label>
                 <div class="row g-3 align-items-end">
                   <div class="col-md-5">
